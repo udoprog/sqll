@@ -5,7 +5,7 @@ authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.87"
 description = "Low-level interface to the SQLite database"
 documentation = "https://docs.rs/sqlite-ll"
 readme = "README.md"
@@ -16,19 +16,19 @@ keywords = ["database"]
 categories = ["api-bindings", "database"]
 
 [features]
-default = ["linkage"]
+default = ["alloc", "linkage"]
+std = ["alloc"]
+alloc = []
 linkage = ["sqlite3-sys/linkage"]
 
-[dependencies]
-libc = "0.2.141"
-
 [dependencies.sqlite3-sys]
-version = "0.14.0"
+version = "0.18.0"
 default-features = false
 
 [dev-dependencies]
-criterion = "0.4.0"
-temporary = "0.6.4"
+anyhow = "1.0.100"
+criterion = "0.8.0"
+tempfile = "3.24.0"
 
 [[bench]]
 name = "statement_benches"

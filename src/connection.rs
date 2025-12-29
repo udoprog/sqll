@@ -1,12 +1,19 @@
-use std::mem::MaybeUninit;
+use core::ffi::CStr;
+use core::ffi::{c_char, c_int, c_void};
+use core::mem::MaybeUninit;
+use core::ptr;
+use core::ptr::NonNull;
+
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+
+#[cfg(feature = "std")]
 use std::path::Path;
-use std::ptr;
-use std::ptr::NonNull;
 
 use crate::error::{Error, Result};
 use crate::statement::Statement;
-use crate::utils;
-use libc::{c_char, c_int, c_void};
+use crate::utils::{self, sqlite3_try};
+
 use sqlite3_sys as ffi;
 
 /// A SQLite database connection.
@@ -20,19 +27,19 @@ unsafe impl Send for Connection {}
 
 impl Connection {
     /// Open a read-write connection to a new or existing database.
-    pub fn open<T>(path: T) -> Result<Connection>
-    where
-        T: AsRef<Path>,
-    {
+    #[cfg(feature = "std")]
+    pub fn open(path: impl AsRef<Path>) -> Result<Connection> {
         OpenOptions::new().set_create().set_read_write().open(path)
+    }
+
+    /// Open an in-memory database.
+    pub fn memory() -> Result<Connection> {
+        OpenOptions::new().set_create().set_read_write().memory()
     }
 
     /// Execute a statement without processing the resulting rows if any.
     #[inline]
-    pub fn execute<T>(&self, statement: T) -> Result<()>
-    where
-        T: AsRef<str>,
-    {
+    pub fn execute(&self, statement: impl AsRef<str>) -> Result<()> {
         unsafe {
             sqlite3_try! {
                 self.raw.as_ptr(),
@@ -55,10 +62,9 @@ impl Connection {
     /// no more rows will be processed. For large queries and non-string data
     /// types, prepared statement are highly preferable; see `prepare`.
     #[inline]
-    pub fn iterate<T, F>(&self, statement: T, mut callback: F) -> Result<()>
+    pub fn iterate<F>(&self, statement: impl AsRef<str>, mut callback: F) -> Result<()>
     where
         F: FnMut(&[(&str, Option<&str>)]) -> bool,
-        T: AsRef<str>,
     {
         unsafe {
             sqlite3_try! {
@@ -81,10 +87,7 @@ impl Connection {
     /// The database connection will be kept open for the lifetime of this
     /// statement.
     #[inline]
-    pub fn prepare<T>(&self, statement: T) -> Result<Statement>
-    where
-        T: AsRef<str>,
-    {
+    pub fn prepare(&self, statement: impl AsRef<str>) -> Result<Statement> {
         Statement::new(self.raw.as_ptr(), statement)
     }
 
@@ -174,6 +177,7 @@ impl Drop for Connection {
     #[allow(unused_must_use)]
     fn drop(&mut self) {
         self.remove_busy_handler();
+
         // Will close the connection unconditionally. The database will stay
         // alive until all associated prepared statements have been closed since
         // we're using v2.
@@ -199,29 +203,27 @@ impl OpenOptions {
     ///
     /// `path` can be a filesystem path, or `:memory:` to construct an in-memory
     /// database.
-    pub fn open<T>(&self, path: T) -> Result<Connection>
-    where
-        T: AsRef<Path>,
-    {
+    #[cfg(feature = "std")]
+    pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
+        let path = crate::utils::path_to_cstring(path.as_ref())?;
+        self._open(&path)
+    }
+
+    /// Open an in-memory database connection with current flags.
+    pub fn memory(&self) -> Result<Connection> {
+        self._open(c":memory:")
+    }
+
+    fn _open(&self, path: &CStr) -> Result<Connection> {
         unsafe {
             let mut raw = MaybeUninit::uninit();
-
-            let code = ffi::sqlite3_open_v2(
-                utils::path_to_cstring(path.as_ref())?.as_ptr(),
-                raw.as_mut_ptr(),
-                self.raw,
-                ptr::null(),
-            );
-
+            let code = ffi::sqlite3_open_v2(path.as_ptr(), raw.as_mut_ptr(), self.raw, ptr::null());
             let raw = raw.assume_init();
 
-            match code {
-                ffi::SQLITE_OK => {}
-                _ => {
-                    let code = ffi::sqlite3_errcode(raw);
-                    ffi::sqlite3_close(raw);
-                    return Err(Error::from_code(code));
-                }
+            if code != ffi::SQLITE_OK {
+                let code = ffi::sqlite3_errcode(raw);
+                ffi::sqlite3_close(raw);
+                return Err(Error::new(code));
             }
 
             Ok(Connection {

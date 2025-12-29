@@ -1,21 +1,17 @@
-use core::mem::{transmute, MaybeUninit};
+use core::ffi::{c_char, c_double, c_int};
+use core::mem::MaybeUninit;
 use core::ptr;
+use core::slice;
 
-use libc::{c_char, c_double, c_int};
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use sqlite3_sys as ffi;
 
+use crate::bytes;
 use crate::error::{Error, Result};
-use crate::utils;
-use crate::value::{Type, Value};
-
-// https://sqlite.org/c3ref/c_static.html
-macro_rules! transient(
-    () => {
-        transmute::<*const libc::c_void, Option<ffi::sqlite3_callback>>(
-            !0 as *const libc::c_void
-        )
-    };
-);
+use crate::utils::{self, sqlite3_try};
+use crate::value::{Kind, Type, Value};
 
 /// A prepared statement.
 #[repr(transparent)]
@@ -28,6 +24,7 @@ unsafe impl Send for Statement {}
 
 /// A state of a prepared statement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum State {
     /// There is a row available for reading.
     Row,
@@ -54,10 +51,7 @@ pub trait Readable: Sized {
 impl Statement {
     /// Construct a new statement.
     #[inline]
-    pub(crate) fn new<T>(handle: *mut ffi::sqlite3, statement: T) -> Result<Statement>
-    where
-        T: AsRef<str>,
-    {
+    pub(crate) fn new(handle: *mut ffi::sqlite3, statement: impl AsRef<str>) -> Result<Statement> {
         let mut raw = MaybeUninit::uninit();
         let statement = statement.as_ref();
 
@@ -103,7 +97,7 @@ impl Statement {
             self.bind(i, value)?;
             Ok(())
         } else {
-            Err(Error::from_code(ffi::SQLITE_MISMATCH))
+            Err(Error::new(ffi::SQLITE_MISMATCH))
         }
     }
 
@@ -125,7 +119,7 @@ impl Statement {
             if pointer.is_null() {
                 let handle = ffi::sqlite3_db_handle(self.raw.as_ptr());
                 let code = ffi::sqlite3_errcode(handle);
-                return Err(Error::from_code(code));
+                return Err(Error::new(code));
             }
 
             utils::cstr_to_str(pointer)
@@ -168,7 +162,7 @@ impl Statement {
                 _ => {
                     let handle = ffi::sqlite3_db_handle(self.raw.as_ptr());
                     let code = ffi::sqlite3_errcode(handle);
-                    Err(Error::from_code(code))
+                    Err(Error::new(code))
                 }
             }
         }
@@ -227,12 +221,12 @@ impl Drop for Statement {
 
 impl Bindable for &Value {
     fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
-        match self {
-            Value::Blob(value) => value.as_slice().bind(statement, i),
-            Value::Float(value) => value.bind(statement, i),
-            Value::Integer(value) => value.bind(statement, i),
-            Value::Text(value) => value.as_str().bind(statement, i),
-            Value::Null => ().bind(statement, i),
+        match &self.kind {
+            Kind::Blob(value) => value.as_slice().bind(statement, i),
+            Kind::Float(value) => value.bind(statement, i),
+            Kind::Integer(value) => value.bind(statement, i),
+            Kind::Text(value) => value.as_str().bind(statement, i),
+            Kind::Null => ().bind(statement, i),
         }
     }
 }
@@ -241,6 +235,7 @@ impl Bindable for &[u8] {
     #[inline]
     fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
+        let (data, dealloc) = bytes::alloc(self)?;
 
         unsafe {
             sqlite3_try! {
@@ -248,9 +243,9 @@ impl Bindable for &[u8] {
                 ffi::sqlite3_bind_blob(
                     statement.raw.as_ptr(),
                     i as c_int,
-                    self.as_ptr() as *const _,
+                    data,
                     self.len() as c_int,
-                    transient!(),
+                    dealloc,
                 )
             };
         }
@@ -303,6 +298,7 @@ impl Bindable for &str {
     #[inline]
     fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
+        let (data, dealloc) = bytes::alloc(self.as_bytes())?;
 
         unsafe {
             sqlite3_try! {
@@ -310,9 +306,9 @@ impl Bindable for &str {
                 ffi::sqlite3_bind_text(
                     statement.raw.as_ptr(),
                     i as c_int,
-                    self.as_ptr() as *const _,
+                    data.cast(),
                     self.len() as c_int,
-                    transient!(),
+                    dealloc,
                 )
             };
         }
@@ -354,11 +350,11 @@ where
 impl Readable for Value {
     fn read(statement: &Statement, i: usize) -> Result<Self> {
         Ok(match statement.column_type(i) {
-            Type::Blob => Value::Blob(Readable::read(statement, i)?),
-            Type::Float => Value::Float(Readable::read(statement, i)?),
-            Type::Integer => Value::Integer(Readable::read(statement, i)?),
-            Type::Text => Value::Text(Readable::read(statement, i)?),
-            Type::Null => Value::Null,
+            Type::Blob => Value::blob(Readable::read(statement, i)?),
+            Type::Text => Value::text(Readable::read(statement, i)?),
+            Type::Float => Value::float(Readable::read(statement, i)?),
+            Type::Integer => Value::integer(Readable::read(statement, i)?),
+            Type::Null => Value::null(),
         })
     }
 }
@@ -384,10 +380,10 @@ impl Readable for String {
             let pointer = ffi::sqlite3_column_text(statement.raw.as_ptr(), i as c_int);
 
             if pointer.is_null() {
-                return Err(Error::from_code(ffi::SQLITE_MISMATCH));
+                return Err(Error::new(ffi::SQLITE_MISMATCH));
             }
 
-            Ok(utils::cstr_to_str(pointer as *const c_char)?.to_owned())
+            Ok(String::from(utils::cstr_to_str(pointer as *const c_char)?))
         }
     }
 }
@@ -397,9 +393,11 @@ impl Readable for Vec<u8> {
     fn read(statement: &Statement, i: usize) -> Result<Self> {
         unsafe {
             let pointer = ffi::sqlite3_column_blob(statement.raw.as_ptr(), i as c_int);
+
             if pointer.is_null() {
-                return Ok(vec![]);
+                return Ok(Vec::new());
             }
+
             let count = ffi::sqlite3_column_bytes(statement.raw.as_ptr(), i as c_int) as usize;
             let mut buffer = Vec::with_capacity(count);
             ptr::copy_nonoverlapping(pointer as *const u8, buffer.as_mut_ptr(), count);
@@ -480,7 +478,7 @@ impl<const N: usize> FixedBytes<N> {
 
         // SAFETY: We've asserted that `initialized` accounts for the number of
         // bytes that have been initialized.
-        unsafe { std::slice::from_raw_parts(self.data.as_ptr() as *const u8, self.init) }
+        unsafe { slice::from_raw_parts(self.data.as_ptr() as *const u8, self.init) }
     }
 }
 

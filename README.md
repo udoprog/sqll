@@ -35,7 +35,9 @@ related to stays alive for the duration of the prepared statement.
 Open a connection, create a table, and insert some rows:
 
 ```rust
-let c = sqlite_ll::Connection::open(":memory:")?;
+use sqlite_ll::Connection;
+
+let c = Connection::memory()?;
 
 c.execute(
     "
@@ -64,16 +66,16 @@ re-use.
 
 ```rust
 use sqlite_ll::State;
-let mut statement = connection.prepare("SELECT * FROM users WHERE age > ?")?;
+let mut stmt = connection.prepare("SELECT * FROM users WHERE age > ?")?;
 
 let mut results = Vec::new();
 
 for age in [40, 50] {
-    statement.reset()?;
-    statement.bind(1, age)?;
+    stmt.reset()?;
+    stmt.bind(1, age)?;
 
-    while let State::Row = statement.step()? {
-        results.push((statement.read::<String>(0)?, statement.read::<i64>(1)?));
+    while let State::Row = stmt.step()? {
+        results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
     }
 }
 

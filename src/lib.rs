@@ -32,7 +32,9 @@
 //! Open a connection, create a table, and insert some rows:
 //!
 //! ```
-//! let c = sqlite_ll::Connection::open(":memory:")?;
+//! use sqlite_ll::Connection;
+//!
+//! let c = Connection::memory()?;
 //!
 //! c.execute(
 //!     "
@@ -47,7 +49,8 @@
 //! Select some rows and process them one by one as plain text:
 //!
 //! ```
-//! # let c = sqlite_ll::Connection::open(":memory:")?;
+//! # use sqlite_ll::Connection;
+//! # let c = Connection::memory()?;
 //! # c.execute(
 //! #     "
 //! #     CREATE TABLE users (name TEXT, age INTEGER);
@@ -71,7 +74,8 @@
 //!
 //! ```
 //! use sqlite_ll::State;
-//! # let connection = sqlite_ll::Connection::open(":memory:")?;
+//! # use sqlite_ll::Connection;
+//! # let connection = Connection::memory()?;
 //! # connection.execute(
 //! #     "
 //! #     CREATE TABLE users (name TEXT, age INTEGER);
@@ -79,16 +83,16 @@
 //! #     INSERT INTO users VALUES ('Bob', 69);
 //! #     ",
 //! # )?;
-//! let mut statement = connection.prepare("SELECT * FROM users WHERE age > ?")?;
+//! let mut stmt = connection.prepare("SELECT * FROM users WHERE age > ?")?;
 //!
 //! let mut results = Vec::new();
 //!
 //! for age in [40, 50] {
-//!     statement.reset()?;
-//!     statement.bind(1, age)?;
+//!     stmt.reset()?;
+//!     stmt.bind(1, age)?;
 //!
-//!     while let State::Row = statement.step()? {
-//!         results.push((statement.read::<String>(0)?, statement.read::<i64>(1)?));
+//!     while let State::Row = stmt.step()? {
+//!         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
 //!     }
 //! }
 //!
@@ -105,11 +109,22 @@
 //! [sqlite crate]: https://github.com/stainless-steel/sqlite
 //! [SQLite]: https://www.sqlite.org
 
-#[macro_use]
-mod utils;
+#![no_std]
+
+#[cfg(feature = "std")]
+extern crate std;
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(not(feature = "alloc"))]
+compile_error!("The `alloc` feature must be enabled to use this crate.");
+
+mod bytes;
 mod connection;
 mod error;
 mod statement;
+mod utils;
 mod value;
 
 pub use self::connection::{Connection, OpenOptions};

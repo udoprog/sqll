@@ -1,10 +1,9 @@
-use std::error;
-use std::fmt;
-
-use libc::c_int;
+use core::error;
+use core::ffi::{c_int, CStr};
+use core::fmt;
 
 /// A result type.
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Error code.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -98,24 +97,23 @@ impl Code {
 }
 
 impl Code {
+    /// Return the numeric representation of the error code.
+    #[inline]
     fn number(self) -> c_int {
         self.0
     }
 
-    fn string(self) -> Option<&'static str> {
-        unsafe {
-            let m = sqlite3_sys::sqlite3_errstr(self.0);
-            crate::utils::cstr_to_str(m).ok()
-        }
+    /// Return the string representation of the error code.
+    #[inline]
+    fn message(self) -> &'static CStr {
+        unsafe { CStr::from_ptr(sqlite3_sys::sqlite3_errstr(self.0)) }
     }
 }
 
 impl fmt::Debug for Code {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Code")
-            .field("code", &self.0)
-            .field("string", &self.string())
-            .finish()
+        self.0.fmt(f)
     }
 }
 
@@ -123,71 +121,41 @@ impl fmt::Debug for Code {
 pub struct Error {
     /// Error code.
     code: Code,
-    /// Message.
-    message: Option<Box<str>>,
 }
 
 impl Error {
-    /// Construct a custom error.
-    pub fn custom<E>(error: E) -> Self
-    where
-        E: fmt::Display,
-    {
-        Self {
-            code: Code::ERROR,
-            message: Some(error.to_string().into()),
-        }
-    }
-
     /// Construct a new error with the specified message.
-    pub(crate) fn new(code: c_int, message: Option<Box<str>>) -> Self {
-        Self {
-            code: Code(code),
-            message,
-        }
+    pub(crate) fn new(code: c_int) -> Self {
+        Self { code: Code(code) }
     }
 
-    /// Construct from a code.
-    pub(crate) fn from_code(code: c_int) -> Self {
-        Self {
-            code: Code(code),
-            message: None,
-        }
-    }
-
-    /// Error code.
+    /// The error code that caused this error.
     pub fn code(&self) -> Code {
         self.code
-    }
-
-    /// Construct a mismatch error.
-    pub fn mismatch() -> Self {
-        Self {
-            code: Code(sqlite3_sys::SQLITE_MISMATCH),
-            message: None,
-        }
     }
 }
 
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Error")
-            .field("code", &self.code)
-            .field("message", &self.message)
-            .finish()
+        let mut st = f.debug_struct("Error");
+        st.field("code", &self.code);
+
+        if let Ok(message) = self.code.message().to_str() {
+            st.field("message", &message);
+        }
+
+        st.finish()
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "sqlite3 error (code {})", self.code.number())?;
+        write!(f, "sqlite3 error {}", self.code.number())?;
 
-        if let Some(string) = self.code.string() {
+        if let Ok(string) = self.code.message().to_str() {
             write!(f, ": {string}")?;
-        }
-
-        if let Some(message) = &self.message {
-            write!(f, ": {message}")?;
+        } else {
+            write!(f, ": no message")?;
         }
 
         Ok(())

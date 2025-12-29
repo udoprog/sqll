@@ -1,6 +1,10 @@
+#![cfg(not(miri))]
+
+use std::path::Path;
+use std::thread;
+
+use anyhow::{Context, Result};
 use sqlite_ll::{Code, Connection, OpenOptions, State, Type, Value};
-use std::{path::Path, thread};
-use temporary::Directory;
 
 // Test cases copied from https://github.com/stainless-steel/sqlite under the
 // MIT license.
@@ -58,9 +62,9 @@ fn connection_iterate() -> sqlite_ll::Result<()> {
 }
 
 #[test]
-fn connection_open_with_flags() -> Result<(), Box<dyn std::error::Error>> {
-    let directory = Directory::new("sqlite")?;
-    let path = directory.path().join("database.sqlite3");
+fn connection_open_with_flags() -> Result<()> {
+    let dir = tempfile::tempdir().context("tempdir")?;
+    let path = dir.path().join("database.sqlite3");
 
     setup_users(&path)?;
 
@@ -75,14 +79,16 @@ fn connection_open_with_flags() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn connection_set_busy_handler() -> Result<(), Box<dyn std::error::Error>> {
-    let directory = Directory::new("sqlite")?;
-    let path = directory.path().join("database.sqlite3");
+fn connection_set_busy_handler() -> Result<()> {
+    let dir = tempfile::tempdir().context("tempdir")?;
+    let path = dir.path().join("database.sqlite3");
+
     setup_users(&path)?;
 
     let guards = (0..100)
         .map(|_| {
             let path = path.to_path_buf();
+
             thread::spawn(move || {
                 let mut connection = Connection::open(path)?;
                 connection.set_busy_handler(|_| true)?;
@@ -181,7 +187,7 @@ fn statement_column_name() -> sqlite_ll::Result<()> {
     let s = connection.prepare(s)?;
 
     let names = s.column_names()?;
-    assert_eq!(names, vec!["id", "name", "age", "user_photo"]);
+    assert_eq!(names, ["id", "name", "age", "user_photo"]);
     assert_eq!("user_photo", s.column_name(3)?);
     Ok(())
 }
@@ -235,8 +241,8 @@ fn statement_read() -> sqlite_ll::Result<()> {
     assert_eq!(s.read::<i64>(0)?, 1);
     assert_eq!(s.read::<String>(1)?, String::from("Alice"));
     assert_eq!(s.read::<f64>(2)?, 42.69);
-    assert_eq!(s.read::<Vec<u8>>(3)?, vec![0x42, 0x69]);
-    assert_eq!(s.read::<Value>(4)?, Value::Null);
+    assert_eq!(s.read::<Vec<u8>>(3)?, [0x42, 0x69]);
+    assert_eq!(s.read::<Value>(4)?, Value::null());
     assert_eq!(s.step()?, State::Done);
     Ok(())
 }
@@ -296,15 +302,12 @@ fn test_dropped_connection() -> sqlite_ll::Result<()> {
     drop(c);
 
     let names = s.column_names()?;
-    assert_eq!(names, vec!["id", "name", "age", "user_photo"]);
+    assert_eq!(names, ["id", "name", "age", "user_photo"]);
     assert_eq!("user_photo", s.column_name(3)?);
     Ok(())
 }
 
-fn setup_english<T>(path: T) -> sqlite_ll::Result<Connection>
-where
-    T: AsRef<Path>,
-{
+fn setup_english(path: impl AsRef<Path>) -> sqlite_ll::Result<Connection> {
     let c = Connection::open(path)?;
     c.execute(
         "
@@ -321,10 +324,7 @@ where
     Ok(c)
 }
 
-fn setup_users<T>(path: T) -> sqlite_ll::Result<Connection>
-where
-    T: AsRef<Path>,
-{
+fn setup_users(path: impl AsRef<Path>) -> sqlite_ll::Result<Connection> {
     let c = Connection::open(path)?;
     c.execute(
         "
