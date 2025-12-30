@@ -41,7 +41,7 @@ Open an in-memory connection, create a table, and insert some rows:
 ```rust
 use sqlite_ll::Connection;
 
-let c = Connection::memory()?;
+let c = Connection::open_memory()?;
 
 c.execute(
     r#"

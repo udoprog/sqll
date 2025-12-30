@@ -47,7 +47,7 @@ fn connection_open_with_flags() -> Result<()> {
 
     setup_users(&path)?;
 
-    let flags = OpenOptions::new().set_read_only();
+    let flags = OpenOptions::new().read_only();
     let c = flags.open(path)?;
     let e = c
         .execute("INSERT INTO users VALUES (2, 'Bob', NULL, NULL, NULL)")

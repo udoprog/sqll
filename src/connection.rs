@@ -77,7 +77,7 @@ impl BitOr for Prepare {
 /// ```
 /// use sqlite_ll::Connection;
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute("CREATE TABLE test (id INTEGER);")?;
 /// # Ok::<_, sqlite_ll::Error>(())
 /// ```
@@ -98,13 +98,16 @@ impl Connection {
     /// allocating for regular paths, you can use [`open_c_str`], however you
     /// are responsible for ensuring the c-string is a valid path.
     ///
+    /// This is the same as calling
+    /// `OpenOptions::new().read_write().create().open(path)`.
+    ///
     /// [`memory`]: Self::memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
     #[inline]
     pub fn open(path: impl AsRef<Path>) -> Result<Connection> {
-        OpenOptions::new().set_create().set_read_write().open(path)
+        OpenOptions::new().read_write().create().open(path)
     }
 
     /// Open a database connection with a raw c-string.
@@ -112,18 +115,21 @@ impl Connection {
     /// This can be used to open in-memory databases by passing `c":memory:"` or
     /// a regular open call with a filesystem path like
     /// `c"/path/to/database.sql"`.
+    ///
+    /// This is the same as calling
+    /// `OpenOptions::new().read_write().create().open_c_str(name)`.
     #[inline]
     pub fn open_c_str(name: &CStr) -> Result<Connection> {
-        OpenOptions::new()
-            .set_create()
-            .set_read_write()
-            .open_c_str(name)
+        OpenOptions::new().read_write().create().open_c_str(name)
     }
 
     /// Open an in-memory database.
+    ///
+    /// This is the same as calling
+    /// `OpenOptions::new().read_write().create().open_memory()`.
     #[inline]
-    pub fn memory() -> Result<Connection> {
-        OpenOptions::new().set_create().set_read_write().memory()
+    pub fn open_memory() -> Result<Connection> {
+        OpenOptions::new().read_write().create().open_memory()
     }
 
     /// Execute a statement without processing the resulting rows if any.
@@ -190,7 +196,7 @@ impl Connection {
     /// ```
     /// use sqlite_ll::{Connection, Code};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// let e = c.prepare(
     ///     "
@@ -210,7 +216,7 @@ impl Connection {
     /// ```
     /// use sqlite_ll::{Connection, State, Prepare};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE test (id INTEGER);")?;
     ///
     /// let mut insert_stmt = c.prepare("INSERT INTO test (id) VALUES (?);")?;
@@ -251,7 +257,7 @@ impl Connection {
     /// ```
     /// use sqlite_ll::{Connection, Code, Prepare};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// let e = c.prepare_with(
     ///     "
@@ -271,7 +277,7 @@ impl Connection {
     /// ```
     /// use sqlite_ll::{Connection, State, Prepare};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE test (id INTEGER);")?;
     ///
     /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?);", Prepare::PERSISTENT)?;
@@ -417,7 +423,17 @@ impl Drop for Connection {
 }
 
 /// Options that can be used to customize the opening of a SQLite database.
-#[derive(Default, Clone, Copy, Debug)]
+///
+/// By default the database is opened in multi-threaded mode with the
+/// [`SQLITE_OPEN_NOMUTEX`] set to ensure that [`Statement`] objects can be used
+/// separately from the connection that constructed them.
+///
+/// To avoid this overhead in case you know how the statements will be used, you
+/// can unset this by calling [`unset_no_mutex`].
+///
+/// [`unset_no_mutex`]: Self::unset_no_mutex
+/// [`SQLITE_OPEN_NOMUTEX`]: https://sqlite.org/c3ref/open.html
+#[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
     raw: c_int,
 }
@@ -426,7 +442,140 @@ impl OpenOptions {
     /// Create flags for opening a database connection.
     #[inline]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            raw: ffi::SQLITE_OPEN_NOMUTEX,
+        }
+    }
+
+    /// The database is opened in read-only mode. If the database does not
+    /// already exist, an error is returned.
+    #[inline]
+    pub fn read_only(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_READONLY;
+        self
+    }
+
+    /// The database is opened for reading and writing if possible, or reading
+    /// only if the file is write protected by the operating system. In either
+    /// case the database must already exist, otherwise an error is returned.
+    /// For historical reasons, if opening in read-write mode fails due to
+    /// OS-level permissions, an attempt is made to open it in read-only mode.
+    /// sqlite3_db_readonly() can be used to determine whether the database is
+    /// actually read-write.
+    #[inline]
+    pub fn read_write(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_READWRITE;
+        self
+    }
+
+    /// The database is opened for reading and writing, and is created if it
+    /// does not already exist.
+    ///
+    /// Note that a mode option like [`read_write`] must be set, otherwise this
+    /// will cause an error when opening.
+    ///
+    /// [`read_write`]: Self::read_write
+    #[inline]
+    pub fn create(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_CREATE;
+        self
+    }
+
+    /// The filename can be interpreted as a URI if this flag is set.
+    #[inline]
+    pub fn uri(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_URI;
+        self
+    }
+
+    /// The database will be opened as an in-memory database. The database is
+    /// named by the "filename" argument for the purposes of cache-sharing, if
+    /// shared cache mode is enabled, but the "filename" is otherwise ignored.
+    #[inline]
+    pub fn memory(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_MEMORY;
+        self
+    }
+
+    /// The new database connection will use the "multi-thread" [threading mode].
+    /// This means that separate threads are allowed to use SQLite at the same
+    /// time, as long as each thread is using a different database connection.
+    ///
+    /// [threading mode]: https://www.sqlite.org/threadsafe.html
+    #[inline]
+    pub fn no_mutex(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
+        self
+    }
+
+    /// The new database connection will use the "serialized" [threading mode].
+    /// This means the multiple threads can safely attempt to use the same
+    /// database connection at the same time. Mutexes will block any actual
+    /// concurrency, but in this mode there is no harm in trying.
+    ///
+    /// [threading mode]: https://sqlite.org/threadsafe.html
+    #[inline]
+    pub fn full_mutex(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_FULLMUTEX;
+        self
+    }
+
+    /// Set the database to be opened without the "multi-thread" [threading
+    /// mode]. The effect of calling this is that [`open_full_mutex`] and
+    /// [`open_no_mutex`] are unset.
+    ///
+    /// [threading mode]: https://www.sqlite.org/threadsafe.html
+    ///
+    /// # Safety
+    ///
+    /// Prepared statements being separated from the connection object rely on
+    /// sqlite being in a multi-threaded mode to work safely. Unsetting this
+    /// option means you take responsibility for ensuring that no two threads
+    /// access the same connection even indirectly through [`Statement`]
+    /// simultaneously.
+    #[inline]
+    pub unsafe fn unsynchronized(mut self) -> Self {
+        self.raw &= !(ffi::SQLITE_OPEN_NOMUTEX | ffi::SQLITE_OPEN_FULLMUTEX);
+        self
+    }
+
+    /// The database is opened with shared cache enabled, overriding the default
+    /// shared cache setting provided. The use of shared cache mode is
+    /// discouraged and hence shared cache capabilities may be omitted from many
+    /// builds of SQLite. In such cases, this option is a no-op.
+    #[inline]
+    pub fn shared_cache(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_SHAREDCACHE;
+        self
+    }
+
+    /// The database is opened with shared cache disabled, overriding the
+    /// default shared cache setting provided.
+    #[inline]
+    pub fn private_cache(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_PRIVATECACHE;
+        self
+    }
+
+    /// The database connection comes up in "extended result code mode". In
+    /// other words, the database behaves as if
+    /// [`Connection::extended_result_codes`] were called on the database
+    /// connection as soon as the connection is created. In addition to setting
+    /// the extended result code mode, this flag also causes the [`open`] call
+    /// to return an extended result code.
+    ///
+    /// [`open`]: Self::open
+    #[inline]
+    pub fn extended_result_code(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_EXRESCODE;
+        self
+    }
+
+    /// The database filename is not allowed to contain a symbolic link.
+    #[inline]
+    pub fn no_follow(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_NOFOLLOW;
+        self
     }
 
     /// Open a database to the given path.
@@ -456,7 +605,7 @@ impl OpenOptions {
     }
 
     /// Open an in-memory database.
-    pub fn memory(&self) -> Result<Connection> {
+    pub fn open_memory(&self) -> Result<Connection> {
         self._open(c":memory:")
     }
 
@@ -478,40 +627,6 @@ impl OpenOptions {
                 busy_callback: None,
             })
         }
-    }
-
-    /// Create the database if it does not already exist.
-    pub fn set_create(mut self) -> Self {
-        self.raw |= ffi::SQLITE_OPEN_CREATE;
-        self
-    }
-
-    /// Open the database in the serialized [threading mode][1].
-    ///
-    /// [1]: https://www.sqlite.org/threadsafe.html
-    pub fn set_full_mutex(mut self) -> Self {
-        self.raw |= ffi::SQLITE_OPEN_FULLMUTEX;
-        self
-    }
-
-    /// Opens the database in the multi-thread [threading mode][1].
-    ///
-    /// [1]: https://www.sqlite.org/threadsafe.html
-    pub fn set_no_mutex(mut self) -> Self {
-        self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
-        self
-    }
-
-    /// Open the database for reading only.
-    pub fn set_read_only(mut self) -> Self {
-        self.raw |= ffi::SQLITE_OPEN_READONLY;
-        self
-    }
-
-    /// Open the database for reading and writing.
-    pub fn set_read_write(mut self) -> Self {
-        self.raw |= ffi::SQLITE_OPEN_READWRITE;
-        self
     }
 }
 

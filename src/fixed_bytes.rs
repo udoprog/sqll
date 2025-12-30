@@ -43,7 +43,7 @@ impl<const N: usize> FixedBytes<N> {
     /// ```
     /// use sqlite_ll::{Connection, State, FixedBytes};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute(r##"
     /// CREATE TABLE users (id BLOB);
     /// INSERT INTO users (id) VALUES (X'01020304'), (X'05060708');
@@ -77,7 +77,7 @@ impl<const N: usize> FixedBytes<N> {
     /// ```
     /// use sqlite_ll::{Connection, State, FixedBytes};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute(r##"
     /// CREATE TABLE users (id BLOB);
     /// INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');

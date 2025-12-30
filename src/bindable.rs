@@ -51,7 +51,7 @@ where
 /// ```
 /// use sqlite_ll::{Connection, Null};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
@@ -89,7 +89,7 @@ impl Bindable for Null {
 /// ```
 /// use sqlite_ll::{Connection, Value};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
@@ -127,7 +127,7 @@ impl Bindable for Value {
 /// ```
 /// use sqlite_ll::Connection;
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE files (id INTEGER, data BLOB);
@@ -171,7 +171,7 @@ impl Bindable for [u8] {
 /// ```
 /// use sqlite_ll::Connection;
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE files (id INTEGER, data BLOB);
@@ -201,7 +201,7 @@ impl<const N: usize> Bindable for [u8; N] {
 /// ```
 /// use sqlite_ll::Connection;
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r#"
 /// CREATE TABLE measurements (value REAL);
@@ -240,7 +240,7 @@ impl Bindable for f64 {
 /// ```
 /// use sqlite_ll::Connection;
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r#"
 /// CREATE TABLE measurements (value INTEGER);
@@ -279,7 +279,7 @@ impl Bindable for i64 {
 /// ```
 /// use sqlite_ll::Connection;
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT, age INTEGER);
@@ -322,7 +322,7 @@ impl Bindable for str {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// "##)?;

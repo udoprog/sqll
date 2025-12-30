@@ -49,7 +49,7 @@ pub enum State {
 /// ```
 /// use sqlite_ll::{Connection, State, Prepare};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute("CREATE TABLE test (id INTEGER);")?;
 ///
 /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?);", Prepare::PERSISTENT)?;
@@ -119,7 +119,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "
@@ -168,7 +168,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, State, Code};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (id INTEGER, name TEXT);")?;
     /// c.execute("INSERT INTO users (id, name) VALUES (0, 'Alice'), (1, 'Bob');")?;
     ///
@@ -185,7 +185,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, State};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "
@@ -237,7 +237,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, State};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "
@@ -284,7 +284,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, Null, Code};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name STRING)");
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
     /// let e = stmt.bind(0, "Bob").unwrap_err();
@@ -297,7 +297,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, Null, Code, State};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name STRING)");
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
     /// stmt.bind(1, "Bob")?;
@@ -343,7 +343,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
@@ -358,7 +358,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
@@ -405,7 +405,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
@@ -439,7 +439,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER, occupation TEXT);")?;
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
@@ -477,7 +477,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, Type, State};
     ///
-    /// let mut c = Connection::memory()?;
+    /// let mut c = Connection::open_memory()?;
     ///
     /// c.execute(r##"
     /// CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age REAL, photo BLOB);
@@ -546,7 +546,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, State};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "
@@ -599,7 +599,7 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, State};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "
@@ -749,7 +749,7 @@ impl<'a> Row<'a> {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "
@@ -802,7 +802,7 @@ impl<'a> Row<'a> {
     /// ```
     /// use sqlite_ll::{Connection, State};
     ///
-    /// let c = Connection::memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// c.execute(
     ///     "

@@ -38,7 +38,7 @@
 //! ```
 //! use sqlite_ll::Connection;
 //!
-//! let c = Connection::memory()?;
+//! let c = Connection::open_memory()?;
 //!
 //! c.execute(
 //!     r#"
@@ -55,7 +55,7 @@
 //! ```
 //! use sqlite_ll::State;
 //! # use sqlite_ll::Connection;
-//! # let c = Connection::memory()?;
+//! # let c = Connection::open_memory()?;
 //! # c.execute(r#"
 //! #     CREATE TABLE users (name TEXT, age INTEGER);
 //! #     INSERT INTO users VALUES ('Alice', 42);

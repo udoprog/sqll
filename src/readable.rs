@@ -58,7 +58,7 @@ impl Readable for Value {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE numbers (value REAL);
@@ -87,7 +87,7 @@ impl Readable for f64 {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE numbers (value INTEGER);
@@ -119,7 +119,7 @@ impl Readable for i64 {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT);
@@ -140,7 +140,7 @@ impl Readable for i64 {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE users (id INTEGER);
@@ -174,7 +174,7 @@ impl Readable for String {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT);
@@ -195,7 +195,7 @@ impl Readable for String {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 ///
 /// c.execute(r##"
 /// CREATE TABLE users (id INTEGER);
@@ -230,7 +230,7 @@ impl Readable for Vec<u8> {
 /// ```
 /// use sqlite_ll::{Connection, State, FixedBytes, Code};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute(r##"
 /// CREATE TABLE users (id BLOB);
 /// INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
@@ -285,7 +285,7 @@ impl<const N: usize> Readable for FixedBytes<N> {
 /// ```
 /// use sqlite_ll::{Connection, Null, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
@@ -321,7 +321,7 @@ impl Readable for Null {
 /// ```
 /// use sqlite_ll::{Connection, State};
 ///
-/// let c = Connection::memory()?;
+/// let c = Connection::open_memory()?;
 /// c.execute(r##"
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// "##)?;
