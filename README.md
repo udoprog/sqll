@@ -48,21 +48,7 @@ c.execute(
 )?;
 ```
 
-Select some rows and process them one by one as plain text:
-
-```rust
-c.iterate("SELECT * FROM users WHERE age > 50", |pairs| {
-    for &(column, value) in pairs.iter() {
-        println!("{} = {}", column, value.unwrap());
-    }
-
-    true
-})?;
-```
-
-The same query using a prepared statement, which is much more efficient than
-parsing and running statements ad-hoc. They must be reset before every
-re-use.
+Querying data using a parepared statement with bindings:
 
 ```rust
 use sqlite_ll::State;
