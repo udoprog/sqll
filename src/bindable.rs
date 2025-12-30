@@ -49,7 +49,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, Null};
+/// use sqll::{Connection, Null};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute(r##"
@@ -67,7 +67,7 @@ where
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bindable for Null {
     #[inline]
@@ -87,7 +87,7 @@ impl Bindable for Null {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, Value};
+/// use sqll::{Connection, Value};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute(r##"
@@ -105,7 +105,7 @@ impl Bindable for Null {
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bindable for Value {
     #[inline]
@@ -125,7 +125,7 @@ impl Bindable for Value {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -141,7 +141,7 @@ impl Bindable for Value {
 /// while let Some(row) = stmt.next()? {
 ///     assert_eq!(row.read::<i64>(0)?, 1);
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bindable for [u8] {
     #[inline]
@@ -169,7 +169,7 @@ impl Bindable for [u8] {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -185,7 +185,7 @@ impl Bindable for [u8] {
 /// while let Some(row) = stmt.next()? {
 ///     assert_eq!(row.read::<i64>(0)?, 1);
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> Bindable for [u8; N] {
     #[inline]
@@ -199,7 +199,7 @@ impl<const N: usize> Bindable for [u8; N] {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -214,7 +214,7 @@ impl<const N: usize> Bindable for [u8; N] {
 /// while let Some(row) = stmt.next()? {
 ///     assert_eq!(row.read::<i64>(0)?, 2);
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bindable for f64 {
     #[inline]
@@ -238,7 +238,7 @@ impl Bindable for f64 {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -253,7 +253,7 @@ impl Bindable for f64 {
 /// while let Some(row) = stmt.next()? {
 ///     assert_eq!(row.read::<i64>(0)?, 1);
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bindable for i64 {
     #[inline]
@@ -277,7 +277,7 @@ impl Bindable for i64 {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -292,7 +292,7 @@ impl Bindable for i64 {
 /// while let Some(row) = stmt.next()? {
 ///     assert_eq!(row.read::<i64>(0)?, 42);
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bindable for str {
     #[inline]
@@ -320,7 +320,7 @@ impl Bindable for str {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute(r##"
@@ -351,7 +351,7 @@ impl Bindable for str {
 ///
 /// names_and_ages.sort();
 /// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl<T> Bindable for Option<T>
 where

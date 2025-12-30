@@ -46,7 +46,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -63,13 +63,13 @@ where
 ///     stmt.read_into(0, &mut name)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
 /// Automatic conversion:
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -86,7 +86,7 @@ where
 ///     stmt.read_into(0, &mut name)?;
 ///     assert!(matches!(name.as_str(), "1" | "2"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Writable for String {
     #[inline]
@@ -125,7 +125,7 @@ impl Writable for String {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -142,13 +142,13 @@ impl Writable for String {
 ///     stmt.read_into(0, &mut name)?;
 ///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
 /// Automatic conversion:
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -165,7 +165,7 @@ impl Writable for String {
 ///     stmt.read_into(0, &mut name)?;
 ///     assert!(matches!(name.as_slice(), b"1" | b"2"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Writable for Vec<u8> {
     #[inline]

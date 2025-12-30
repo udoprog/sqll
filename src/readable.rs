@@ -56,7 +56,7 @@ impl Readable for Value {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -71,7 +71,7 @@ impl Readable for Value {
 ///     let value = stmt.read::<f64>(0)?;
 ///     assert!(matches!(value, 3.14 | 2.71));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Readable for f64 {
     #[inline]
@@ -85,7 +85,7 @@ impl Readable for f64 {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -100,7 +100,7 @@ impl Readable for f64 {
 ///     let value = stmt.read::<i64>(0)?;
 ///     assert!(matches!(value, 3 | 2));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Readable for i64 {
     #[inline]
@@ -117,7 +117,7 @@ impl Readable for i64 {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -132,13 +132,13 @@ impl Readable for i64 {
 ///     let name = stmt.read::<String>(0)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
 /// Automatic conversion:
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -153,7 +153,7 @@ impl Readable for i64 {
 ///     let name = stmt.read::<String>(0)?;
 ///     assert!(matches!(name.as_str(), "1" | "2"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Readable for String {
     #[inline]
@@ -172,7 +172,7 @@ impl Readable for String {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -187,13 +187,13 @@ impl Readable for String {
 ///     let name = stmt.read::<Vec<u8>>(0)?;
 ///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
 /// Automatic conversion:
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -208,7 +208,7 @@ impl Readable for String {
 ///     let name = stmt.read::<Vec::<u8>>(0)?;
 ///     assert!(matches!(name.as_slice(), b"1" | b"2"));
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Readable for Vec<u8> {
     #[inline]
@@ -228,7 +228,7 @@ impl Readable for Vec<u8> {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State, FixedBytes, Code};
+/// use sqll::{Connection, State, FixedBytes, Code};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute(r##"
@@ -248,7 +248,7 @@ impl Readable for Vec<u8> {
 ///
 /// let bytes = stmt.read::<FixedBytes<5>>(0)?;
 /// assert_eq!(bytes.as_bytes(), &[5, 6, 7, 8, 9]);
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> Readable for FixedBytes<N> {
     #[inline]
@@ -283,7 +283,7 @@ impl<const N: usize> Readable for FixedBytes<N> {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, Null, State};
+/// use sqll::{Connection, Null, State};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute(r##"
@@ -301,7 +301,7 @@ impl<const N: usize> Readable for FixedBytes<N> {
 /// }
 ///
 /// assert_eq!(names, vec![Null]);
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl Readable for Null {
     #[inline]
@@ -319,7 +319,7 @@ impl Readable for Null {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State};
+/// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute(r##"
@@ -350,7 +350,7 @@ impl Readable for Null {
 ///
 /// names_and_ages.sort();
 /// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 impl<T> Readable for Option<T>
 where

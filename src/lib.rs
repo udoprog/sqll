@@ -1,6 +1,6 @@
-//! [<img alt="github" src="https://img.shields.io/badge/github-udoprog/sqlite--ll-8da0cb?style=for-the-badge&logo=github" height="20">](https://github.com/udoprog/sqlite-ll)
-//! [<img alt="crates.io" src="https://img.shields.io/crates/v/sqlite-ll.svg?style=for-the-badge&color=fc8d62&logo=rust" height="20">](https://crates.io/crates/sqlite-ll)
-//! [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-sqlite--ll-66c2a5?style=for-the-badge&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/sqlite-ll)
+//! [<img alt="github" src="https://img.shields.io/badge/github-udoprog/sqll-8da0cb?style=for-the-badge&logo=github" height="20">](https://github.com/udoprog/sqll)
+//! [<img alt="crates.io" src="https://img.shields.io/crates/v/sqll.svg?style=for-the-badge&color=fc8d62&logo=rust" height="20">](https://crates.io/crates/sqll)
+//! [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-sqll-66c2a5?style=for-the-badge&logoColor=white&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" height="20">](https://docs.rs/sqll)
 //!
 //! Low-level interface to the [SQLite] database.
 //!
@@ -36,7 +36,7 @@
 //! Open an in-memory connection, create a table, and insert some rows:
 //!
 //! ```
-//! use sqlite_ll::Connection;
+//! use sqll::Connection;
 //!
 //! let c = Connection::open_memory()?;
 //!
@@ -47,14 +47,14 @@
 //!     INSERT INTO users VALUES ('Bob', 69);
 //!     "#,
 //! )?;
-//! # Ok::<_, sqlite_ll::Error>(())
+//! # Ok::<_, sqll::Error>(())
 //! ```
 //!
 //! Querying data using a parepared statement with bindings:
 //!
 //! ```
-//! use sqlite_ll::State;
-//! # use sqlite_ll::Connection;
+//! use sqll::State;
+//! # use sqll::Connection;
 //! # let c = Connection::open_memory()?;
 //! # c.execute(r#"
 //! #     CREATE TABLE users (name TEXT, age INTEGER);
@@ -81,16 +81,17 @@
 //! ];
 //!
 //! assert_eq!(results, expected);
-//! # Ok::<_, sqlite_ll::Error>(())
+//! # Ok::<_, sqll::Error>(())
 //! ```
 //!
-//! [`Prepare::PERSISTENT`]: https://docs.rs/sqlite-ll/latest/sqlite_ll/struct.Prepare.html#associatedconstant.PERSISTENT
-//! [calling `execute`]: https://docs.rs/sqlite-ll/latest/sqlite_ll/struct.Connection.html#method.execute
+//! [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
+//! [calling `execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 //! [sqlite crate]: https://github.com/stainless-steel/sqlite
 //! [SQLite]: https://www.sqlite.org
 
 #![no_std]
 #![allow(clippy::should_implement_trait)]
+#![allow(clippy::new_without_default)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "std")]

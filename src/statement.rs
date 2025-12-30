@@ -47,7 +47,7 @@ pub enum State {
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, State, Prepare};
+/// use sqll::{Connection, State, Prepare};
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute("CREATE TABLE test (id INTEGER);")?;
@@ -69,7 +69,7 @@ pub enum State {
 ///     let id: i64 = row.read(0)?;
 ///     assert_eq!(id, 42);
 /// }
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 #[repr(transparent)]
 pub struct Statement {
@@ -117,7 +117,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Connection;
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -149,7 +149,7 @@ impl Statement {
     /// ];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn next(&mut self) -> Result<Option<Row<'_>>> {
         match self.step()? {
@@ -166,7 +166,7 @@ impl Statement {
     /// being read which is subject to auto-conversion.
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State, Code};
+    /// use sqll::{Connection, State, Code};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (id INTEGER, name TEXT);")?;
@@ -175,7 +175,7 @@ impl Statement {
     /// let mut stmt = c.prepare("SELECT name FROM users;")?;
     /// assert_eq!(stmt.read::<i64>(0)?, 0);
     /// assert_eq!(stmt.read::<String>(0)?, "");
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
     /// When the statement returns [`State::Done`] no more rows are available.
@@ -183,7 +183,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State};
+    /// use sqll::{Connection, State};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -215,7 +215,7 @@ impl Statement {
     /// ];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn step(&mut self) -> Result<State> {
         // SAFETY: We own the raw handle to this statement.
@@ -235,7 +235,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State};
+    /// use sqll::{Connection, State};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -267,7 +267,7 @@ impl Statement {
     /// ];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn reset(&mut self) -> Result<()> {
@@ -282,20 +282,20 @@ impl Statement {
     /// The first parameter has index 1, attempting to bind to 0 will result in an error.
     ///
     /// ```
-    /// use sqlite_ll::{Connection, Null, Code};
+    /// use sqll::{Connection, Null, Code};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name STRING)");
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
     /// let e = stmt.bind(0, "Bob").unwrap_err();
     /// assert_eq!(e.code(), Code::RANGE);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, Null, Code, State};
+    /// use sqll::{Connection, Null, Code, State};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name STRING)");
@@ -303,7 +303,7 @@ impl Statement {
     /// stmt.bind(1, "Bob")?;
     ///
     /// assert_eq!(stmt.step()?, State::Done);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn bind(&mut self, index: c_int, value: impl Bindable) -> Result<()> {
@@ -315,11 +315,11 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let c = sqlite_ll::Connection::open(":memory:")?;
+    /// # let c = sqll::Connection::open(":memory:")?;
     /// # c.execute("CREATE TABLE users (name STRING)");
     /// let mut statement = c.prepare("SELECT * FROM users WHERE name = :name")?;
     /// statement.bind_by_name(c":name", "Bob")?;
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn bind_by_name(&mut self, name: impl AsRef<CStr>, value: impl Bindable) -> Result<()> {
         if let Some(index) = self.parameter_index(name) {
@@ -341,7 +341,7 @@ impl Statement {
     /// If an invalid index is specified, `None` is returned.
     ///
     /// ```
-    /// use sqlite_ll::Connection;
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
@@ -350,13 +350,13 @@ impl Statement {
     /// assert_eq!(stmt.column_name(0), Some("name"));
     /// assert_eq!(stmt.column_name(1), Some("age"));
     /// assert_eq!(stmt.column_name(2), None);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Connection;
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
@@ -369,7 +369,7 @@ impl Statement {
     /// let cols = stmt.columns().rev().collect::<Vec<_>>();
     /// assert_eq!(cols, vec![1, 0]);
     /// assert!(cols.iter().flat_map(|i| stmt.column_name(*i)).eq(["age", "name"]));
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn column_name(&self, index: c_int) -> Option<&str> {
@@ -403,7 +403,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Connection;
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
@@ -420,7 +420,7 @@ impl Statement {
     ///
     /// let col = stmt.columns().rev().nth(1);
     /// assert_eq!(col, Some(0));
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn columns(&self) -> Columns {
@@ -437,7 +437,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Connection;
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER, occupation TEXT);")?;
@@ -457,7 +457,7 @@ impl Statement {
     ///
     /// let name = stmt.column_names().rev().nth(2);
     /// assert_eq!(name, Some("name"));
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn column_names(&self) -> ColumnNames<'_> {
@@ -475,7 +475,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, Type, State};
+    /// use sqll::{Connection, Type, State};
     ///
     /// let mut c = Connection::open_memory()?;
     ///
@@ -502,7 +502,7 @@ impl Statement {
     /// assert_eq!(stmt.column_type(3), Type::BLOB);
     /// // Since the fifth column does not exist it is always `Null`.
     /// assert_eq!(stmt.column_type(4), Type::NULL);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn column_type(&self, index: c_int) -> Type {
@@ -518,12 +518,12 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let c = sqlite_ll::Connection::open(":memory:")?;
+    /// # let c = sqll::Connection::open(":memory:")?;
     /// c.execute("CREATE TABLE users (name STRING)");
     /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
     /// assert_eq!(stmt.parameter_index(c":name"), Some(1));
     /// assert_eq!(stmt.parameter_index(c":asdf"), None);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn parameter_index(&self, parameter: impl AsRef<CStr>) -> Option<c_int> {
@@ -544,7 +544,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State};
+    /// use sqll::{Connection, State};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -576,7 +576,7 @@ impl Statement {
     /// ];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn read<T>(&self, index: c_int) -> Result<T>
@@ -597,7 +597,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State};
+    /// use sqll::{Connection, State};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -631,7 +631,7 @@ impl Statement {
     /// let expected = [40];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn read_into(&self, index: c_int, out: &mut (impl ?Sized + Writable)) -> Result<()> {
@@ -747,7 +747,7 @@ impl<'a> Row<'a> {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Connection;
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -779,7 +779,7 @@ impl<'a> Row<'a> {
     /// ];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn read<T>(&self, index: c_int) -> Result<T>
@@ -800,7 +800,7 @@ impl<'a> Row<'a> {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State};
+    /// use sqll::{Connection, State};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -834,7 +834,7 @@ impl<'a> Row<'a> {
     /// let expected = [40];
     ///
     /// assert_eq!(results, expected);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn read_into(&self, index: c_int, out: &mut (impl ?Sized + Writable)) -> Result<()> {

@@ -2,7 +2,7 @@
 // license.
 
 use criterion::Criterion;
-use sqlite_ll::{Connection, Prepare, State};
+use sqll::{Connection, Prepare, State};
 
 criterion::criterion_group!(benches, read_statement, write_statement);
 criterion::criterion_main!(benches);

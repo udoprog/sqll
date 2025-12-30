@@ -41,7 +41,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State, FixedBytes};
+    /// use sqll::{Connection, State, FixedBytes};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute(r##"
@@ -55,7 +55,7 @@ impl<const N: usize> FixedBytes<N> {
     ///     let bytes = stmt.read::<FixedBytes<4>>(0)?;
     ///     assert!(matches!(bytes.into_bytes(), Some([1, 2, 3, 4] | [5, 6, 7, 8])));
     /// }
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn into_bytes(self) -> Option<[u8; N]> {
         if self.init == N {
@@ -75,7 +75,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State, FixedBytes};
+    /// use sqll::{Connection, State, FixedBytes};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute(r##"
@@ -89,7 +89,7 @@ impl<const N: usize> FixedBytes<N> {
     ///     let bytes = stmt.read::<FixedBytes<10>>(0)?;
     ///     assert!(matches!(bytes.as_bytes(), &[1, 2, 3, 4] | &[5, 6, 7, 8, 9]));
     /// }
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
         if self.init == 0 {

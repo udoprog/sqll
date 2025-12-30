@@ -65,21 +65,21 @@ impl BitOr for Prepare {
 /// Opening a connection to a filesystem path:
 ///
 /// ```no_run
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open("database.db")?;
 /// c.execute("CREATE TABLE test (id INTEGER);")?;
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
 /// Opening an in-memory database:
 ///
 /// ```
-/// use sqlite_ll::Connection;
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 /// c.execute("CREATE TABLE test (id INTEGER);")?;
-/// # Ok::<_, sqlite_ll::Error>(())
+/// # Ok::<_, sqll::Error>(())
 /// ```
 pub struct Connection {
     raw: NonNull<ffi::sqlite3>,
@@ -194,7 +194,7 @@ impl Connection {
     /// execute multiple statements, use [`execute`] instead.
     ///
     /// ```
-    /// use sqlite_ll::{Connection, Code};
+    /// use sqll::{Connection, Code};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -206,7 +206,7 @@ impl Connection {
     /// ).unwrap_err();
     ///
     /// assert_eq!(e.code(), Code::ERROR);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
     /// [`execute`]: Self::execute
@@ -214,7 +214,7 @@ impl Connection {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State, Prepare};
+    /// use sqll::{Connection, State, Prepare};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE test (id INTEGER);")?;
@@ -234,7 +234,7 @@ impl Connection {
     ///     let id: i64 = query_stmt.read(0)?;
     ///     assert_eq!(id, 42);
     /// }
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
     pub fn prepare(&self, stmt: impl AsRef<str>) -> Result<Statement> {
@@ -255,7 +255,7 @@ impl Connection {
     /// execute multiple statements, use [`execute`] instead.
     ///
     /// ```
-    /// use sqlite_ll::{Connection, Code, Prepare};
+    /// use sqll::{Connection, Code, Prepare};
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -267,7 +267,7 @@ impl Connection {
     ///     Prepare::PERSISTENT
     /// ).unwrap_err();
     /// assert_eq!(e.code(), Code::ERROR);
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
     /// [`execute`]: Self::execute
@@ -275,7 +275,7 @@ impl Connection {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::{Connection, State, Prepare};
+    /// use sqll::{Connection, State, Prepare};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE test (id INTEGER);")?;
@@ -297,7 +297,7 @@ impl Connection {
     ///     let id: i64 = query_stmt.read(0)?;
     ///     assert_eq!(id, 42);
     /// }
-    /// # Ok::<_, sqlite_ll::Error>(())
+    /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn prepare_with(&self, stmt: impl AsRef<str>, flags: Prepare) -> Result<Statement> {
         let stmt = stmt.as_ref();

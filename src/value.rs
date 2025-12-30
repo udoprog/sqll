@@ -65,7 +65,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::null();
     /// assert!(value.is_null());
@@ -80,7 +80,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::blob(Vec::new());
     /// assert_eq!(value.as_blob(), Some(&[][..]));
@@ -97,7 +97,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::text(String::new());
     /// assert_eq!(value.as_text(), Some(""));
@@ -117,7 +117,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::float(42.0);
     /// assert_eq!(value.as_float(), Some(42.0));
@@ -134,7 +134,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::integer(42);
     /// assert_eq!(value.as_integer(), Some(42));
@@ -151,7 +151,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::null();
     /// assert!(value.is_null());
@@ -166,7 +166,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::blob(Vec::new());
     /// assert_eq!(value.as_blob(), Some(&[][..]));
@@ -185,7 +185,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::text(String::new());
     /// assert_eq!(value.as_text(), Some(""));
@@ -207,7 +207,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::float(42.0);
     /// assert_eq!(value.as_float(), Some(42.0));
@@ -226,7 +226,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use sqlite_ll::Value;
+    /// use sqll::Value;
     ///
     /// let value = Value::integer(42);
     /// assert_eq!(value.as_integer(), Some(42));
