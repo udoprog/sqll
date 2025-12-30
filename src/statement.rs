@@ -276,9 +276,13 @@ impl Statement {
 
     /// Bind a value to a parameter by index.
     ///
+    /// If a statement is stepped without a parameter being bound, the parameter
+    /// is bound by sqlite to `NULL` by default.
+    ///
     /// # Errors
     ///
-    /// The first parameter has index 1, attempting to bind to 0 will result in an error.
+    /// The first parameter has index 1, attempting to bind to 0 will result in
+    /// an error.
     ///
     /// ```
     /// use sqll::{Connection, Null, Code};

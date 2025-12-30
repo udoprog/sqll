@@ -12,6 +12,14 @@ been copied under the MIT license.
 
 <br>
 
+## Examples
+
+* [`examples/axum.rs`] - Create an in-memory database connection and serve
+  it using [`axum`]. This showcases how do properly handle external
+  synchronization for the best performance.
+
+<br>
+
 ## Why do we need another sqlite interface?
 
 It is difficult to set up and use prepared statements with existing crates,
@@ -46,17 +54,36 @@ let c = Connection::open_memory()?;
 c.execute(
     r#"
     CREATE TABLE users (name TEXT, age INTEGER);
+
     INSERT INTO users VALUES ('Alice', 42);
     INSERT INTO users VALUES ('Bob', 69);
     "#,
 )?;
 ```
 
-Querying data using a parepared statement with bindings:
+<br>
+
+#### Prepared Statements
+
+Correct handling of prepared statements are crucial to get good performance
+out of sqlite. They contain all the state associated with a query and are
+expensive to construct so they should be re-used.
+
+Using a [`Prepare::PERSISTENT`] prepared statement to perform multiple
+queries:
 
 ```rust
-use sqll::State;
-let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
+use sqll::{Connection, Prepare};
+
+let c = Connection::open_memory()?;
+c.execute(r#"
+    CREATE TABLE users (name TEXT, age INTEGER);
+
+    INSERT INTO users VALUES ('Alice', 42);
+    INSERT INTO users VALUES ('Bob', 69);
+"#)?;
+
+let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
 
 let mut results = Vec::new();
 
@@ -64,8 +91,8 @@ for age in [40, 50] {
     stmt.reset()?;
     stmt.bind(1, age)?;
 
-    while let State::Row = stmt.step()? {
-        results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    while let Some(row) = stmt.next()? {
+        results.push((row.read::<String>(0)?, row.read::<i64>(1)?));
     }
 }
 
@@ -78,6 +105,8 @@ let expected = vec![
 assert_eq!(results, expected);
 ```
 
+[`axum`]: https://docs.rs/axum
+[`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
 [calling `execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 [sqlite crate]: https://github.com/stainless-steel/sqlite
