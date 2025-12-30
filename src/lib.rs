@@ -51,15 +51,15 @@
 //! ```
 //! use sqlite_ll::State;
 //! # use sqlite_ll::Connection;
-//! # let connection = Connection::memory()?;
-//! # connection.execute(
+//! # let c = Connection::memory()?;
+//! # c.execute(
 //! #     "
 //! #     CREATE TABLE users (name TEXT, age INTEGER);
 //! #     INSERT INTO users VALUES ('Alice', 42);
 //! #     INSERT INTO users VALUES ('Bob', 69);
 //! #     ",
 //! # )?;
-//! let mut stmt = connection.prepare("SELECT * FROM users WHERE age > ?")?;
+//! let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
 //!
 //! let mut results = Vec::new();
 //!
@@ -96,6 +96,9 @@ extern crate alloc;
 #[cfg(not(feature = "alloc"))]
 compile_error!("The `alloc` feature must be enabled to use this crate.");
 
+#[cfg(test)]
+mod tests;
+
 mod bytes;
 mod connection;
 mod error;
@@ -106,7 +109,7 @@ mod value;
 
 pub use self::connection::{Connection, OpenOptions, Prepare};
 pub use self::error::{Code, Error, Result};
-pub use self::statement::{Bindable, FixedBytes, Readable, State, Statement};
+pub use self::statement::{Bindable, FixedBytes, Null, Readable, State, Statement};
 pub use self::value::{Type, Value};
 
 /// Return the version number of SQLite.

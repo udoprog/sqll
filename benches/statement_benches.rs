@@ -8,10 +8,10 @@ criterion::criterion_group!(benches, read_statement, write_statement);
 criterion::criterion_main!(benches);
 
 fn read_statement(bencher: &mut Criterion) {
-    let connection = create();
-    populate(&connection, 100);
+    let c = create();
+    populate(&c, 100);
 
-    let mut statement = connection
+    let mut statement = c
         .prepare("SELECT * FROM data WHERE a > ? AND b > ?")
         .unwrap();
 
@@ -29,8 +29,8 @@ fn read_statement(bencher: &mut Criterion) {
 }
 
 fn write_statement(bencher: &mut Criterion) {
-    let connection = create();
-    let mut statement = connection
+    let c = create();
+    let mut statement = c
         .prepare("INSERT INTO data (a, b, c, d) VALUES (?, ?, ?, ?)")
         .unwrap();
 
@@ -47,15 +47,14 @@ fn write_statement(bencher: &mut Criterion) {
 }
 
 fn create() -> Connection {
-    let connection = Connection::open(":memory:").unwrap();
-    connection
-        .execute("CREATE TABLE data (a INTEGER, b REAL, c REAL, d REAL)")
+    let c = Connection::open(":memory:").unwrap();
+    c.execute("CREATE TABLE data (a INTEGER, b REAL, c REAL, d REAL)")
         .unwrap();
-    connection
+    c
 }
 
-fn populate(connection: &Connection, count: usize) {
-    let mut statement = connection
+fn populate(c: &Connection, count: usize) {
+    let mut statement = c
         .prepare("INSERT INTO data (a, b, c, d) VALUES (?, ?, ?, ?)")
         .unwrap();
 

@@ -1,24 +1,47 @@
+use core::ffi::c_int;
 use core::fmt;
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use sqlite3_sys as ffi;
+
 /// The type of a value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum Type {
+pub struct Type(c_int);
+
+impl Type {
+    /// Create a type from a raw integer.
+    #[inline]
+    pub(crate) fn from_raw(raw: c_int) -> Self {
+        Self(raw)
+    }
+
     /// The blob type.
-    Blob,
+    pub const BLOB: Self = Self(ffi::SQLITE_BLOB);
     /// The text type.
-    Text,
+    pub const TEXT: Self = Self(ffi::SQLITE_TEXT);
     /// The floating-point type.
-    Float,
+    pub const FLOAT: Self = Self(ffi::SQLITE_FLOAT);
     /// The integer type.
-    Integer,
+    pub const INTEGER: Self = Self(ffi::SQLITE_INTEGER);
     /// The null type.
-    Null,
-    /// The variant used if a column type is unknown.
-    Unknown,
+    pub const NULL: Self = Self(ffi::SQLITE_NULL);
+}
+
+impl fmt::Display for Type {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            ffi::SQLITE_BLOB => write!(f, "BLOB"),
+            ffi::SQLITE_TEXT => write!(f, "TEXT"),
+            ffi::SQLITE_FLOAT => write!(f, "FLOAT"),
+            ffi::SQLITE_INTEGER => write!(f, "INTEGER"),
+            ffi::SQLITE_NULL => write!(f, "NULL"),
+            _ => write!(f, "UNKNOWN"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -221,11 +244,11 @@ impl Value {
     #[inline]
     pub const fn kind(&self) -> Type {
         match &self.kind {
-            Kind::Blob(_) => Type::Blob,
-            Kind::Float(_) => Type::Float,
-            Kind::Integer(_) => Type::Integer,
-            Kind::Text(_) => Type::Text,
-            Kind::Null => Type::Null,
+            Kind::Blob(_) => Type::BLOB,
+            Kind::Float(_) => Type::FLOAT,
+            Kind::Integer(_) => Type::INTEGER,
+            Kind::Text(_) => Type::TEXT,
+            Kind::Null => Type::NULL,
         }
     }
 }

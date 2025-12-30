@@ -79,12 +79,12 @@ impl Connection {
 
     /// Execute a statement without processing the resulting rows if any.
     #[inline]
-    pub fn execute(&self, statement: impl AsRef<str>) -> Result<()> {
-        let statement = statement.as_ref();
+    pub fn execute(&self, stmt: impl AsRef<str>) -> Result<()> {
+        let stmt = stmt.as_ref();
 
         unsafe {
-            let mut ptr = statement.as_ptr().cast();
-            let mut len = statement.len();
+            let mut ptr = stmt.as_ptr().cast();
+            let mut len = stmt.len();
 
             while len > 0 {
                 let mut raw = MaybeUninit::uninit();
@@ -139,9 +139,9 @@ impl Connection {
     /// ```
     /// use sqlite_ll::{Connection, Code};
     ///
-    /// let connection = Connection::memory()?;
+    /// let c = Connection::memory()?;
     ///
-    /// let e = connection.prepare(
+    /// let e = c.prepare(
     ///     "
     ///     CREATE TABLE test (id INTEGER) /* test */;
     ///     INSERT INTO test (id) VALUES (1);
@@ -180,8 +180,8 @@ impl Connection {
     /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
-    pub fn prepare(&self, statement: impl AsRef<str>) -> Result<Statement> {
-        self.prepare_with(statement, Prepare::EMPTY)
+    pub fn prepare(&self, stmt: impl AsRef<str>) -> Result<Statement> {
+        self.prepare_with(stmt, Prepare::EMPTY)
     }
 
     /// Build a prepared statement with custom flags.
@@ -200,9 +200,9 @@ impl Connection {
     /// ```
     /// use sqlite_ll::{Connection, Code, Prepare};
     ///
-    /// let connection = Connection::memory()?;
+    /// let c = Connection::memory()?;
     ///
-    /// let e = connection.prepare_with(
+    /// let e = c.prepare_with(
     ///     "
     ///     CREATE TABLE test (id INTEGER) /* test */;
     ///     INSERT INTO test (id) VALUES (1);
@@ -242,15 +242,15 @@ impl Connection {
     /// }
     /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
-    pub fn prepare_with(&self, statement: impl AsRef<str>, flags: Prepare) -> Result<Statement> {
-        let statement = statement.as_ref();
+    pub fn prepare_with(&self, stmt: impl AsRef<str>, flags: Prepare) -> Result<Statement> {
+        let stmt = stmt.as_ref();
 
         unsafe {
             let mut raw = MaybeUninit::uninit();
             let mut rest = MaybeUninit::uninit();
 
-            let ptr = statement.as_ptr().cast();
-            let len = i32::try_from(statement.len()).unwrap_or(i32::MAX);
+            let ptr = stmt.as_ptr().cast();
+            let len = i32::try_from(stmt.len()).unwrap_or(i32::MAX);
 
             sqlite3_try! {
                 self.raw.as_ptr(),
@@ -268,7 +268,7 @@ impl Connection {
 
             let o = rest.offset_from_unsigned(ptr);
 
-            if o != statement.len() {
+            if o != stmt.len() {
                 return Err(Error::new(ffi::SQLITE_ERROR));
             }
 

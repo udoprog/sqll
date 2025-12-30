@@ -14,6 +14,9 @@ use crate::error::{Error, Result};
 use crate::utils::{self, sqlite3_try};
 use crate::value::{Kind, Type, Value};
 
+/// A marker type representing a NULL value.
+pub struct Null;
+
 /// A prepared statement.
 #[repr(transparent)]
 pub struct Statement {
@@ -45,7 +48,17 @@ pub trait Bindable {
     /// Bind to a parameter.
     ///
     /// The first parameter has index 1.
-    fn bind(self, _: &mut Statement, _: usize) -> Result<()>;
+    fn bind(&self, _: &mut Statement, _: usize) -> Result<()>;
+}
+
+impl<T> Bindable for &T
+where
+    T: ?Sized + Bindable,
+{
+    #[inline]
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
+        (**self).bind(stmt, i)
+    }
 }
 
 /// A type suitable for reading from a prepared statement.
@@ -67,7 +80,10 @@ impl Statement {
     ///
     /// The first parameter has index 1.
     #[inline]
-    pub fn bind<T: Bindable>(&mut self, i: usize, value: T) -> Result<()> {
+    pub fn bind<T>(&mut self, i: usize, value: T) -> Result<()>
+    where
+        T: Bindable,
+    {
         value.bind(self, i)
     }
 
@@ -76,11 +92,11 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let connection = sqlite_ll::Connection::open(":memory:")?;
-    /// # connection.execute("CREATE TABLE users (name STRING)");
-    /// let mut statement = unsafe { connection.prepare("SELECT * FROM users WHERE name = :name")? };
+    /// # let c = sqlite_ll::Connection::open(":memory:")?;
+    /// # c.execute("CREATE TABLE users (name STRING)");
+    /// let mut statement = unsafe { c.prepare("SELECT * FROM users WHERE name = :name")? };
     /// statement.bind_by_name(c":name", "Bob")?;
-    /// # Ok::<(), sqlite_ll::Error>(())
+    /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     pub fn bind_by_name(&mut self, name: impl AsRef<CStr>, value: impl Bindable) -> Result<()> {
         if let Some(i) = self.parameter_index(name) {
@@ -128,18 +144,18 @@ impl Statement {
     /// ```
     /// use sqlite_ll::Connection;
     ///
-    /// let connection = Connection::memory()?;
-    /// connection.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
-    /// let stmt = connection.prepare("SELECT * FROM users;")?;
+    /// let c = Connection::memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// let column_names: Vec<&str> = stmt.column_names().into_iter().collect();
     /// assert_eq!(column_names, vec!["name", "age"]);
-    /// # Ok::<(), sqlite_ll::Error>(())
+    /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
     pub fn column_names(&self) -> ColumnNames<'_> {
         ColumnNames {
-            statement: self,
+            stmt: self,
             start: 0,
             end: self.column_count(),
         }
@@ -147,21 +163,46 @@ impl Statement {
 
     /// Return the type of a column.
     ///
-    /// The first column has index 0. The type becomes available after taking a step.
+    /// The first column has index 0. The type becomes available after taking a
+    /// step.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::{Connection, Type, State};
+    ///
+    /// let mut c = Connection::memory()?;
+    ///
+    /// c.execute(r##"
+    /// CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age REAL, photo BLOB);
+    /// "##)?;
+    ///
+    /// c.execute(r##"
+    /// INSERT INTO users (id, name, age, photo) VALUES (1, 'Bob', 30.5, X'01020304');
+    /// "##)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users")?;
+    ///
+    /// assert_eq!(stmt.column_type(0), Type::NULL);
+    /// assert_eq!(stmt.column_type(1), Type::NULL);
+    /// assert_eq!(stmt.column_type(2), Type::NULL);
+    /// assert_eq!(stmt.column_type(3), Type::NULL);
+    ///
+    /// assert_eq!(stmt.step()?, State::Row);
+    ///
+    /// assert_eq!(stmt.column_type(0), Type::INTEGER);
+    /// assert_eq!(stmt.column_type(1), Type::TEXT);
+    /// assert_eq!(stmt.column_type(2), Type::FLOAT);
+    /// assert_eq!(stmt.column_type(3), Type::BLOB);
+    /// // Since the fifth column does not exist it is always `Null`.
+    /// assert_eq!(stmt.column_type(4), Type::NULL);
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
+    #[inline]
     pub fn column_type(&self, i: usize) -> Type {
-        debug_assert!(
-            i < self.column_count(),
-            "the index is out of bounds 0..{}",
-            self.column_count()
-        );
-
-        match unsafe { ffi::sqlite3_column_type(self.raw.as_ptr(), i as c_int) } {
-            ffi::SQLITE_BLOB => Type::Blob,
-            ffi::SQLITE_FLOAT => Type::Float,
-            ffi::SQLITE_INTEGER => Type::Integer,
-            ffi::SQLITE_TEXT => Type::Text,
-            ffi::SQLITE_NULL => Type::Null,
-            _ => Type::Unknown,
+        unsafe {
+            let i = c_int::try_from(i).unwrap_or(c_int::MAX);
+            Type::from_raw(ffi::sqlite3_column_type(self.raw.as_ptr(), i))
         }
     }
 
@@ -192,12 +233,12 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let connection = sqlite_ll::Connection::open(":memory:")?;
-    /// # connection.execute("CREATE TABLE users (name STRING)");
-    /// let statement = unsafe { connection.prepare("SELECT * FROM users WHERE name = :name")? };
-    /// assert_eq!(statement.parameter_index(c":name"), Some(1));
-    /// assert_eq!(statement.parameter_index(c":asdf"), None);
-    /// # Ok::<(), sqlite_ll::Error>(())
+    /// # let c = sqlite_ll::Connection::open(":memory:")?;
+    /// c.execute("CREATE TABLE users (name STRING)");
+    /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
+    /// assert_eq!(stmt.parameter_index(c":name"), Some(1));
+    /// assert_eq!(stmt.parameter_index(c":asdf"), None);
+    /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
     pub fn parameter_index(&self, parameter: impl AsRef<CStr>) -> Option<usize> {
@@ -234,9 +275,9 @@ impl Statement {
     /// ```
     /// use sqlite_ll::{Connection, State};
     ///
-    /// let connection = Connection::memory()?;
+    /// let c = Connection::memory()?;
     ///
-    /// connection.execute(
+    /// c.execute(
     ///     "
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
@@ -244,7 +285,7 @@ impl Statement {
     ///     ",
     /// )?;
     ///
-    /// let mut stmt = connection.prepare("SELECT * FROM users WHERE age > ?")?;
+    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
     /// let mut results = Vec::new();
     ///
@@ -280,29 +321,29 @@ impl Drop for Statement {
     }
 }
 
-impl Bindable for &Value {
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+impl Bindable for Value {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         match &self.kind {
-            Kind::Blob(value) => value.as_slice().bind(statement, i),
-            Kind::Float(value) => value.bind(statement, i),
-            Kind::Integer(value) => value.bind(statement, i),
-            Kind::Text(value) => value.as_str().bind(statement, i),
-            Kind::Null => ().bind(statement, i),
+            Kind::Blob(value) => value.as_slice().bind(stmt, i),
+            Kind::Float(value) => value.bind(stmt, i),
+            Kind::Integer(value) => value.bind(stmt, i),
+            Kind::Text(value) => value.as_str().bind(stmt, i),
+            Kind::Null => Null.bind(stmt, i),
         }
     }
 }
 
 impl Bindable for &[u8] {
     #[inline]
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
         let (data, dealloc) = bytes::alloc(self)?;
 
         unsafe {
             sqlite3_try! {
-                ffi::sqlite3_db_handle(statement.raw.as_ptr()),
+                ffi::sqlite3_db_handle(stmt.raw.as_ptr()),
                 ffi::sqlite3_bind_blob(
-                    statement.raw.as_ptr(),
+                    stmt.raw.as_ptr(),
                     i as c_int,
                     data,
                     self.len() as c_int,
@@ -317,16 +358,16 @@ impl Bindable for &[u8] {
 
 impl Bindable for f64 {
     #[inline]
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
 
         unsafe {
             sqlite3_try! {
-                ffi::sqlite3_db_handle(statement.raw.as_ptr()),
+                ffi::sqlite3_db_handle(stmt.raw.as_ptr()),
                 ffi::sqlite3_bind_double(
-                    statement.raw.as_ptr(),
+                    stmt.raw.as_ptr(),
                     i as c_int,
-                    self as c_double
+                    *self as c_double
                 )
             };
         }
@@ -337,16 +378,16 @@ impl Bindable for f64 {
 
 impl Bindable for i64 {
     #[inline]
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
 
         unsafe {
             sqlite3_try! {
-                ffi::sqlite3_db_handle(statement.raw.as_ptr()),
+                ffi::sqlite3_db_handle(stmt.raw.as_ptr()),
                 ffi::sqlite3_bind_int64(
-                    statement.raw.as_ptr(),
+                    stmt.raw.as_ptr(),
                     i as c_int,
-                    self as ffi::sqlite3_int64
+                    *self as ffi::sqlite3_int64
                 )
             };
         }
@@ -355,17 +396,17 @@ impl Bindable for i64 {
     }
 }
 
-impl Bindable for &str {
+impl Bindable for str {
     #[inline]
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
         let (data, dealloc) = bytes::alloc(self.as_bytes())?;
 
         unsafe {
             sqlite3_try! {
-                ffi::sqlite3_db_handle(statement.raw.as_ptr()),
+                ffi::sqlite3_db_handle(stmt.raw.as_ptr()),
                 ffi::sqlite3_bind_text(
-                    statement.raw.as_ptr(),
+                    stmt.raw.as_ptr(),
                     i as c_int,
                     data.cast(),
                     self.len() as c_int,
@@ -378,15 +419,15 @@ impl Bindable for &str {
     }
 }
 
-impl Bindable for () {
+impl Bindable for Null {
     #[inline]
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
 
         unsafe {
             sqlite3_try! {
-                ffi::sqlite3_db_handle(statement.raw.as_ptr()),
-                ffi::sqlite3_bind_null(statement.raw.as_ptr(), i as c_int)
+                ffi::sqlite3_db_handle(stmt.raw.as_ptr()),
+                ffi::sqlite3_bind_null(stmt.raw.as_ptr(), i as c_int)
             };
         }
 
@@ -399,24 +440,24 @@ where
     T: Bindable,
 {
     #[inline]
-    fn bind(self, statement: &mut Statement, i: usize) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, i: usize) -> Result<()> {
         debug_assert!(i > 0, "the indexing starts from 1");
         match self {
-            Some(inner) => Bindable::bind(inner, statement, i),
-            None => Bindable::bind((), statement, i),
+            Some(inner) => Bindable::bind(inner, stmt, i),
+            None => Bindable::bind(&Null, stmt, i),
         }
     }
 }
 
 impl Readable for Value {
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
-        let value = match statement.column_type(i) {
-            Type::Blob => Value::blob(Readable::read(statement, i)?),
-            Type::Text => Value::text(Readable::read(statement, i)?),
-            Type::Float => Value::float(Readable::read(statement, i)?),
-            Type::Integer => Value::integer(Readable::read(statement, i)?),
-            Type::Null => Value::null(),
-            Type::Unknown => return Err(Error::new(ffi::SQLITE_MISMATCH)),
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
+        let value = match stmt.column_type(i) {
+            Type::BLOB => Value::blob(Readable::read(stmt, i)?),
+            Type::TEXT => Value::text(Readable::read(stmt, i)?),
+            Type::FLOAT => Value::float(Readable::read(stmt, i)?),
+            Type::INTEGER => Value::integer(Readable::read(stmt, i)?),
+            Type::NULL => Value::null(),
+            _ => return Err(Error::new(ffi::SQLITE_MISMATCH)),
         };
 
         Ok(value)
@@ -425,23 +466,23 @@ impl Readable for Value {
 
 impl Readable for f64 {
     #[inline]
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
-        Ok(unsafe { ffi::sqlite3_column_double(statement.raw.as_ptr(), i as c_int) })
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
+        Ok(unsafe { ffi::sqlite3_column_double(stmt.raw.as_ptr(), i as c_int) })
     }
 }
 
 impl Readable for i64 {
     #[inline]
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
-        Ok(unsafe { ffi::sqlite3_column_int64(statement.raw.as_ptr(), i as c_int) })
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
+        Ok(unsafe { ffi::sqlite3_column_int64(stmt.raw.as_ptr(), i as c_int) })
     }
 }
 
 impl Readable for String {
     #[inline]
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
         unsafe {
-            let pointer = ffi::sqlite3_column_text(statement.raw.as_ptr(), i as c_int);
+            let pointer = ffi::sqlite3_column_text(stmt.raw.as_ptr(), i as c_int);
 
             if pointer.is_null() {
                 return Err(Error::new(ffi::SQLITE_MISMATCH));
@@ -454,15 +495,15 @@ impl Readable for String {
 
 impl Readable for Vec<u8> {
     #[inline]
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
         unsafe {
-            let pointer = ffi::sqlite3_column_blob(statement.raw.as_ptr(), i as c_int);
+            let pointer = ffi::sqlite3_column_blob(stmt.raw.as_ptr(), i as c_int);
 
             if pointer.is_null() {
                 return Ok(Vec::new());
             }
 
-            let count = ffi::sqlite3_column_bytes(statement.raw.as_ptr(), i as c_int) as usize;
+            let count = ffi::sqlite3_column_bytes(stmt.raw.as_ptr(), i as c_int) as usize;
             let mut buffer = Vec::with_capacity(count);
             ptr::copy_nonoverlapping(pointer as *const u8, buffer.as_mut_ptr(), count);
             buffer.set_len(count);
@@ -548,7 +589,7 @@ impl<const N: usize> FixedBytes<N> {
 
 impl<const N: usize> Readable for FixedBytes<N> {
     #[inline]
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
         let mut bytes = FixedBytes {
             // SAFETY: this is safe as per `MaybeUninit::uninit_array`, which isn't stable (yet).
             data: unsafe { MaybeUninit::<[MaybeUninit<u8>; N]>::uninit().assume_init() },
@@ -556,13 +597,13 @@ impl<const N: usize> Readable for FixedBytes<N> {
         };
 
         unsafe {
-            let pointer = ffi::sqlite3_column_blob(statement.raw.as_ptr(), i as c_int);
+            let pointer = ffi::sqlite3_column_blob(stmt.raw.as_ptr(), i as c_int);
 
             if pointer.is_null() {
                 return Ok(bytes);
             }
 
-            let count = ffi::sqlite3_column_bytes(statement.raw.as_ptr(), i as c_int) as usize;
+            let count = ffi::sqlite3_column_bytes(stmt.raw.as_ptr(), i as c_int) as usize;
             let copied = usize::min(N, count);
 
             ptr::copy_nonoverlapping(
@@ -582,17 +623,17 @@ where
     T: Readable,
 {
     #[inline]
-    fn read(statement: &Statement, i: usize) -> Result<Self> {
-        if statement.column_type(i) == Type::Null {
+    fn read(stmt: &Statement, i: usize) -> Result<Self> {
+        if stmt.column_type(i) == Type::NULL {
             Ok(None)
         } else {
-            T::read(statement, i).map(Some)
+            T::read(stmt, i).map(Some)
         }
     }
 }
 
 pub struct ColumnNames<'a> {
-    statement: &'a Statement,
+    stmt: &'a Statement,
     start: usize,
     end: usize,
 }
@@ -605,7 +646,7 @@ impl<'a> Iterator for ColumnNames<'a> {
             return None;
         }
 
-        let name = self.statement.column_name(self.start).ok()?;
+        let name = self.stmt.column_name(self.start).ok()?;
         self.start += 1;
         Some(name)
     }
@@ -624,7 +665,7 @@ impl<'a> DoubleEndedIterator for ColumnNames<'a> {
         }
 
         self.end -= 1;
-        let name = self.statement.column_name(self.end).ok()?;
+        let name = self.stmt.column_name(self.end).ok()?;
         Some(name)
     }
 }
