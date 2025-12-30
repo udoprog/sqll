@@ -78,7 +78,7 @@ let expected = vec![
 assert_eq!(results, expected);
 ```
 
-[`Prepare::PERSISTENT`]: enum.Prepare.html#variant.PERSISTENT
-[calling `execute`]: struct.Connection.html#method.execute
+[`Prepare::PERSISTENT`]: https://docs.rs/sqlite-ll/latest/sqlite_ll/struct.Prepare.html#associatedconstant.PERSISTENT
+[calling `execute`]: https://docs.rs/sqlite-ll/latest/sqlite_ll/struct.Connection.html#method.execute
 [sqlite crate]: https://github.com/stainless-steel/sqlite
 [SQLite]: https://www.sqlite.org

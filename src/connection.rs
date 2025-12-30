@@ -90,13 +90,38 @@ pub struct Connection {
 unsafe impl Send for Connection {}
 
 impl Connection {
-    /// Open a read-write connection to a new or existing database.
+    /// Open a database to the given path.
+    ///
+    /// Note that it is possible to open an in-memory database by passing
+    /// `":memory:"` here, this call might require allocating depending on the
+    /// platform, so it should be avoided in favor of using [`memory`]. To avoid
+    /// allocating for regular paths, you can use [`open_c_str`], however you
+    /// are responsible for ensuring the c-string is a valid path.
+    ///
+    /// [`memory`]: Self::memory
+    /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, cfg(feature = "std"))]
+    #[inline]
     pub fn open(path: impl AsRef<Path>) -> Result<Connection> {
         OpenOptions::new().set_create().set_read_write().open(path)
     }
 
+    /// Open a database connection with a raw c-string.
+    ///
+    /// This can be used to open in-memory databases by passing `c":memory:"` or
+    /// a regular open call with a filesystem path like
+    /// `c"/path/to/database.sql"`.
+    #[inline]
+    pub fn open_c_str(name: &CStr) -> Result<Connection> {
+        OpenOptions::new()
+            .set_create()
+            .set_read_write()
+            .open_c_str(name)
+    }
+
     /// Open an in-memory database.
+    #[inline]
     pub fn memory() -> Result<Connection> {
         OpenOptions::new().set_create().set_read_write().memory()
     }
@@ -104,8 +129,10 @@ impl Connection {
     /// Execute a statement without processing the resulting rows if any.
     #[inline]
     pub fn execute(&self, stmt: impl AsRef<str>) -> Result<()> {
-        let stmt = stmt.as_ref();
+        self._execute(stmt.as_ref())
+    }
 
+    fn _execute(&self, stmt: &str) -> Result<()> {
         unsafe {
             let mut ptr = stmt.as_ptr().cast();
             let mut len = stmt.len();
@@ -402,29 +429,46 @@ impl OpenOptions {
         Self::default()
     }
 
-    /// Open a database connection with current flags.
+    /// Open a database to the given path.
     ///
-    /// `path` can be a filesystem path, or `:memory:` to construct an in-memory
-    /// database.
+    /// Note that it is possible to open an in-memory database by passing
+    /// `":memory:"` here, this call might require allocating depending on the
+    /// platform, so it should be avoided in favor of using [`memory`]. To avoid
+    /// allocating for regular paths, you can use [`open_c_str`], however you
+    /// are responsible for ensuring the c-string is a valid path.
+    ///
+    /// [`memory`]: Self::memory
+    /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, cfg(feature = "std"))]
     pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
         let path = crate::utils::path_to_cstring(path.as_ref())?;
         self._open(&path)
     }
 
-    /// Open an in-memory database connection with current flags.
+    /// Open a database connection with a raw c-string.
+    ///
+    /// This can be used to open in-memory databases by passing `c":memory:"` or
+    /// a regular open call with a filesystem path like
+    /// `c"/path/to/database.sql"`.
+    pub fn open_c_str(&self, name: &CStr) -> Result<Connection> {
+        self._open(name)
+    }
+
+    /// Open an in-memory database.
     pub fn memory(&self) -> Result<Connection> {
         self._open(c":memory:")
     }
 
-    fn _open(&self, path: &CStr) -> Result<Connection> {
+    fn _open(&self, name: &CStr) -> Result<Connection> {
         unsafe {
             let mut raw = MaybeUninit::uninit();
-            let code = ffi::sqlite3_open_v2(path.as_ptr(), raw.as_mut_ptr(), self.raw, ptr::null());
+
+            let code = ffi::sqlite3_open_v2(name.as_ptr(), raw.as_mut_ptr(), self.raw, ptr::null());
+
             let raw = raw.assume_init();
 
             if code != ffi::SQLITE_OK {
-                let code = ffi::sqlite3_errcode(raw);
                 ffi::sqlite3_close(raw);
                 return Err(Error::new(code));
             }

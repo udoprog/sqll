@@ -8,9 +8,9 @@ use std::path::Path;
 use sqlite3_sys as ffi;
 
 #[cfg(feature = "std")]
-use crate::error::Result;
+use crate::error::{Error, Result};
 
-/// Helper to run sqlite3 statement.
+/// Helper to evaluate sqlite3 statements.
 macro_rules! __sqlite3_try {
     ($expr:expr) => {{
         let code = $expr;
@@ -24,28 +24,13 @@ macro_rules! __sqlite3_try {
 pub(crate) use __sqlite3_try as sqlite3_try;
 
 #[cfg(feature = "std")]
-#[cfg(unix)]
 pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    let p: &OsStr = p.as_ref();
-
-    match CString::new(p.as_bytes()) {
-        Ok(string) => Ok(string),
-        Err(..) => Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
-    }
-}
-
-#[cfg(feature = "std")]
-#[cfg(not(unix))]
-pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
-    let s = match p.to_str() {
-        Some(s) => s,
-        None => return Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
+    let Some(bytes) = p.to_str() else {
+        return Err(Error::new(ffi::SQLITE_MISUSE));
     };
 
-    match CString::new(s.as_bytes()) {
+    match CString::new(bytes) {
         Ok(string) => Ok(string),
-        Err(..) => Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
+        Err(..) => Err(Error::new(ffi::SQLITE_MISUSE)),
     }
 }

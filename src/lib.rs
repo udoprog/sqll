@@ -84,13 +84,14 @@
 //! # Ok::<_, sqlite_ll::Error>(())
 //! ```
 //!
-//! [`Prepare::PERSISTENT`]: enum.Prepare.html#variant.PERSISTENT
-//! [calling `execute`]: struct.Connection.html#method.execute
+//! [`Prepare::PERSISTENT`]: https://docs.rs/sqlite-ll/latest/sqlite_ll/struct.Prepare.html#associatedconstant.PERSISTENT
+//! [calling `execute`]: https://docs.rs/sqlite-ll/latest/sqlite_ll/struct.Connection.html#method.execute
 //! [sqlite crate]: https://github.com/stainless-steel/sqlite
 //! [SQLite]: https://www.sqlite.org
 
 #![no_std]
 #![allow(clippy::should_implement_trait)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "std")]
 extern crate std;
