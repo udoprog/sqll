@@ -58,7 +58,7 @@
 //! #     INSERT INTO users VALUES ('Bob', 69);
 //! #     ",
 //! # )?;
-//! c.iterate("SELECT * FROM users WHERE age > 50", |pairs| {
+//! c.iterate(c"SELECT * FROM users WHERE age > 50", |pairs| {
 //!     for &(column, value) in pairs.iter() {
 //!         println!("{} = {}", column, value.unwrap());
 //!     }

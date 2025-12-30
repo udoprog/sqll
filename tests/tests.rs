@@ -46,7 +46,7 @@ fn connection_iterate() -> sqlite_ll::Result<()> {
     let connection = setup_users(":memory:")?;
 
     let mut done = false;
-    let statement = "SELECT * FROM users";
+    let statement = c"SELECT * FROM users";
     connection.iterate(statement, |pairs| {
         assert_eq!(pairs.len(), 5);
         assert_eq!(pairs[0], pair!("id", "1"));
@@ -158,12 +158,12 @@ fn statement_bind_by_name() -> sqlite_ll::Result<()> {
     let s = "INSERT INTO users VALUES (:id, :name, :age, :photo, :email)";
     let mut s = connection.prepare(s)?;
 
-    s.bind_by_name(":id", 2i64)?;
-    s.bind_by_name(":name", "Bob")?;
-    s.bind_by_name(":age", 69.42)?;
-    s.bind_by_name(":photo", &[0x69u8, 0x42u8][..])?;
-    s.bind_by_name(":email", ())?;
-    assert!(s.bind_by_name(":missing", 404).is_err());
+    s.bind_by_name(c":id", 2i64)?;
+    s.bind_by_name(c":name", "Bob")?;
+    s.bind_by_name(c":age", 69.42)?;
+    s.bind_by_name(c":photo", &[0x69u8, 0x42u8][..])?;
+    s.bind_by_name(c":email", ())?;
+    assert!(s.bind_by_name(c":missing", 404).is_err());
     assert_eq!(s.step()?, State::Done);
     Ok(())
 }
@@ -218,15 +218,15 @@ fn statement_parameter_index() -> sqlite_ll::Result<()> {
     let statement = "INSERT INTO users VALUES (:id, :name, :age, :photo, :email)";
     let mut statement = connection.prepare(statement)?;
 
-    statement.bind(statement.parameter_index(":id")?.unwrap(), 2)?;
-    statement.bind(statement.parameter_index(":name")?.unwrap(), "Bob")?;
-    statement.bind(statement.parameter_index(":age")?.unwrap(), 69.42)?;
+    statement.bind(statement.parameter_index(c":id").unwrap(), 2)?;
+    statement.bind(statement.parameter_index(c":name").unwrap(), "Bob")?;
+    statement.bind(statement.parameter_index(c":age").unwrap(), 69.42)?;
     statement.bind(
-        statement.parameter_index(":photo")?.unwrap(),
+        statement.parameter_index(c":photo").unwrap(),
         &[0x69u8, 0x42u8][..],
     )?;
-    statement.bind(statement.parameter_index(":email")?.unwrap(), ())?;
-    assert_eq!(statement.parameter_index(":missing")?, None);
+    statement.bind(statement.parameter_index(c":email").unwrap(), ())?;
+    assert_eq!(statement.parameter_index(c":missing"), None);
     assert_eq!(statement.step()?, State::Done);
     Ok(())
 }

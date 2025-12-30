@@ -1,18 +1,18 @@
 use core::ffi::CStr;
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::mem::MaybeUninit;
 use core::ptr;
 use core::ptr::NonNull;
 
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 
 #[cfg(feature = "std")]
 use std::path::Path;
 
+use crate::State;
 use crate::error::{Error, Result};
 use crate::statement::Statement;
-use crate::utils::{self, sqlite3_try};
+use crate::utils::sqlite3_try;
 
 use sqlite3_sys as ffi;
 
@@ -40,55 +40,77 @@ impl Connection {
     /// Execute a statement without processing the resulting rows if any.
     #[inline]
     pub fn execute(&self, statement: impl AsRef<str>) -> Result<()> {
-        unsafe {
-            sqlite3_try! {
-                self.raw.as_ptr(),
-                ffi::sqlite3_exec(
-                    self.raw.as_ptr(),
-                    utils::string_to_cstring(statement.as_ref())?.as_ptr(),
-                    None,
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                )
-            };
-        }
+        let statement = statement.as_ref();
 
-        Ok(())
+        unsafe {
+            let mut ptr = statement.as_ptr().cast();
+            let mut len = statement.len();
+
+            while len > 0 {
+                let mut raw = MaybeUninit::uninit();
+                let mut rest = MaybeUninit::uninit();
+
+                let l = i32::try_from(len).unwrap_or(i32::MAX);
+
+                let res = ffi::sqlite3_prepare_v3(
+                    self.raw.as_ptr(),
+                    ptr,
+                    l,
+                    0,
+                    raw.as_mut_ptr(),
+                    rest.as_mut_ptr(),
+                );
+
+                if res != ffi::SQLITE_OK {
+                    return Err(Error::new(ffi::sqlite3_errcode(self.raw.as_ptr())));
+                }
+
+                let rest = rest.assume_init();
+
+                // If statement is null then it's simply empty, so we can safely
+                // skip it, otherwise iterate over all rows.
+                if let Some(raw) = NonNull::new(raw.assume_init()) {
+                    let mut statement = Statement::from_raw(raw);
+                    while let State::Row = statement.step()? {}
+                }
+
+                // Skip over empty statements.
+                let o = rest.offset_from_unsigned(ptr);
+                len -= o;
+                ptr = rest;
+            }
+
+            Ok(())
+        }
     }
 
-    /// Execute a statement and process the resulting rows as plain text.
+    /// Build a prepared statement.
     ///
-    /// The callback is triggered for each row. If the callback returns `false`,
-    /// no more rows will be processed. For large queries and non-string data
-    /// types, prepared statement are highly preferable; see `prepare`.
-    #[inline]
-    pub fn iterate<F>(&self, statement: impl AsRef<str>, mut callback: F) -> Result<()>
-    where
-        F: FnMut(&[(&str, Option<&str>)]) -> bool,
-    {
-        unsafe {
-            sqlite3_try! {
-                self.raw.as_ptr(),
-                ffi::sqlite3_exec(
-                    self.raw.as_ptr(),
-                    utils::string_to_cstring(statement.as_ref())?.as_ptr(),
-                    Some(process_callback::<F>),
-                    &mut callback as *mut F as *mut _,
-                    ptr::null_mut(),
-                )
-            };
-        }
-
-        Ok(())
-    }
-
-    /// Create a prepared statement.
+    /// By default, this has the `Prepare::PERSISTENT` flag set.
     ///
     /// The database connection will be kept open for the lifetime of this
     /// statement.
     #[inline]
     pub fn prepare(&self, statement: impl AsRef<str>) -> Result<Statement> {
-        Statement::new(self.raw.as_ptr(), statement)
+        let mut raw = MaybeUninit::uninit();
+        let statement = statement.as_ref();
+
+        unsafe {
+            sqlite3_try! {
+                self.raw.as_ptr(),
+                ffi::sqlite3_prepare_v3(
+                    self.raw.as_ptr(),
+                    statement.as_ptr().cast(),
+                    statement.len() as c_int,
+                    ffi::SQLITE_PREPARE_PERSISTENT as c_uint,
+                    raw.as_mut_ptr(),
+                    ptr::null_mut(),
+                )
+            };
+
+            let raw = ptr::NonNull::new_unchecked(raw.assume_init());
+            return Ok(Statement::from_raw(raw));
+        }
     }
 
     /// Return the number of rows inserted, updated, or deleted by the most
@@ -277,47 +299,6 @@ where
             1
         } else {
             0
-        }
-    }
-}
-
-// TODO: remove unwraps.
-extern "C" fn process_callback<F>(
-    callback: *mut c_void,
-    count: c_int,
-    values: *mut *mut c_char,
-    columns: *mut *mut c_char,
-) -> c_int
-where
-    F: FnMut(&[(&str, Option<&str>)]) -> bool,
-{
-    unsafe {
-        let mut pairs = Vec::with_capacity(count as usize);
-
-        for i in 0..(count as isize) {
-            let column = {
-                let pointer = *columns.offset(i);
-                debug_assert!(!pointer.is_null());
-                utils::cstr_to_str(pointer).unwrap()
-            };
-
-            let value = {
-                let pointer = *values.offset(i);
-
-                if pointer.is_null() {
-                    None
-                } else {
-                    Some(utils::cstr_to_str(pointer).unwrap())
-                }
-            };
-
-            pairs.push((column, value));
-        }
-
-        if (*(callback as *mut F))(&pairs) {
-            0
-        } else {
-            1
         }
     }
 }

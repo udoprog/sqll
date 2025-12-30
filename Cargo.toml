@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "Low-level interface to the SQLite database"
 documentation = "https://docs.rs/sqlite-ll"

@@ -1,5 +1,5 @@
 use core::error;
-use core::ffi::{c_int, CStr};
+use core::ffi::{CStr, c_int};
 use core::fmt;
 
 /// A result type.

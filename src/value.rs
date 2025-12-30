@@ -7,11 +7,18 @@ use alloc::vec::Vec;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Type {
+    /// The blob type.
     Blob,
+    /// The text type.
     Text,
+    /// The floating-point type.
     Float,
+    /// The integer type.
     Integer,
+    /// The null type.
     Null,
+    /// The variant used if a column type is unknown.
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq)]

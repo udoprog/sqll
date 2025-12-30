@@ -1,7 +1,5 @@
-use core::ffi::c_char;
 use core::ffi::CStr;
-
-use alloc::ffi::CString;
+use core::ffi::c_char;
 
 #[cfg(feature = "std")]
 use std::path::Path;
@@ -15,7 +13,7 @@ macro_rules! __sqlite3_try {
     ($c:expr, $expr:expr) => {
         if $expr != ::sqlite3_sys::SQLITE_OK {
             let code = ::sqlite3_sys::sqlite3_errcode($c);
-            return Err(crate::error::Error::new(code));
+            return Err($crate::error::Error::new(code));
         }
     };
 }
@@ -24,20 +22,11 @@ pub(crate) use __sqlite3_try as sqlite3_try;
 
 /// Convert a c-string into a rust string.
 pub(crate) unsafe fn cstr_to_str<'a>(s: *const c_char) -> Result<&'a str> {
-    match CStr::from_ptr(s).to_str() {
-        Ok(s) => Ok(s),
-        Err(..) => Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
-    }
-}
-
-/// Convert a rust string into a c-string.
-///
-/// This needs to allocate in order to append a null character at the end of the
-/// string.
-pub(crate) fn string_to_cstring(s: &str) -> Result<CString> {
-    match CString::new(s) {
-        Ok(string) => Ok(string),
-        _ => Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
+    unsafe {
+        match CStr::from_ptr(s).to_str() {
+            Ok(s) => Ok(s),
+            Err(..) => Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
+        }
     }
 }
 

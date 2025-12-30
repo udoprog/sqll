@@ -1,4 +1,4 @@
-use core::ffi::{c_char, c_double, c_int};
+use core::ffi::{CStr, c_char, c_double, c_int};
 use core::mem::MaybeUninit;
 use core::ptr;
 use core::slice;
@@ -49,28 +49,10 @@ pub trait Readable: Sized {
 }
 
 impl Statement {
-    /// Construct a new statement.
+    /// Construct a statement from a raw pointer.
     #[inline]
-    pub(crate) fn new(handle: *mut ffi::sqlite3, statement: impl AsRef<str>) -> Result<Statement> {
-        let mut raw = MaybeUninit::uninit();
-        let statement = statement.as_ref();
-
-        unsafe {
-            sqlite3_try! {
-                handle,
-                ffi::sqlite3_prepare_v2(
-                    handle,
-                    statement.as_bytes().as_ptr() as *const _,
-                    statement.len() as c_int,
-                    raw.as_mut_ptr(),
-                    ptr::null_mut(),
-                )
-            };
-        }
-
-        Ok(Statement {
-            raw: unsafe { ptr::NonNull::new_unchecked(raw.assume_init()) },
-        })
+    pub(crate) fn from_raw(raw: ptr::NonNull<ffi::sqlite3_stmt>) -> Statement {
+        Statement { raw }
     }
 
     /// Bind a value to a parameter by index.
@@ -89,11 +71,11 @@ impl Statement {
     /// # let connection = sqlite_ll::Connection::open(":memory:")?;
     /// # connection.execute("CREATE TABLE users (name STRING)");
     /// let mut statement = unsafe { connection.prepare("SELECT * FROM users WHERE name = :name")? };
-    /// statement.bind_by_name(":name", "Bob")?;
+    /// statement.bind_by_name(c":name", "Bob")?;
     /// # Ok::<(), sqlite_ll::Error>(())
     /// ```
-    pub fn bind_by_name<T: Bindable>(&mut self, name: &str, value: T) -> Result<()> {
-        if let Some(i) = self.parameter_index(name)? {
+    pub fn bind_by_name(&mut self, name: impl AsRef<CStr>, value: impl Bindable) -> Result<()> {
+        if let Some(i) = self.parameter_index(name) {
             self.bind(i, value)?;
             Ok(())
         } else {
@@ -112,7 +94,12 @@ impl Statement {
     /// The first column has index 0.
     #[inline]
     pub fn column_name(&self, i: usize) -> Result<&str> {
-        debug_assert!(i < self.column_count(), "the index is out of range");
+        debug_assert!(
+            i < self.column_count(),
+            "the index is out of bounds 0..{}",
+            self.column_count()
+        );
+
         unsafe {
             let pointer = ffi::sqlite3_column_name(self.raw.as_ptr(), i as c_int);
 
@@ -138,7 +125,11 @@ impl Statement {
     ///
     /// The first column has index 0. The type becomes available after taking a step.
     pub fn column_type(&self, i: usize) -> Type {
-        debug_assert!(i < self.column_count(), "the index is out of range");
+        debug_assert!(
+            i < self.column_count(),
+            "the index is out of bounds 0..{}",
+            self.column_count()
+        );
 
         match unsafe { ffi::sqlite3_column_type(self.raw.as_ptr(), i as c_int) } {
             ffi::SQLITE_BLOB => Type::Blob,
@@ -146,7 +137,7 @@ impl Statement {
             ffi::SQLITE_INTEGER => Type::Integer,
             ffi::SQLITE_TEXT => Type::Text,
             ffi::SQLITE_NULL => Type::Null,
-            _ => unreachable!(),
+            _ => Type::Unknown,
         }
     }
 
@@ -170,28 +161,29 @@ impl Statement {
 
     /// Return the index for a named parameter if exists.
     ///
+    /// Note that this takes a c-string as the parameter name since that is what
+    /// the underlying API expects. To accomodate this, you can make use of the
+    /// `c"string"` syntax.
+    ///
     /// # Examples
     ///
     /// ```
     /// # let connection = sqlite_ll::Connection::open(":memory:")?;
     /// # connection.execute("CREATE TABLE users (name STRING)");
     /// let statement = unsafe { connection.prepare("SELECT * FROM users WHERE name = :name")? };
-    /// assert_eq!(statement.parameter_index(":name")?, Some(1));
-    /// assert_eq!(statement.parameter_index(":asdf")?, None);
+    /// assert_eq!(statement.parameter_index(c":name"), Some(1));
+    /// assert_eq!(statement.parameter_index(c":asdf"), None);
     /// # Ok::<(), sqlite_ll::Error>(())
     /// ```
     #[inline]
-    pub fn parameter_index(&self, parameter: &str) -> Result<Option<usize>> {
+    pub fn parameter_index(&self, parameter: impl AsRef<CStr>) -> Option<usize> {
         let index = unsafe {
-            ffi::sqlite3_bind_parameter_index(
-                self.raw.as_ptr(),
-                utils::string_to_cstring(parameter)?.as_ptr(),
-            )
+            ffi::sqlite3_bind_parameter_index(self.raw.as_ptr(), parameter.as_ref().as_ptr())
         };
 
         match index {
-            0 => Ok(None),
-            _ => Ok(Some(index as usize)),
+            0 => None,
+            _ => Some(index as usize),
         }
     }
 
@@ -199,12 +191,57 @@ impl Statement {
     ///
     /// The first column has index 0.
     #[inline]
-    pub fn read<T: Readable>(&self, i: usize) -> Result<T> {
-        debug_assert!(i < self.column_count(), "the index is out of range");
+    pub fn read<T>(&self, i: usize) -> Result<T>
+    where
+        T: Readable,
+    {
+        debug_assert!(
+            i < self.column_count(),
+            "the index is out of bounds 0..{}",
+            self.column_count()
+        );
         Readable::read(self, i)
     }
 
-    /// Reset the statement.
+    /// Reset the statement allowing it to be re-used.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::{Connection, State};
+    ///
+    /// let connection = Connection::memory()?;
+    ///
+    /// connection.execute(
+    ///     "
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    ///     ",
+    /// )?;
+    ///
+    /// let mut stmt = connection.prepare("SELECT * FROM users WHERE age > ?")?;
+    ///
+    /// let mut results = Vec::new();
+    ///
+    /// for age in [30, 50] {
+    ///     stmt.reset()?;
+    ///     stmt.bind(1, age)?;
+    ///
+    ///     while let State::Row = stmt.step()? {
+    ///         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    ///     }
+    /// }
+    ///
+    /// let expected = vec![
+    ///     (String::from("Alice"), 72),
+    ///     (String::from("Bob"), 40),
+    ///     (String::from("Alice"), 72),
+    /// ];
+    ///
+    /// assert_eq!(results, expected);
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
     #[inline]
     pub fn reset(&mut self) -> Result<()> {
         unsafe { ffi::sqlite3_reset(self.raw.as_ptr()) };
@@ -349,13 +386,16 @@ where
 
 impl Readable for Value {
     fn read(statement: &Statement, i: usize) -> Result<Self> {
-        Ok(match statement.column_type(i) {
+        let value = match statement.column_type(i) {
             Type::Blob => Value::blob(Readable::read(statement, i)?),
             Type::Text => Value::text(Readable::read(statement, i)?),
             Type::Float => Value::float(Readable::read(statement, i)?),
             Type::Integer => Value::integer(Readable::read(statement, i)?),
             Type::Null => Value::null(),
-        })
+            Type::Unknown => return Err(Error::new(ffi::SQLITE_MISMATCH)),
+        };
+
+        Ok(value)
     }
 }
 
