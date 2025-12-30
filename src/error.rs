@@ -129,6 +129,11 @@ impl Error {
         Self { code: Code(code) }
     }
 
+    /// Construct a new error from the specified code.
+    pub(crate) fn from_code(code: Code) -> Self {
+        Self { code }
+    }
+
     /// The error code that caused this error.
     pub fn code(&self) -> Code {
         self.code

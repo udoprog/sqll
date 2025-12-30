@@ -5,13 +5,12 @@ use core::ops::BitOr;
 use core::ptr;
 use core::ptr::NonNull;
 
-use alloc::boxed::Box;
-
 #[cfg(feature = "std")]
 use std::path::Path;
 
 use crate::State;
 use crate::error::{Error, Result};
+use crate::owned::Owned;
 use crate::statement::Statement;
 use crate::utils::sqlite3_try;
 
@@ -60,7 +59,7 @@ impl BitOr for Prepare {
 /// A SQLite database connection.
 pub struct Connection {
     raw: NonNull<ffi::sqlite3>,
-    busy_callback: Option<Box<dyn FnMut(usize) -> bool>>,
+    busy_callback: Option<Owned>,
 }
 
 /// Connection is `Send`.
@@ -304,12 +303,12 @@ impl Connection {
         self.remove_busy_handler()?;
 
         unsafe {
-            let mut callback = Box::new(callback);
+            let callback = Owned::new(callback)?;
 
             let result = ffi::sqlite3_busy_handler(
                 self.raw.as_ptr(),
                 Some(busy_callback::<F>),
-                callback.as_mut() as *const F as *mut F as *mut _,
+                callback.as_ptr().cast(),
             );
 
             self.busy_callback = Some(callback);

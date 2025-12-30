@@ -61,25 +61,25 @@ fn connection_set_busy_handler() -> Result<()> {
 
     setup_users(&path)?;
 
-    let guards = (0..100)
-        .map(|_| {
-            let path = path.to_path_buf();
+    let mut guards = Vec::with_capacity(100);
 
-            thread::spawn(move || {
-                let mut connection = Connection::open(path)?;
-                connection.set_busy_handler(|_| true)?;
-                let statement = "INSERT INTO users VALUES (?, ?, ?, ?, ?)";
-                let mut statement = connection.prepare(statement)?;
-                statement.bind(1, 2i64)?;
-                statement.bind(2, "Bob")?;
-                statement.bind(3, 69.42)?;
-                statement.bind(4, &[0x69u8, 0x42u8][..])?;
-                statement.bind(5, ())?;
-                assert_eq!(statement.step()?, State::Done);
-                Ok::<_, sqlite_ll::Error>(true)
-            })
-        })
-        .collect::<Vec<_>>();
+    for _ in 0..100 {
+        let path = path.to_path_buf();
+
+        guards.push(thread::spawn(move || {
+            let mut connection = Connection::open(path)?;
+            connection.set_busy_handler(|_| true)?;
+            let statement = "INSERT INTO users VALUES (?, ?, ?, ?, ?)";
+            let mut statement = connection.prepare(statement)?;
+            statement.bind(1, 2i64)?;
+            statement.bind(2, "Bob")?;
+            statement.bind(3, 69.42)?;
+            statement.bind(4, &[0x69u8, 0x42u8][..])?;
+            statement.bind(5, ())?;
+            assert_eq!(statement.step()?, State::Done);
+            Ok::<_, sqlite_ll::Error>(true)
+        }));
+    }
 
     for guard in guards {
         assert!(guard.join().unwrap()?);

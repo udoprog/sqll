@@ -99,6 +99,7 @@ compile_error!("The `alloc` feature must be enabled to use this crate.");
 mod bytes;
 mod connection;
 mod error;
+mod owned;
 mod statement;
 mod utils;
 mod value;
