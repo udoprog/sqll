@@ -269,6 +269,15 @@ impl Connection {
 
     /// Get the last error message for this connection.
     ///
+    /// When operating in multi-threaded environment, the error message seen
+    /// here might not correspond to the query that failed unless some kind of
+    /// external synchronization is in use which is the recommended way to use
+    /// sqlite.
+    ///
+    /// This is only meaningful if an error has occured. If no errors have
+    /// occured, this returns a non-erronous message like `"not an error"`
+    /// (default for sqlite3).
+    ///
     /// # Examples
     ///
     /// ```
@@ -291,11 +300,14 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn error_message(&self) -> &str {
+        // NB: This is the same message as set by sqlite.
+        static DEFAULT_MESSAGE: &str = "not an error";
+
         unsafe {
             let msg_ptr = ffi::sqlite3_errmsg(self.raw.as_ptr());
 
             if msg_ptr.is_null() {
-                return "";
+                return DEFAULT_MESSAGE;
             }
 
             let c_str = CStr::from_ptr(msg_ptr);
