@@ -1,4 +1,4 @@
-pub(crate) use sqlite3_sys::*;
+pub(crate) use sqll_sys::*;
 
 /// Helper to evaluate sqlite3 statements.
 macro_rules! __sqlite3_try {

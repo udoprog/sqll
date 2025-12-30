@@ -5,7 +5,7 @@ authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.91"
 description = "Usable low-level interface to sqlite that doesn't get in your way"
 documentation = "https://docs.rs/sqll"
 readme = "README.md"
@@ -13,16 +13,17 @@ homepage = "https://github.com/udoprog/sqll"
 repository = "https://github.com/udoprog/sqll"
 license = "MIT OR Apache-2.0"
 keywords = ["database"]
-categories = ["api-bindings", "database"]
+categories = ["api-bindings", "database", "sqlite"]
 
 [features]
-default = ["alloc", "bundled"]
+default = ["std"]
 std = ["alloc"]
 alloc = []
-bundled = ["sqlite3-sys/linkage"]
+bundled = ["sqll-sys/bundled"]
 
-[dependencies.sqlite3-sys]
-version = "0.18.0"
+[dependencies.sqll-sys]
+version = "0.1.3"
+path = "sqll-sys"
 default-features = false
 
 [dev-dependencies]
@@ -39,3 +40,7 @@ harness = false
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[workspace]
+members = ["sqll-sys", "tools"]
+exclude = ["tools"]

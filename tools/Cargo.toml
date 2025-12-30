@@ -1,0 +1,9 @@
+[package]
+name = "tools"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+bindgen = "0.72.1"
+clap = { version = "4.0", features = ["derive"] }

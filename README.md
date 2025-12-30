@@ -20,6 +20,16 @@ been copied under the MIT license.
 
 <br>
 
+## Features
+
+* `std` - Enable usage of the Rust standard library. Enabled by default.
+* `alloc` - Enable usage of the Rust alloc library. This is required and is
+  enabled by default. Disabling this option will currently cause a compile
+  error.
+* `bundled` - Use a bundled version of sqlite. The bundle is provided by the
+  [`sqll-sys`] crate and the sqlite version used is part of the build
+  metadata of that crate.
+
 ## Why do we need another sqlite interface?
 
 It is difficult to set up and use prepared statements with existing crates,
@@ -108,6 +118,7 @@ assert_eq!(results, expected);
 [`axum`]: https://docs.rs/axum
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
+[`sqll-sys`]: https://crates.io/crates/sqll-sys
 [calling `execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 [sqlite crate]: https://github.com/stainless-steel/sqlite
 [SQLite]: https://www.sqlite.org
