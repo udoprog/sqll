@@ -5,8 +5,7 @@ use core::str;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use sqlite3_sys as ffi;
-
+use crate::ffi;
 use crate::{Error, Result, Statement};
 
 mod sealed {

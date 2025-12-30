@@ -110,11 +110,11 @@ mod bindable;
 mod bytes;
 mod connection;
 mod error;
+mod ffi;
 mod fixed_bytes;
 mod owned;
 mod readable;
 mod statement;
-mod utils;
 mod value;
 mod writable;
 
@@ -140,5 +140,5 @@ pub use self::writable::Writable;
 /// For instance, the version `3.8.11.1` corresponds to the integer `3008011`.
 #[inline]
 pub fn version() -> u64 {
-    unsafe { sqlite3_sys::sqlite3_libversion_number() as u64 }
+    unsafe { crate::ffi::sqlite3_libversion_number() as u64 }
 }

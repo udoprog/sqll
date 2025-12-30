@@ -3,9 +3,8 @@ use core::ffi::{c_int, c_void};
 use core::mem::{align_of, size_of};
 use core::ptr::dangling_mut;
 
-use sqlite3_sys as ffi;
-
 use crate::error::{Error, Result};
+use crate::ffi;
 
 #[cfg(test)]
 mod tests;

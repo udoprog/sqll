@@ -4,8 +4,7 @@ use core::ptr;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use sqlite3_sys as ffi;
-
+use crate::ffi;
 use crate::{Error, FixedBytes, Null, Result, Statement, Type, Value, Writable};
 
 mod sealed {

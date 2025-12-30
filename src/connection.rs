@@ -10,11 +10,9 @@ use std::path::Path;
 
 use crate::State;
 use crate::error::{Error, Result};
+use crate::ffi::{self, sqlite3_try};
 use crate::owned::Owned;
 use crate::statement::Statement;
-use crate::utils::sqlite3_try;
-
-use sqlite3_sys as ffi;
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -418,7 +416,7 @@ impl Drop for Connection {
         // alive until all associated prepared statements have been closed since
         // we're using v2.
         let code = unsafe { ffi::sqlite3_close_v2(self.raw.as_ptr()) };
-        debug_assert_eq!(code, sqlite3_sys::SQLITE_OK);
+        debug_assert_eq!(code, ffi::SQLITE_OK);
     }
 }
 
@@ -557,20 +555,6 @@ impl OpenOptions {
         self
     }
 
-    /// The database connection comes up in "extended result code mode". In
-    /// other words, the database behaves as if
-    /// [`Connection::extended_result_codes`] were called on the database
-    /// connection as soon as the connection is created. In addition to setting
-    /// the extended result code mode, this flag also causes the [`open`] call
-    /// to return an extended result code.
-    ///
-    /// [`open`]: Self::open
-    #[inline]
-    pub fn extended_result_code(mut self) -> Self {
-        self.raw |= ffi::SQLITE_OPEN_EXRESCODE;
-        self
-    }
-
     /// The database filename is not allowed to contain a symbolic link.
     #[inline]
     pub fn no_follow(mut self) -> Self {
@@ -591,7 +575,23 @@ impl OpenOptions {
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
     pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
-        let path = crate::utils::path_to_cstring(path.as_ref())?;
+        use alloc::ffi::CString;
+
+        use crate::error::{Error, Result};
+        use crate::ffi;
+
+        pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
+            let Some(bytes) = p.to_str() else {
+                return Err(Error::new(ffi::SQLITE_MISUSE));
+            };
+
+            match CString::new(bytes) {
+                Ok(string) => Ok(string),
+                Err(..) => Err(Error::new(ffi::SQLITE_MISUSE)),
+            }
+        }
+
+        let path = path_to_cstring(path.as_ref())?;
         self._open(&path)
     }
 

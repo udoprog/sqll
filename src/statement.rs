@@ -4,8 +4,7 @@ use core::ops::Range;
 use core::ptr;
 use core::slice;
 
-use sqlite3_sys as ffi;
-
+use crate::ffi;
 use crate::{Bindable, Error, Readable, Result, Type, Writable};
 
 /// A marker type representing a NULL value.

@@ -16,10 +16,10 @@ keywords = ["database"]
 categories = ["api-bindings", "database"]
 
 [features]
-default = ["alloc", "linkage"]
+default = ["alloc", "bundled"]
 std = ["alloc"]
 alloc = []
-linkage = ["sqlite3-sys/linkage"]
+bundled = ["sqlite3-sys/linkage"]
 
 [dependencies.sqlite3-sys]
 version = "0.18.0"

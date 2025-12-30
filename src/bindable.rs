@@ -1,10 +1,8 @@
 use core::ffi::c_int;
 
-use sqlite3_sys as ffi;
-
 use crate::bytes;
 use crate::error::Result;
-use crate::utils::sqlite3_try;
+use crate::ffi::{self, sqlite3_try};
 use crate::value::Kind;
 use crate::{Null, Statement, Value};
 

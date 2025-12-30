@@ -4,7 +4,7 @@ use core::fmt;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use sqlite3_sys as ffi;
+use crate::ffi;
 
 /// The type of a value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
