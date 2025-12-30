@@ -199,25 +199,83 @@ impl Statement {
 
     /// Return the name of a column.
     ///
-    /// The first column has index 0.
+    /// If an invalid index is specified, `None` is returned.
+    ///
+    /// ```
+    /// use sqlite_ll::Connection;
+    ///
+    /// let c = Connection::memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    /// let stmt = c.prepare("SELECT * FROM users;")?;
+    ///
+    /// assert_eq!(stmt.column_name(0), Some("name"));
+    /// assert_eq!(stmt.column_name(1), Some("age"));
+    /// assert_eq!(stmt.column_name(2), None);
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::Connection;
+    ///
+    /// let c = Connection::memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    /// let stmt = c.prepare("SELECT * FROM users;")?;
+    ///
+    /// let cols = stmt.columns().collect::<Vec<_>>();
+    /// assert_eq!(cols, vec![0, 1]);
+    /// assert!(cols.iter().flat_map(|i| stmt.column_name(*i)).eq(["name", "age"]));
+    ///
+    /// let cols = stmt.columns().rev().collect::<Vec<_>>();
+    /// assert_eq!(cols, vec![1, 0]);
+    /// assert!(cols.iter().flat_map(|i| stmt.column_name(*i)).eq(["age", "name"]));
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
     #[inline]
-    pub fn column_name(&self, index: c_int) -> &str {
+    pub fn column_name(&self, index: c_int) -> Option<&str> {
         unsafe {
             let ptr = ffi::sqlite3_column_name(self.raw.as_ptr(), index);
 
             if ptr.is_null() {
-                return "";
+                return None;
             }
 
             for len in 0.. {
                 if ptr.add(len).read() == 0 {
                     let bytes = slice::from_raw_parts(ptr.cast(), len);
                     let s = str::from_utf8_unchecked(bytes);
-                    return s;
+                    return Some(s);
                 }
             }
 
-            ""
+            None
+        }
+    }
+
+    /// Return an iterator of columns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::Connection;
+    ///
+    /// let c = Connection::memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    /// let stmt = c.prepare("SELECT * FROM users;")?;
+    ///
+    /// let cols = stmt.columns().collect::<Vec<_>>();
+    /// assert_eq!(cols, vec![0, 1]);
+    ///
+    /// let cols = stmt.columns().rev().collect::<Vec<_>>();
+    /// assert_eq!(cols, vec![1, 0]);
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
+    #[inline]
+    pub fn columns(&self) -> Columns {
+        Columns {
+            start: 0,
+            end: self.column_count(),
         }
     }
 
@@ -232,8 +290,11 @@ impl Statement {
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
-    /// let column_names: Vec<&str> = stmt.column_names().into_iter().collect();
+    /// let column_names = stmt.column_names().collect::<Vec<_>>();
     /// assert_eq!(column_names, vec!["name", "age"]);
+    ///
+    /// let column_names = stmt.column_names().rev().collect::<Vec<_>>();
+    /// assert_eq!(column_names, vec!["age", "name"]);
     /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
@@ -986,6 +1047,9 @@ where
     }
 }
 
+/// An iterator over the column names of a statement.
+///
+/// See [`Statement::column_names`].
 pub struct ColumnNames<'a> {
     stmt: &'a Statement,
     start: c_int,
@@ -1002,7 +1066,7 @@ impl<'a> Iterator for ColumnNames<'a> {
 
         let name = self.stmt.column_name(self.start);
         self.start += 1;
-        Some(name)
+        name
     }
 }
 
@@ -1013,7 +1077,39 @@ impl<'a> DoubleEndedIterator for ColumnNames<'a> {
         }
 
         self.end -= 1;
-        let name = self.stmt.column_name(self.end);
-        Some(name)
+        self.stmt.column_name(self.end)
+    }
+}
+
+/// An iterator over the column names of a statement.
+///
+/// See [`Statement::columns`].
+pub struct Columns {
+    start: c_int,
+    end: c_int,
+}
+
+impl Iterator for Columns {
+    type Item = c_int;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.start >= self.end {
+            return None;
+        }
+
+        let index = self.start;
+        self.start += 1;
+        Some(index)
+    }
+}
+
+impl DoubleEndedIterator for Columns {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.start >= self.end {
+            return None;
+        }
+
+        self.end -= 1;
+        Some(self.end)
     }
 }
