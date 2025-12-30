@@ -6,10 +6,13 @@ use core::ptr;
 use core::ptr::NonNull;
 
 #[cfg(feature = "std")]
+use alloc::ffi::CString;
+
+#[cfg(feature = "std")]
 use std::path::Path;
 
 use crate::State;
-use crate::error::{Error, Result};
+use crate::error::{Code, Error, Result};
 use crate::ffi::{self, sqlite3_try};
 use crate::owned::Owned;
 use crate::statement::Statement;
@@ -96,8 +99,20 @@ impl Connection {
     /// allocating for regular paths, you can use [`open_c_str`], however you
     /// are responsible for ensuring the c-string is a valid path.
     ///
-    /// This is the same as calling
-    /// `OpenOptions::new().read_write().create().open(path)`.
+    /// This is the same as calling:
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    /// # let path = ":memory:";
+    ///
+    /// let c = OpenOptions::new()
+    ///     .extended_result_codes()
+    ///     .read_write()
+    ///     .create()
+    ///     .open(path)?;
+    ///
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     ///
     /// [`memory`]: Self::memory
     /// [`open_c_str`]: Self::open_c_str
@@ -105,7 +120,11 @@ impl Connection {
     #[cfg_attr(docsrs, cfg(feature = "std"))]
     #[inline]
     pub fn open(path: impl AsRef<Path>) -> Result<Connection> {
-        OpenOptions::new().read_write().create().open(path)
+        OpenOptions::new()
+            .extended_result_codes()
+            .read_write()
+            .create()
+            .open(path)
     }
 
     /// Open a database connection with a raw c-string.
@@ -114,20 +133,53 @@ impl Connection {
     /// a regular open call with a filesystem path like
     /// `c"/path/to/database.sql"`.
     ///
-    /// This is the same as calling
-    /// `OpenOptions::new().read_write().create().open_c_str(name)`.
+    /// This is the same as calling:
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    /// # let name = c":memory:";
+    ///
+    /// let c = OpenOptions::new()
+    ///     .extended_result_codes()
+    ///     .read_write()
+    ///     .create()
+    ///     .open_c_str(name)?;
+    ///
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn open_c_str(name: &CStr) -> Result<Connection> {
-        OpenOptions::new().read_write().create().open_c_str(name)
+        OpenOptions::new()
+            .extended_result_codes()
+            .read_write()
+            .create()
+            .open_c_str(name)
     }
 
     /// Open an in-memory database.
     ///
     /// This is the same as calling
-    /// `OpenOptions::new().read_write().create().open_memory()`.
+    ///
+    /// This is the same as calling:
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new()
+    ///     .extended_result_codes()
+    ///     .read_write()
+    ///     .create()
+    ///     .open_memory()?;
+    ///
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn open_memory() -> Result<Connection> {
-        OpenOptions::new().read_write().create().open_memory()
+        OpenOptions::new()
+            .extended_result_codes()
+            .read_write()
+            .create()
+            .open_memory()
     }
 
     /// Execute a statement without processing the resulting rows if any.
@@ -147,18 +199,14 @@ impl Connection {
 
                 let l = i32::try_from(len).unwrap_or(i32::MAX);
 
-                let res = ffi::sqlite3_prepare_v3(
+                sqlite3_try!(ffi::sqlite3_prepare_v3(
                     self.raw.as_ptr(),
                     ptr,
                     l,
                     0,
                     raw.as_mut_ptr(),
                     rest.as_mut_ptr(),
-                );
-
-                if res != ffi::SQLITE_OK {
-                    return Err(Error::new(ffi::sqlite3_errcode(self.raw.as_ptr())));
-                }
+                ));
 
                 let rest = rest.assume_init();
 
@@ -176,6 +224,82 @@ impl Connection {
             }
 
             Ok(())
+        }
+    }
+
+    /// Enable or disable extended result codes.
+    ///
+    /// This can also be set during construction with
+    /// [`OpenOptions::extended_result_codes`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{OpenOptions, Code};
+    ///
+    /// let mut c = OpenOptions::new().create().read_write().open_memory()?;
+    ///
+    /// let e = c.execute(
+    ///     r#"
+    ///     CREATE TABLE users (name TEXT);
+    ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
+    ///
+    ///     INSERT INTO users VALUES ('Bob');
+    ///     "#,
+    /// );
+    ///
+    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
+    /// assert_eq!(e.code(), Code::CONSTRAINT);
+    ///
+    /// c.set_extended_result_codes(true)?;
+    ///
+    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
+    /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn set_extended_result_codes(&mut self, enabled: bool) -> Result<()> {
+        unsafe {
+            let onoff = i32::from(enabled);
+
+            sqlite3_try!(ffi::sqlite3_extended_result_codes(self.raw.as_ptr(), onoff));
+        }
+
+        Ok(())
+    }
+
+    /// Get the last error message for this connection.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, Code};
+    ///
+    /// let mut c = Connection::open_memory()?;
+    ///
+    /// let e = c.execute(
+    ///     r#"
+    ///     CREATE TABLE users (name TEXT);
+    ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
+    ///
+    ///     INSERT INTO users VALUES ('Bob');
+    ///     "#,
+    /// );
+    ///
+    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
+    /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
+    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn error_message(&self) -> &str {
+        unsafe {
+            let msg_ptr = ffi::sqlite3_errmsg(self.raw.as_ptr());
+
+            if msg_ptr.is_null() {
+                return "";
+            }
+
+            let c_str = CStr::from_ptr(msg_ptr);
+            str::from_utf8_unchecked(c_str.to_bytes())
         }
     }
 
@@ -323,7 +447,7 @@ impl Connection {
             let o = rest.offset_from_unsigned(ptr);
 
             if o != stmt.len() {
-                return Err(Error::new(ffi::SQLITE_ERROR));
+                return Err(Error::new(Code::ERROR));
             }
 
             let raw = ptr::NonNull::new_unchecked(raw.assume_init());
@@ -417,6 +541,25 @@ impl Drop for Connection {
         // we're using v2.
         let code = unsafe { ffi::sqlite3_close_v2(self.raw.as_ptr()) };
         debug_assert_eq!(code, ffi::SQLITE_OK);
+    }
+}
+
+/// Convert a filesystem path to a c-string.
+///
+/// This used to have a platform-specific implementation, particularly unix is
+/// guaranteed to have a byte-sequence representation.
+///
+/// However, we realized that the behavior is identical to simply calling
+/// `to_str`, with the addition that we check that the string is valid UTF-8.
+#[cfg(feature = "std")]
+pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
+    let Some(bytes) = p.to_str() else {
+        return Err(Error::new(Code::MISUSE));
+    };
+
+    match CString::new(bytes) {
+        Ok(string) => Ok(string),
+        Err(..) => Err(Error::new(Code::MISUSE)),
     }
 }
 
@@ -562,6 +705,43 @@ impl OpenOptions {
         self
     }
 
+    /// The database connection comes up in "extended result code mode". In
+    /// other words, the database behaves as if
+    /// [`Connection::set_extended_result_codes`] were called on the database
+    /// connection as soon as the connection is created. In addition to setting
+    /// the extended result code mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{OpenOptions, Code};
+    ///
+    /// let mut c = OpenOptions::new()
+    ///     .extended_result_codes()
+    ///     .create()
+    ///     .read_write()
+    ///     .open_memory()?;
+    ///
+    /// let e = c.execute(
+    ///     r#"
+    ///     CREATE TABLE users (name TEXT);
+    ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
+    ///
+    ///     INSERT INTO users VALUES ('Bob');
+    ///     "#,
+    /// );
+    ///
+    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
+    /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
+    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn extended_result_codes(mut self) -> Self {
+        self.raw |= ffi::SQLITE_OPEN_EXRESCODE;
+        self
+    }
+
     /// Open a database to the given path.
     ///
     /// Note that it is possible to open an in-memory database by passing
@@ -575,22 +755,6 @@ impl OpenOptions {
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
     pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
-        use alloc::ffi::CString;
-
-        use crate::error::{Error, Result};
-        use crate::ffi;
-
-        pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
-            let Some(bytes) = p.to_str() else {
-                return Err(Error::new(ffi::SQLITE_MISUSE));
-            };
-
-            match CString::new(bytes) {
-                Ok(string) => Ok(string),
-                Err(..) => Err(Error::new(ffi::SQLITE_MISUSE)),
-            }
-        }
-
         let path = path_to_cstring(path.as_ref())?;
         self._open(&path)
     }
@@ -619,7 +783,7 @@ impl OpenOptions {
 
             if code != ffi::SQLITE_OK {
                 ffi::sqlite3_close(raw);
-                return Err(Error::new(code));
+                return Err(Error::from_raw(code));
             }
 
             Ok(Connection {

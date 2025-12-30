@@ -5,7 +5,7 @@ use core::ptr;
 use core::slice;
 
 use crate::ffi;
-use crate::{Bindable, Error, Readable, Result, Type, Writable};
+use crate::{Bindable, Code, Error, Readable, Result, Type, Writable};
 
 /// A marker type representing a NULL value.
 ///
@@ -222,7 +222,7 @@ impl Statement {
             match ffi::sqlite3_step(self.raw.as_ptr()) {
                 ffi::SQLITE_ROW => Ok(State::Row),
                 ffi::SQLITE_DONE => Ok(State::Done),
-                code => Err(Error::new(code)),
+                code => Err(Error::from_raw(code)),
             }
         }
     }
@@ -325,7 +325,7 @@ impl Statement {
             self.bind(index, value)?;
             Ok(())
         } else {
-            Err(Error::new(ffi::SQLITE_MISMATCH))
+            Err(Error::new(Code::MISMATCH))
         }
     }
 

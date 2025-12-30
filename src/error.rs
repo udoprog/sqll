@@ -8,112 +8,147 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// Error code.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct Code(c_int);
+pub struct Code {
+    raw: c_int,
+}
 
 impl Code {
-    pub const OK: Self = Self(crate::ffi::SQLITE_OK);
-    pub const ERROR: Self = Self(crate::ffi::SQLITE_ERROR);
-    pub const INTERNAL: Self = Self(crate::ffi::SQLITE_INTERNAL);
-    pub const PERM: Self = Self(crate::ffi::SQLITE_PERM);
-    pub const ABORT: Self = Self(crate::ffi::SQLITE_ABORT);
-    pub const BUSY: Self = Self(crate::ffi::SQLITE_BUSY);
-    pub const LOCKED: Self = Self(crate::ffi::SQLITE_LOCKED);
-    pub const NOMEM: Self = Self(crate::ffi::SQLITE_NOMEM);
-    pub const READONLY: Self = Self(crate::ffi::SQLITE_READONLY);
-    pub const INTERRUPT: Self = Self(crate::ffi::SQLITE_INTERRUPT);
-    pub const IOERR: Self = Self(crate::ffi::SQLITE_IOERR);
-    pub const CORRUPT: Self = Self(crate::ffi::SQLITE_CORRUPT);
-    pub const NOTFOUND: Self = Self(crate::ffi::SQLITE_NOTFOUND);
-    pub const FULL: Self = Self(crate::ffi::SQLITE_FULL);
-    pub const CANTOPEN: Self = Self(crate::ffi::SQLITE_CANTOPEN);
-    pub const PROTOCOL: Self = Self(crate::ffi::SQLITE_PROTOCOL);
-    pub const EMPTY: Self = Self(crate::ffi::SQLITE_EMPTY);
-    pub const SCHEMA: Self = Self(crate::ffi::SQLITE_SCHEMA);
-    pub const TOOBIG: Self = Self(crate::ffi::SQLITE_TOOBIG);
-    pub const CONSTRAINT: Self = Self(crate::ffi::SQLITE_CONSTRAINT);
-    pub const MISMATCH: Self = Self(crate::ffi::SQLITE_MISMATCH);
-    pub const MISUSE: Self = Self(crate::ffi::SQLITE_MISUSE);
-    pub const NOLFS: Self = Self(crate::ffi::SQLITE_NOLFS);
-    pub const AUTH: Self = Self(crate::ffi::SQLITE_AUTH);
-    pub const FORMAT: Self = Self(crate::ffi::SQLITE_FORMAT);
-    pub const RANGE: Self = Self(crate::ffi::SQLITE_RANGE);
-    pub const NOTADB: Self = Self(crate::ffi::SQLITE_NOTADB);
-    pub const NOTICE: Self = Self(crate::ffi::SQLITE_NOTICE);
-    pub const WARNING: Self = Self(crate::ffi::SQLITE_WARNING);
-    pub const IOERR_READ: Self = Self(crate::ffi::SQLITE_IOERR_READ);
-    pub const IOERR_SHORT_READ: Self = Self(crate::ffi::SQLITE_IOERR_SHORT_READ);
-    pub const IOERR_WRITE: Self = Self(crate::ffi::SQLITE_IOERR_WRITE);
-    pub const IOERR_FSYNC: Self = Self(crate::ffi::SQLITE_IOERR_FSYNC);
-    pub const IOERR_DIR_FSYNC: Self = Self(crate::ffi::SQLITE_IOERR_DIR_FSYNC);
-    pub const IOERR_TRUNCATE: Self = Self(crate::ffi::SQLITE_IOERR_TRUNCATE);
-    pub const IOERR_FSTAT: Self = Self(crate::ffi::SQLITE_IOERR_FSTAT);
-    pub const IOERR_UNLOCK: Self = Self(crate::ffi::SQLITE_IOERR_UNLOCK);
-    pub const IOERR_RDLOCK: Self = Self(crate::ffi::SQLITE_IOERR_RDLOCK);
-    pub const IOERR_DELETE: Self = Self(crate::ffi::SQLITE_IOERR_DELETE);
-    pub const IOERR_BLOCKED: Self = Self(crate::ffi::SQLITE_IOERR_BLOCKED);
-    pub const IOERR_NOMEM: Self = Self(crate::ffi::SQLITE_IOERR_NOMEM);
-    pub const IOERR_ACCESS: Self = Self(crate::ffi::SQLITE_IOERR_ACCESS);
-    pub const IOERR_CHECKRESERVEDLOCK: Self = Self(crate::ffi::SQLITE_IOERR_CHECKRESERVEDLOCK);
-    pub const IOERR_LOCK: Self = Self(crate::ffi::SQLITE_IOERR_LOCK);
-    pub const IOERR_CLOSE: Self = Self(crate::ffi::SQLITE_IOERR_CLOSE);
-    pub const IOERR_DIR_CLOSE: Self = Self(crate::ffi::SQLITE_IOERR_DIR_CLOSE);
-    pub const IOERR_SHMOPEN: Self = Self(crate::ffi::SQLITE_IOERR_SHMOPEN);
-    pub const IOERR_SHMSIZE: Self = Self(crate::ffi::SQLITE_IOERR_SHMSIZE);
-    pub const IOERR_SHMLOCK: Self = Self(crate::ffi::SQLITE_IOERR_SHMLOCK);
-    pub const IOERR_SHMMAP: Self = Self(crate::ffi::SQLITE_IOERR_SHMMAP);
-    pub const IOERR_SEEK: Self = Self(crate::ffi::SQLITE_IOERR_SEEK);
-    pub const IOERR_DELETE_NOENT: Self = Self(crate::ffi::SQLITE_IOERR_DELETE_NOENT);
-    pub const IOERR_MMAP: Self = Self(crate::ffi::SQLITE_IOERR_MMAP);
-    pub const IOERR_GETTEMPPATH: Self = Self(crate::ffi::SQLITE_IOERR_GETTEMPPATH);
-    pub const IOERR_CONVPATH: Self = Self(crate::ffi::SQLITE_IOERR_CONVPATH);
-    pub const LOCKED_SHAREDCACHE: Self = Self(crate::ffi::SQLITE_LOCKED_SHAREDCACHE);
-    pub const BUSY_RECOVERY: Self = Self(crate::ffi::SQLITE_BUSY_RECOVERY);
-    pub const BUSY_SNAPSHOT: Self = Self(crate::ffi::SQLITE_BUSY_SNAPSHOT);
-    pub const CANTOPEN_NOTEMPDIR: Self = Self(crate::ffi::SQLITE_CANTOPEN_NOTEMPDIR);
-    pub const CANTOPEN_ISDIR: Self = Self(crate::ffi::SQLITE_CANTOPEN_ISDIR);
-    pub const CANTOPEN_FULLPATH: Self = Self(crate::ffi::SQLITE_CANTOPEN_FULLPATH);
-    pub const CANTOPEN_CONVPATH: Self = Self(crate::ffi::SQLITE_CANTOPEN_CONVPATH);
-    pub const CORRUPT_VTAB: Self = Self(crate::ffi::SQLITE_CORRUPT_VTAB);
-    pub const READONLY_RECOVERY: Self = Self(crate::ffi::SQLITE_READONLY_RECOVERY);
-    pub const READONLY_CANTLOCK: Self = Self(crate::ffi::SQLITE_READONLY_CANTLOCK);
-    pub const READONLY_ROLLBACK: Self = Self(crate::ffi::SQLITE_READONLY_ROLLBACK);
-    pub const READONLY_DBMOVED: Self = Self(crate::ffi::SQLITE_READONLY_DBMOVED);
-    pub const ABORT_ROLLBACK: Self = Self(crate::ffi::SQLITE_ABORT_ROLLBACK);
-    pub const CONSTRAINT_CHECK: Self = Self(crate::ffi::SQLITE_CONSTRAINT_CHECK);
-    pub const CONSTRAINT_COMMITHOOK: Self = Self(crate::ffi::SQLITE_CONSTRAINT_COMMITHOOK);
-    pub const CONSTRAINT_FOREIGNKEY: Self = Self(crate::ffi::SQLITE_CONSTRAINT_FOREIGNKEY);
-    pub const CONSTRAINT_FUNCTION: Self = Self(crate::ffi::SQLITE_CONSTRAINT_FUNCTION);
-    pub const CONSTRAINT_NOTNULL: Self = Self(crate::ffi::SQLITE_CONSTRAINT_NOTNULL);
-    pub const CONSTRAINT_PRIMARYKEY: Self = Self(crate::ffi::SQLITE_CONSTRAINT_PRIMARYKEY);
-    pub const CONSTRAINT_TRIGGER: Self = Self(crate::ffi::SQLITE_CONSTRAINT_TRIGGER);
-    pub const CONSTRAINT_UNIQUE: Self = Self(crate::ffi::SQLITE_CONSTRAINT_UNIQUE);
-    pub const CONSTRAINT_VTAB: Self = Self(crate::ffi::SQLITE_CONSTRAINT_VTAB);
-    pub const CONSTRAINT_ROWID: Self = Self(crate::ffi::SQLITE_CONSTRAINT_ROWID);
-    pub const NOTICE_RECOVER_WAL: Self = Self(crate::ffi::SQLITE_NOTICE_RECOVER_WAL);
-    pub const NOTICE_RECOVER_ROLLBACK: Self = Self(crate::ffi::SQLITE_NOTICE_RECOVER_ROLLBACK);
-    pub const WARNING_AUTOINDEX: Self = Self(crate::ffi::SQLITE_WARNING_AUTOINDEX);
-    pub const AUTH_USER: Self = Self(crate::ffi::SQLITE_AUTH_USER);
-    pub const OK_LOAD_PERMANENTLY: Self = Self(crate::ffi::SQLITE_OK_LOAD_PERMANENTLY);
+    /// Construct a new code from the specified raw code.
+    #[inline]
+    pub(crate) const fn new(raw: c_int) -> Self {
+        Self { raw }
+    }
+}
+
+macro_rules! define_codes {
+    ($(
+        $vis:vis const $name:ident = $value:ident;
+    )*) => {
+        impl Code {
+            $(
+                $vis const $name: Code = Code::new($crate::ffi::$value);
+            )*
+        }
+
+        impl fmt::Display for Code {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match *self {
+                    $(Code::$name => write!(f, stringify!($name)),)*
+                    Code { raw } => write!(f, "UNKNOWN({raw})"),
+                }
+            }
+        }
+
+        impl fmt::Debug for Code {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match *self {
+                    $(Code::$name => write!(f, stringify!($name)),)*
+                    Code { raw } => write!(f, "UNKNOWN({raw})"),
+                }
+            }
+        }
+    };
+}
+
+define_codes! {
+    pub const OK = SQLITE_OK;
+    pub const ERROR = SQLITE_ERROR;
+    pub const INTERNAL = SQLITE_INTERNAL;
+    pub const PERM = SQLITE_PERM;
+    pub const ABORT = SQLITE_ABORT;
+    pub const BUSY = SQLITE_BUSY;
+    pub const LOCKED = SQLITE_LOCKED;
+    pub const NOMEM = SQLITE_NOMEM;
+    pub const READONLY = SQLITE_READONLY;
+    pub const INTERRUPT = SQLITE_INTERRUPT;
+    pub const IOERR = SQLITE_IOERR;
+    pub const CORRUPT = SQLITE_CORRUPT;
+    pub const NOTFOUND = SQLITE_NOTFOUND;
+    pub const FULL = SQLITE_FULL;
+    pub const CANTOPEN = SQLITE_CANTOPEN;
+    pub const PROTOCOL = SQLITE_PROTOCOL;
+    pub const EMPTY = SQLITE_EMPTY;
+    pub const SCHEMA = SQLITE_SCHEMA;
+    pub const TOOBIG = SQLITE_TOOBIG;
+    pub const CONSTRAINT = SQLITE_CONSTRAINT;
+    pub const MISMATCH = SQLITE_MISMATCH;
+    pub const MISUSE = SQLITE_MISUSE;
+    pub const NOLFS = SQLITE_NOLFS;
+    pub const AUTH = SQLITE_AUTH;
+    pub const FORMAT = SQLITE_FORMAT;
+    pub const RANGE = SQLITE_RANGE;
+    pub const NOTADB = SQLITE_NOTADB;
+    pub const NOTICE = SQLITE_NOTICE;
+    pub const WARNING = SQLITE_WARNING;
+    pub const IOERR_READ = SQLITE_IOERR_READ;
+    pub const IOERR_SHORT_READ = SQLITE_IOERR_SHORT_READ;
+    pub const IOERR_WRITE = SQLITE_IOERR_WRITE;
+    pub const IOERR_FSYNC = SQLITE_IOERR_FSYNC;
+    pub const IOERR_DIR_FSYNC = SQLITE_IOERR_DIR_FSYNC;
+    pub const IOERR_TRUNCATE = SQLITE_IOERR_TRUNCATE;
+    pub const IOERR_FSTAT = SQLITE_IOERR_FSTAT;
+    pub const IOERR_UNLOCK = SQLITE_IOERR_UNLOCK;
+    pub const IOERR_RDLOCK = SQLITE_IOERR_RDLOCK;
+    pub const IOERR_DELETE = SQLITE_IOERR_DELETE;
+    pub const IOERR_BLOCKED = SQLITE_IOERR_BLOCKED;
+    pub const IOERR_NOMEM = SQLITE_IOERR_NOMEM;
+    pub const IOERR_ACCESS = SQLITE_IOERR_ACCESS;
+    pub const IOERR_CHECKRESERVEDLOCK = SQLITE_IOERR_CHECKRESERVEDLOCK;
+    pub const IOERR_LOCK = SQLITE_IOERR_LOCK;
+    pub const IOERR_CLOSE = SQLITE_IOERR_CLOSE;
+    pub const IOERR_DIR_CLOSE = SQLITE_IOERR_DIR_CLOSE;
+    pub const IOERR_SHMOPEN = SQLITE_IOERR_SHMOPEN;
+    pub const IOERR_SHMSIZE = SQLITE_IOERR_SHMSIZE;
+    pub const IOERR_SHMLOCK = SQLITE_IOERR_SHMLOCK;
+    pub const IOERR_SHMMAP = SQLITE_IOERR_SHMMAP;
+    pub const IOERR_SEEK = SQLITE_IOERR_SEEK;
+    pub const IOERR_DELETE_NOENT = SQLITE_IOERR_DELETE_NOENT;
+    pub const IOERR_MMAP = SQLITE_IOERR_MMAP;
+    pub const IOERR_GETTEMPPATH = SQLITE_IOERR_GETTEMPPATH;
+    pub const IOERR_CONVPATH = SQLITE_IOERR_CONVPATH;
+    pub const LOCKED_SHAREDCACHE = SQLITE_LOCKED_SHAREDCACHE;
+    pub const BUSY_RECOVERY = SQLITE_BUSY_RECOVERY;
+    pub const BUSY_SNAPSHOT = SQLITE_BUSY_SNAPSHOT;
+    pub const CANTOPEN_NOTEMPDIR = SQLITE_CANTOPEN_NOTEMPDIR;
+    pub const CANTOPEN_ISDIR = SQLITE_CANTOPEN_ISDIR;
+    pub const CANTOPEN_FULLPATH = SQLITE_CANTOPEN_FULLPATH;
+    pub const CANTOPEN_CONVPATH = SQLITE_CANTOPEN_CONVPATH;
+    pub const CORRUPT_VTAB = SQLITE_CORRUPT_VTAB;
+    pub const READONLY_RECOVERY = SQLITE_READONLY_RECOVERY;
+    pub const READONLY_CANTLOCK = SQLITE_READONLY_CANTLOCK;
+    pub const READONLY_ROLLBACK = SQLITE_READONLY_ROLLBACK;
+    pub const READONLY_DBMOVED = SQLITE_READONLY_DBMOVED;
+    pub const ABORT_ROLLBACK = SQLITE_ABORT_ROLLBACK;
+    pub const CONSTRAINT_CHECK = SQLITE_CONSTRAINT_CHECK;
+    pub const CONSTRAINT_COMMITHOOK = SQLITE_CONSTRAINT_COMMITHOOK;
+    pub const CONSTRAINT_FOREIGNKEY = SQLITE_CONSTRAINT_FOREIGNKEY;
+    pub const CONSTRAINT_FUNCTION = SQLITE_CONSTRAINT_FUNCTION;
+    pub const CONSTRAINT_NOTNULL = SQLITE_CONSTRAINT_NOTNULL;
+    pub const CONSTRAINT_PRIMARYKEY = SQLITE_CONSTRAINT_PRIMARYKEY;
+    pub const CONSTRAINT_TRIGGER = SQLITE_CONSTRAINT_TRIGGER;
+    pub const CONSTRAINT_UNIQUE = SQLITE_CONSTRAINT_UNIQUE;
+    pub const CONSTRAINT_VTAB = SQLITE_CONSTRAINT_VTAB;
+    pub const CONSTRAINT_ROWID = SQLITE_CONSTRAINT_ROWID;
+    pub const NOTICE_RECOVER_WAL = SQLITE_NOTICE_RECOVER_WAL;
+    pub const NOTICE_RECOVER_ROLLBACK = SQLITE_NOTICE_RECOVER_ROLLBACK;
+    pub const WARNING_AUTOINDEX = SQLITE_WARNING_AUTOINDEX;
+    pub const AUTH_USER = SQLITE_AUTH_USER;
+    pub const OK_LOAD_PERMANENTLY = SQLITE_OK_LOAD_PERMANENTLY;
 }
 
 impl Code {
     /// Return the numeric representation of the error code.
     #[inline]
-    fn number(self) -> c_int {
-        self.0
+    fn as_raw(self) -> c_int {
+        self.raw
     }
 
     /// Return the string representation of the error code.
     #[inline]
     fn message(self) -> &'static CStr {
-        unsafe { CStr::from_ptr(crate::ffi::sqlite3_errstr(self.0)) }
-    }
-}
-
-impl fmt::Debug for Code {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        unsafe { CStr::from_ptr(crate::ffi::sqlite3_errstr(self.raw)) }
     }
 }
 
@@ -124,17 +159,22 @@ pub struct Error {
 }
 
 impl Error {
-    /// Construct a new error with the specified message.
-    pub(crate) fn new(code: c_int) -> Self {
-        Self { code: Code(code) }
-    }
-
     /// Construct a new error from the specified code.
-    pub(crate) fn from_code(code: Code) -> Self {
+    #[inline]
+    pub(crate) fn new(code: Code) -> Self {
         Self { code }
     }
 
+    /// Construct a new error from the specified raw code.
+    #[inline]
+    pub(crate) fn from_raw(code: c_int) -> Self {
+        Self {
+            code: Code::new(code),
+        }
+    }
+
     /// The error code that caused this error.
+    #[inline]
     pub fn code(&self) -> Code {
         self.code
     }
@@ -155,7 +195,7 @@ impl fmt::Debug for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "sqlite3 error {}", self.code.number())?;
+        write!(f, "sqlite3 error {}", self.code.as_raw())?;
 
         if let Ok(string) = self.code.message().to_str() {
             write!(f, ": {string}")?;

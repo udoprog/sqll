@@ -43,6 +43,7 @@
 //! c.execute(
 //!     r#"
 //!     CREATE TABLE users (name TEXT, age INTEGER);
+//!
 //!     INSERT INTO users VALUES ('Alice', 42);
 //!     INSERT INTO users VALUES ('Bob', 69);
 //!     "#,
@@ -58,6 +59,7 @@
 //! # let c = Connection::open_memory()?;
 //! # c.execute(r#"
 //! #     CREATE TABLE users (name TEXT, age INTEGER);
+//! #
 //! #     INSERT INTO users VALUES ('Alice', 42);
 //! #     INSERT INTO users VALUES ('Bob', 69);
 //! # "#)?;

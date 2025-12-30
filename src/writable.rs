@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::{Error, Result, Statement};
+use crate::{Code, Error, Result, Statement};
 
 mod sealed {
     use alloc::string::String;
@@ -94,7 +94,7 @@ impl Writable for String {
             let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), index);
 
             let Ok(len) = usize::try_from(len) else {
-                return Err(Error::new(ffi::SQLITE_MISMATCH));
+                return Err(Error::new(Code::MISMATCH));
             };
 
             if len == 0 {
@@ -173,7 +173,7 @@ impl Writable for Vec<u8> {
             let i = c_int::try_from(index).unwrap_or(c_int::MAX);
 
             let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), i)) else {
-                return Err(Error::new(ffi::SQLITE_MISMATCH));
+                return Err(Error::new(Code::MISMATCH));
             };
 
             if len == 0 {

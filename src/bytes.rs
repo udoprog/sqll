@@ -3,8 +3,7 @@ use core::ffi::{c_int, c_void};
 use core::mem::{align_of, size_of};
 use core::ptr::dangling_mut;
 
-use crate::error::{Error, Result};
-use crate::ffi;
+use crate::error::{Code, Error, Result};
 
 #[cfg(test)]
 mod tests;
@@ -43,13 +42,13 @@ pub(crate) fn alloc(bytes: &[u8]) -> Result<(*mut c_void, c_int, Option<DeallocF
         let layout = Layout::from_size_align(size_of::<usize>() + bytes.len(), align_of::<usize>());
 
         let Ok(layout) = layout else {
-            return Err(Error::new(ffi::SQLITE_NOMEM));
+            return Err(Error::new(Code::NOMEM));
         };
 
         let ptr = alloc::alloc::alloc(layout);
 
         if ptr.is_null() {
-            return Err(Error::new(ffi::SQLITE_NOMEM));
+            return Err(Error::new(Code::NOMEM));
         }
 
         ptr.cast::<usize>().write(bytes.len());

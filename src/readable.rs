@@ -5,7 +5,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::{Error, FixedBytes, Null, Result, Statement, Type, Value, Writable};
+use crate::{Code, Error, FixedBytes, Null, Result, Statement, Type, Value, Writable};
 
 mod sealed {
     use alloc::string::String;
@@ -43,7 +43,7 @@ impl Readable for Value {
             Type::FLOAT => Value::float(<_>::read(stmt, index)?),
             Type::INTEGER => Value::integer(<_>::read(stmt, index)?),
             Type::NULL => Value::null(),
-            _ => return Err(Error::new(ffi::SQLITE_MISMATCH)),
+            _ => return Err(Error::new(Code::MISMATCH)),
         };
 
         Ok(value)
@@ -262,11 +262,11 @@ impl<const N: usize> Readable for FixedBytes<N> {
             }
 
             let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), index)) else {
-                return Err(Error::new(ffi::SQLITE_MISMATCH));
+                return Err(Error::new(Code::MISMATCH));
             };
 
             if len > N {
-                return Err(Error::new(ffi::SQLITE_MISMATCH));
+                return Err(Error::new(Code::MISMATCH));
             }
 
             ptr::copy_nonoverlapping(ptr.cast::<u8>(), bytes.as_mut_ptr(), len);
@@ -308,7 +308,7 @@ impl Readable for Null {
         if stmt.column_type(index) == Type::NULL {
             Ok(Null)
         } else {
-            Err(Error::new(ffi::SQLITE_MISMATCH))
+            Err(Error::new(Code::MISMATCH))
         }
     }
 }

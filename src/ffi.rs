@@ -6,7 +6,7 @@ macro_rules! __sqlite3_try {
         let code = $expr;
 
         if code != $crate::ffi::SQLITE_OK {
-            return Err($crate::error::Error::new(code));
+            return Err($crate::error::Error::from_raw(code));
         }
     }};
 }
