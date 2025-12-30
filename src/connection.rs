@@ -253,7 +253,6 @@ impl Connection {
             let len = i32::try_from(stmt.len()).unwrap_or(i32::MAX);
 
             sqlite3_try! {
-                self.raw.as_ptr(),
                 ffi::sqlite3_prepare_v3(
                     self.raw.as_ptr(),
                     ptr,
@@ -312,11 +311,7 @@ impl Connection {
             );
 
             self.busy_callback = Some(callback);
-
-            sqlite3_try! {
-                self.raw.as_ptr(),
-                result
-            }
+            sqlite3_try!(result);
         }
 
         Ok(())
@@ -325,13 +320,12 @@ impl Connection {
     /// Set an implicit callback for handling busy events that tries to repeat
     /// rejected operations until a timeout expires.
     #[inline]
-    pub fn set_busy_timeout(&mut self, milliseconds: usize) -> Result<()> {
+    pub fn set_busy_timeout(&mut self, ms: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
-                self.raw.as_ptr(),
                 ffi::sqlite3_busy_timeout(
                     self.raw.as_ptr(),
-                    milliseconds as c_int
+                    ms
                 )
             };
         }
@@ -344,7 +338,6 @@ impl Connection {
     pub fn remove_busy_handler(&mut self) -> Result<()> {
         unsafe {
             sqlite3_try! {
-                self.raw.as_ptr(),
                 ffi::sqlite3_busy_handler(
                     self.raw.as_ptr(),
                     None,

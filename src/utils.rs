@@ -1,37 +1,27 @@
-use core::ffi::CStr;
-use core::ffi::c_char;
-
 #[cfg(feature = "std")]
 use alloc::ffi::CString;
 
 #[cfg(feature = "std")]
 use std::path::Path;
 
+#[cfg(feature = "std")]
 use sqlite3_sys as ffi;
 
+#[cfg(feature = "std")]
 use crate::error::Result;
 
 /// Helper to run sqlite3 statement.
 macro_rules! __sqlite3_try {
-    ($c:expr, $expr:expr) => {
-        if $expr != ::sqlite3_sys::SQLITE_OK {
-            let code = ::sqlite3_sys::sqlite3_errcode($c);
+    ($expr:expr) => {{
+        let code = $expr;
+
+        if code != ::sqlite3_sys::SQLITE_OK {
             return Err($crate::error::Error::new(code));
         }
-    };
+    }};
 }
 
 pub(crate) use __sqlite3_try as sqlite3_try;
-
-/// Convert a c-string into a rust string.
-pub(crate) unsafe fn cstr_to_str<'a>(s: *const c_char) -> Result<&'a str> {
-    unsafe {
-        match CStr::from_ptr(s).to_str() {
-            Ok(s) => Ok(s),
-            Err(..) => Err(crate::error::Error::new(ffi::SQLITE_MISUSE)),
-        }
-    }
-}
 
 #[cfg(feature = "std")]
 #[cfg(unix)]

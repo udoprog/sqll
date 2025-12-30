@@ -3,7 +3,7 @@ use super::alloc;
 #[test]
 fn test_alloc_bytes() {
     let data = b"hello, world!";
-    let (ptr, dealloc) = alloc(data).unwrap();
+    let (ptr, _, dealloc) = alloc(data).unwrap();
 
     if let Some(dealloc) = dealloc {
         unsafe {
@@ -15,7 +15,7 @@ fn test_alloc_bytes() {
 #[test]
 fn test_alloc_bytes_empty() {
     let data = b"";
-    let (ptr, dealloc) = alloc(data).unwrap();
+    let (ptr, _, dealloc) = alloc(data).unwrap();
 
     if let Some(dealloc) = dealloc {
         unsafe {

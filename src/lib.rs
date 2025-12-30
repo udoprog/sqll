@@ -109,7 +109,7 @@ mod value;
 
 pub use self::connection::{Connection, OpenOptions, Prepare};
 pub use self::error::{Code, Error, Result};
-pub use self::statement::{Bindable, FixedBytes, Null, Readable, State, Statement};
+pub use self::statement::{Bindable, FixedBytes, Null, Readable, State, Statement, Writable};
 pub use self::value::{Type, Value};
 
 /// Return the version number of SQLite.

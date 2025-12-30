@@ -160,7 +160,7 @@ fn statement_column_name() -> Result<()> {
 
     let names = stmt.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
-    assert_eq!("user_photo", stmt.column_name(3)?);
+    assert_eq!("user_photo", stmt.column_name(3));
     Ok(())
 }
 
@@ -253,7 +253,7 @@ fn test_dropped_connection() -> Result<()> {
 
     let names = stmt.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
-    assert_eq!("user_photo", stmt.column_name(3)?);
+    assert_eq!("user_photo", stmt.column_name(3));
     Ok(())
 }
 

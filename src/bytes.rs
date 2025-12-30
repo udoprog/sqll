@@ -1,5 +1,5 @@
 use core::alloc::Layout;
-use core::ffi::c_void;
+use core::ffi::{c_int, c_void};
 use core::mem::{align_of, size_of};
 use core::ptr::dangling_mut;
 
@@ -31,12 +31,12 @@ pub(crate) extern "C" fn dealloc(p: *mut c_void) {
     }
 }
 
-pub(crate) fn alloc(bytes: &[u8]) -> Result<(*mut c_void, Option<DeallocFn>)> {
+pub(crate) fn alloc(bytes: &[u8]) -> Result<(*mut c_void, c_int, Option<DeallocFn>)> {
     if bytes.is_empty() {
         // Avoid allocating empty collections entirely by simply using a
         // dangling pointer. This is correctly aligned so it should be usable by
         // sqlite.
-        return Ok((dangling_mut(), None));
+        return Ok((dangling_mut(), 0, None));
     }
 
     // SAFETY: We are receiving a valid byte slice.
@@ -56,6 +56,7 @@ pub(crate) fn alloc(bytes: &[u8]) -> Result<(*mut c_void, Option<DeallocFn>)> {
         ptr.cast::<usize>().write(bytes.len());
         let data = ptr.add(size_of::<usize>());
         data.copy_from_nonoverlapping(bytes.as_ptr(), bytes.len());
-        Ok((data.cast(), Some(dealloc)))
+        let len = i32::try_from(bytes.len()).unwrap_or(i32::MAX);
+        Ok((data.cast(), len, Some(dealloc)))
     }
 }
