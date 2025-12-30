@@ -12,7 +12,7 @@ use sqlite3_sys as ffi;
 pub struct Type(c_int);
 
 impl Type {
-    /// Create a type from a raw integer.
+    /// Construct from a raw type.
     #[inline]
     pub(crate) fn from_raw(raw: c_int) -> Self {
         Self(raw)
@@ -56,7 +56,7 @@ pub(crate) enum Kind {
 /// A dynamic value.
 #[derive(Clone, PartialEq)]
 pub struct Value {
-    pub(crate) kind: Kind,
+    pub(super) kind: Kind,
 }
 
 impl Value {

@@ -99,18 +99,34 @@ compile_error!("The `alloc` feature must be enabled to use this crate.");
 #[cfg(test)]
 mod tests;
 
+mod bindable;
 mod bytes;
 mod connection;
 mod error;
+mod fixed_bytes;
 mod owned;
+mod readable;
 mod statement;
 mod utils;
 mod value;
+mod writable;
 
+#[doc(inline)]
+pub use self::bindable::Bindable;
+#[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
+#[doc(inline)]
 pub use self::error::{Code, Error, Result};
-pub use self::statement::{Bindable, FixedBytes, Null, Readable, State, Statement, Writable};
+#[doc(inline)]
+pub use self::fixed_bytes::FixedBytes;
+#[doc(inline)]
+pub use self::readable::Readable;
+#[doc(inline)]
+pub use self::statement::{Null, State, Statement};
+#[doc(inline)]
 pub use self::value::{Type, Value};
+#[doc(inline)]
+pub use self::writable::Writable;
 
 /// Return the version number of SQLite.
 ///
