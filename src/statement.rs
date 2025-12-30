@@ -306,10 +306,7 @@ impl Statement {
     /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
-    pub fn bind<T>(&mut self, index: c_int, value: T) -> Result<()>
-    where
-        T: Bindable,
-    {
+    pub fn bind(&mut self, index: c_int, value: impl Bindable) -> Result<()> {
         value.bind(self, index)
     }
 
@@ -637,10 +634,7 @@ impl Statement {
     /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
-    pub fn read_into<T>(&self, index: c_int, out: &mut T) -> Result<()>
-    where
-        T: ?Sized + Writable,
-    {
+    pub fn read_into(&self, index: c_int, out: &mut (impl ?Sized + Writable)) -> Result<()> {
         out.write(self, index)?;
         Ok(())
     }
@@ -843,10 +837,7 @@ impl<'a> Row<'a> {
     /// # Ok::<_, sqlite_ll::Error>(())
     /// ```
     #[inline]
-    pub fn read_into<T>(&self, index: c_int, out: &mut T) -> Result<()>
-    where
-        T: ?Sized + Writable,
-    {
+    pub fn read_into(&self, index: c_int, out: &mut (impl ?Sized + Writable)) -> Result<()> {
         out.write(self.stmt, index)?;
         Ok(())
     }
