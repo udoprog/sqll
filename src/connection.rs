@@ -56,7 +56,31 @@ impl BitOr for Prepare {
     }
 }
 
-/// A SQLite database connection.
+/// A sqlite database connection.
+///
+/// Connections are not thread-safe objects.
+///
+/// # Examples
+///
+/// Opening a connection to a filesystem path:
+///
+/// ```no_run
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::open("database.db")?;
+/// c.execute("CREATE TABLE test (id INTEGER);")?;
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
+///
+/// Opening an in-memory database:
+///
+/// ```
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::memory()?;
+/// c.execute("CREATE TABLE test (id INTEGER);")?;
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 pub struct Connection {
     raw: NonNull<ffi::sqlite3>,
     busy_callback: Option<Owned>,

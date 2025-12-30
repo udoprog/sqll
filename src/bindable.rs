@@ -14,6 +14,7 @@ mod sealed {
     pub trait Sealed {}
     impl Sealed for str {}
     impl Sealed for [u8] {}
+    impl<const N: usize> Sealed for [u8; N] {}
     impl Sealed for f64 {}
     impl Sealed for i64 {}
     impl Sealed for Value {}
@@ -48,7 +49,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use sqlite_ll::{Connection, Null, State};
+/// use sqlite_ll::{Connection, Null};
 ///
 /// let c = Connection::memory()?;
 /// c.execute(r##"
@@ -61,8 +62,8 @@ where
 ///
 /// let mut names = Vec::new();
 ///
-/// while let State::Row = stmt.step()? {
-///     names.push(stmt.read::<String>(0)?);
+/// while let Some(row) = stmt.next()? {
+///     names.push(row.read::<String>(0)?);
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
@@ -81,6 +82,31 @@ impl Bindable for Null {
     }
 }
 
+/// [`Bindable`] implementation for a dynamic [`Value`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::{Connection, Value};
+///
+/// let c = Connection::memory()?;
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
+/// stmt.bind(1, Value::null())?;
+///
+/// let mut names = Vec::new();
+///
+/// while let Some(row) = stmt.next()? {
+///     names.push(row.read::<String>(0)?);
+/// }
+///
+/// assert_eq!(names, vec![String::from("Alice")]);
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl Bindable for Value {
     #[inline]
     fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
@@ -94,6 +120,29 @@ impl Bindable for Value {
     }
 }
 
+/// [`Bindable`] implementation for byte slices.
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::memory()?;
+///
+/// c.execute(r##"
+/// CREATE TABLE files (id INTEGER, data BLOB);
+/// INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
+/// INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
+/// stmt.bind(1, &b"Hello"[..])?;
+///
+/// while let Some(row) = stmt.next()? {
+///     assert_eq!(row.read::<i64>(0)?, 1);
+/// }
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl Bindable for [u8] {
     #[inline]
     fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
@@ -115,6 +164,58 @@ impl Bindable for [u8] {
     }
 }
 
+/// [`Bindable`] implementation for byte arrays.
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::memory()?;
+///
+/// c.execute(r##"
+/// CREATE TABLE files (id INTEGER, data BLOB);
+/// INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
+/// INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
+/// stmt.bind(1, b"Hello")?;
+///
+/// while let Some(row) = stmt.next()? {
+///     assert_eq!(row.read::<i64>(0)?, 1);
+/// }
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
+impl<const N: usize> Bindable for [u8; N] {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        self.as_slice().bind(stmt, index)
+    }
+}
+
+/// [`Bindable`] implementation for [`f64`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::memory()?;
+///
+/// c.execute(r#"
+/// CREATE TABLE measurements (value REAL);
+/// INSERT INTO measurements (value) VALUES (3.14), (2.71), (1.61);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
+/// stmt.bind(1, 2.0f64)?;
+///
+/// while let Some(row) = stmt.next()? {
+///     assert_eq!(row.read::<i64>(0)?, 2);
+/// }
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl Bindable for f64 {
     #[inline]
     fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
@@ -132,6 +233,28 @@ impl Bindable for f64 {
     }
 }
 
+/// [`Bindable`] implementation for [`i64`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::memory()?;
+///
+/// c.execute(r#"
+/// CREATE TABLE measurements (value INTEGER);
+/// INSERT INTO measurements (value) VALUES (3), (2), (1);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
+/// stmt.bind(1, 2)?;
+///
+/// while let Some(row) = stmt.next()? {
+///     assert_eq!(row.read::<i64>(0)?, 1);
+/// }
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl Bindable for i64 {
     #[inline]
     fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
@@ -149,6 +272,28 @@ impl Bindable for i64 {
     }
 }
 
+/// [`Bindable`] implementation for [`str`] slices.
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::Connection;
+///
+/// let c = Connection::memory()?;
+///
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
+/// stmt.bind(1, "Alice")?;
+///
+/// while let Some(row) = stmt.next()? {
+///     assert_eq!(row.read::<i64>(0)?, 42);
+/// }
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl Bindable for str {
     #[inline]
     fn bind(&self, stmt: &mut Statement, i: c_int) -> Result<()> {

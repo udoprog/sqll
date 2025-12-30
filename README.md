@@ -14,25 +14,29 @@ been copied under the MIT license.
 
 ## Why do we need another sqlite interface?
 
-It is difficult to use prepared statements with existing crates, because
-they are all implemented in a manner which requires the caller to borrow the
-connection in use.
+It is difficult to set up and use prepared statements with existing crates,
+because they are all implemented in a manner which requires the caller to
+borrow the connection in use.
 
 Prepared statements can be expensive to create and *should* be cached and
-re-used to achieve the best performance. This library uses
+re-used to achieve the best performance. Statements can also benefit from
+using the [`Prepare::PERSISTENT`] option This library uses
 `sqlite3_close_v2` when the connection is dropped, causing the closing of
 the connection to be delayed until resources associated with it has been
 closed.
 
-The way this crate gets around this is by making the `prepare` function
-`unsafe`, so the impetus is on the caller to ensure that the connection it's
-related to stays alive for the duration of the prepared statement.
+We've also designed this library to avoid intermediary allocations. So for
+example [calling `execute`] doesn't allocate externally of the sqlite3
+bindings. This was achieved by porting the execute implementation from the
+sqlite library and works because sqlite actually uses UTF-8 internally but
+this is not exposed in the legacy C API that other crates use to execute
+statements.
 
 <br>
 
 ## Example
 
-Open a connection, create a table, and insert some rows:
+Open an in-memory connection, create a table, and insert some rows:
 
 ```rust
 use sqlite_ll::Connection;
@@ -40,11 +44,11 @@ use sqlite_ll::Connection;
 let c = Connection::memory()?;
 
 c.execute(
-    "
+    r#"
     CREATE TABLE users (name TEXT, age INTEGER);
     INSERT INTO users VALUES ('Alice', 42);
     INSERT INTO users VALUES ('Bob', 69);
-    ",
+    "#,
 )?;
 ```
 
@@ -52,7 +56,7 @@ Querying data using a parepared statement with bindings:
 
 ```rust
 use sqlite_ll::State;
-let mut stmt = connection.prepare("SELECT * FROM users WHERE age > ?")?;
+let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
 
 let mut results = Vec::new();
 
@@ -74,5 +78,7 @@ let expected = vec![
 assert_eq!(results, expected);
 ```
 
+[`Prepare::PERSISTENT`]: enum.Prepare.html#variant.PERSISTENT
+[calling `execute`]: struct.Connection.html#method.execute
 [sqlite crate]: https://github.com/stainless-steel/sqlite
 [SQLite]: https://www.sqlite.org

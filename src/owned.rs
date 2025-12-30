@@ -4,6 +4,8 @@ use core::ptr::NonNull;
 use crate::error::{Code, Error, Result};
 
 /// An owned pointer with drop glue.
+///
+/// This is used internally to store opaque types.
 pub(crate) struct Owned {
     ptr: NonNull<()>,
     drop: unsafe fn(NonNull<()>),

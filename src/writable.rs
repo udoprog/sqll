@@ -109,9 +109,11 @@ impl Writable for String {
                 return Ok(());
             }
 
+            self.reserve(len);
+
             let bytes = slice::from_raw_parts(ptr, len);
-            let s = str::from_utf8_unchecked(bytes);
-            self.push_str(s);
+            let string = str::from_utf8_unchecked(bytes);
+            self.push_str(string);
             Ok(())
         }
     }
@@ -184,6 +186,8 @@ impl Writable for Vec<u8> {
             if ptr.is_null() {
                 return Ok(());
             }
+
+            self.reserve(len);
 
             let bytes = slice::from_raw_parts(ptr.cast(), len);
             self.extend_from_slice(bytes);
