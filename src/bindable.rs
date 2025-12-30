@@ -43,7 +43,46 @@ where
     }
 }
 
+/// [`Bindable`] implementation for [`Null`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::{Connection, Null, State};
+///
+/// let c = Connection::memory()?;
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
+/// stmt.bind(1, Null)?;
+///
+/// let mut names = Vec::new();
+///
+/// while let State::Row = stmt.step()? {
+///     names.push(stmt.read::<String>(0)?);
+/// }
+///
+/// assert_eq!(names, vec![String::from("Alice")]);
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
+impl Bindable for Null {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        unsafe {
+            sqlite3_try! {
+                ffi::sqlite3_bind_null(stmt.as_ptr_mut(), index)
+            };
+        }
+
+        Ok(())
+    }
+}
+
 impl Bindable for Value {
+    #[inline]
     fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         match &self.kind {
             Kind::Blob(value) => value.as_slice().bind(stmt, index),
@@ -131,19 +170,44 @@ impl Bindable for str {
     }
 }
 
-impl Bindable for Null {
-    #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        unsafe {
-            sqlite3_try! {
-                ffi::sqlite3_bind_null(stmt.as_ptr_mut(), index)
-            };
-        }
-
-        Ok(())
-    }
-}
-
+/// [`Bindable`] implementation for [`Option`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::{Connection, State};
+///
+/// let c = Connection::memory()?;
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
+///
+/// stmt.reset()?;
+/// stmt.bind(1, "Alice")?;
+/// stmt.bind(2, None::<i64>)?;
+/// assert_eq!(stmt.step()?, State::Done);
+///
+/// stmt.reset()?;
+/// stmt.bind(1, "Bob")?;
+/// stmt.bind(2, Some(30i64))?;
+/// assert_eq!(stmt.step()?, State::Done);
+///
+/// let mut stmt = c.prepare("SELECT name, age FROM users")?;
+///
+/// let mut names_and_ages = Vec::new();
+///
+/// while let State::Row = stmt.step()? {
+///     let name: String = stmt.read(0)?;
+///     let age: Option<i64> = stmt.read(1)?;
+///     names_and_ages.push((name, age));
+/// }
+///
+/// names_and_ages.sort();
+/// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl<T> Bindable for Option<T>
 where
     T: Bindable,

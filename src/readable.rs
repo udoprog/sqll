@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use sqlite3_sys as ffi;
 
-use crate::{Error, FixedBytes, Result, Statement, Type, Value, Writable};
+use crate::{Error, FixedBytes, Null, Result, Statement, Type, Value, Writable};
 
 mod sealed {
     use alloc::string::String;
@@ -278,6 +278,80 @@ impl<const N: usize> Readable for FixedBytes<N> {
     }
 }
 
+/// [`Readable`] implementation for [`Null`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::{Connection, Null, State};
+///
+/// let c = Connection::memory()?;
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
+/// stmt.bind(1, "Alice")?;
+///
+/// let mut names = Vec::new();
+///
+/// while let State::Row = stmt.step()? {
+///     names.push(stmt.read::<Null>(0)?);
+/// }
+///
+/// assert_eq!(names, vec![Null]);
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
+impl Readable for Null {
+    #[inline]
+    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+        if stmt.column_type(index) == Type::NULL {
+            Ok(Null)
+        } else {
+            Err(Error::new(ffi::SQLITE_MISMATCH))
+        }
+    }
+}
+
+/// [`Readable`] implementation for [`Option`].
+///
+/// # Examples
+///
+/// ```
+/// use sqlite_ll::{Connection, State};
+///
+/// let c = Connection::memory()?;
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
+///
+/// stmt.reset()?;
+/// stmt.bind(1, "Alice")?;
+/// stmt.bind(2, None::<i64>)?;
+/// assert_eq!(stmt.step()?, State::Done);
+///
+/// stmt.reset()?;
+/// stmt.bind(1, "Bob")?;
+/// stmt.bind(2, Some(30i64))?;
+/// assert_eq!(stmt.step()?, State::Done);
+///
+/// let mut stmt = c.prepare("SELECT name, age FROM users")?;
+///
+/// let mut names_and_ages = Vec::new();
+///
+/// while let State::Row = stmt.step()? {
+///     let name: String = stmt.read(0)?;
+///     let age: Option<i64> = stmt.read(1)?;
+///     names_and_ages.push((name, age));
+/// }
+///
+/// names_and_ages.sort();
+/// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
+/// # Ok::<_, sqlite_ll::Error>(())
+/// ```
 impl<T> Readable for Option<T>
 where
     T: Readable,

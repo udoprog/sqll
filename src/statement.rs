@@ -8,6 +8,11 @@ use sqlite3_sys as ffi;
 use crate::{Bindable, Error, Readable, Result, Type, Writable};
 
 /// A marker type representing a NULL value.
+///
+/// This can be used with both [`Bindable`] and [`Writable`].
+///
+/// See [`Statement::bind`] and [`Statement::read`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Null;
 
 /// A prepared statement.
