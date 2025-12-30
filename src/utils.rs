@@ -2,6 +2,9 @@ use core::ffi::CStr;
 use core::ffi::c_char;
 
 #[cfg(feature = "std")]
+use alloc::ffi::CString;
+
+#[cfg(feature = "std")]
 use std::path::Path;
 
 use sqlite3_sys as ffi;

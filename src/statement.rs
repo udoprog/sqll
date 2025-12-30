@@ -1,4 +1,5 @@
 use core::ffi::{CStr, c_char, c_double, c_int};
+use core::fmt;
 use core::mem::MaybeUninit;
 use core::ptr;
 use core::slice;
@@ -17,6 +18,13 @@ use crate::value::{Kind, Type, Value};
 #[repr(transparent)]
 pub struct Statement {
     raw: ptr::NonNull<ffi::sqlite3_stmt>,
+}
+
+impl fmt::Debug for Statement {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Statement").finish_non_exhaustive()
+    }
 }
 
 /// A prepared statement is `Send`.
@@ -113,12 +121,28 @@ impl Statement {
         }
     }
 
-    /// Return column names.
+    /// Return an iterator of column names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::Connection;
+    ///
+    /// let connection = Connection::memory()?;
+    /// connection.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    /// let stmt = connection.prepare("SELECT * FROM users;")?;
+    ///
+    /// let column_names: Vec<&str> = stmt.column_names().into_iter().collect();
+    /// assert_eq!(column_names, vec!["name", "age"]);
+    /// # Ok::<(), sqlite_ll::Error>(())
+    /// ```
     #[inline]
-    pub fn column_names(&self) -> Result<Vec<&str>> {
-        (0..self.column_count())
-            .map(|i| self.column_name(i))
-            .collect()
+    pub fn column_names(&self) -> ColumnNames<'_> {
+        ColumnNames {
+            statement: self,
+            start: 0,
+            end: self.column_count(),
+        }
     }
 
     /// Return the type of a column.
@@ -564,5 +588,43 @@ where
         } else {
             T::read(statement, i).map(Some)
         }
+    }
+}
+
+pub struct ColumnNames<'a> {
+    statement: &'a Statement,
+    start: usize,
+    end: usize,
+}
+
+impl<'a> Iterator for ColumnNames<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.start >= self.end {
+            return None;
+        }
+
+        let name = self.statement.column_name(self.start).ok()?;
+        self.start += 1;
+        Some(name)
+    }
+}
+
+impl<'a> ExactSizeIterator for ColumnNames<'a> {
+    fn len(&self) -> usize {
+        self.end - self.start
+    }
+}
+
+impl<'a> DoubleEndedIterator for ColumnNames<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.start >= self.end {
+            return None;
+        }
+
+        self.end -= 1;
+        let name = self.statement.column_name(self.end).ok()?;
+        Some(name)
     }
 }

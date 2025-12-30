@@ -38,30 +38,6 @@ fn connection_error() -> sqlite_ll::Result<()> {
 }
 
 #[test]
-fn connection_iterate() -> sqlite_ll::Result<()> {
-    macro_rules! pair(
-        ($one:expr, $two:expr) => (($one, Some($two)));
-    );
-
-    let connection = setup_users(":memory:")?;
-
-    let mut done = false;
-    let statement = c"SELECT * FROM users";
-    connection.iterate(statement, |pairs| {
-        assert_eq!(pairs.len(), 5);
-        assert_eq!(pairs[0], pair!("id", "1"));
-        assert_eq!(pairs[1], pair!("name", "Alice"));
-        assert_eq!(pairs[2], pair!("age", "42.69"));
-        assert_eq!(pairs[3], pair!("photo", "\x42\x69"));
-        assert_eq!(pairs[4], ("email", None));
-        done = true;
-        true
-    })?;
-    assert!(done);
-    Ok(())
-}
-
-#[test]
 fn connection_open_with_flags() -> Result<()> {
     let dir = tempfile::tempdir().context("tempdir")?;
     let path = dir.path().join("database.sqlite3");
@@ -186,7 +162,7 @@ fn statement_column_name() -> sqlite_ll::Result<()> {
     let s = "SELECT id, name, age, photo AS user_photo FROM users";
     let s = connection.prepare(s)?;
 
-    let names = s.column_names()?;
+    let names = s.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
     assert_eq!("user_photo", s.column_name(3)?);
     Ok(())
@@ -301,7 +277,7 @@ fn test_dropped_connection() -> sqlite_ll::Result<()> {
     let s = c.prepare(s)?;
     drop(c);
 
-    let names = s.column_names()?;
+    let names = s.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
     assert_eq!("user_photo", s.column_name(3)?);
     Ok(())

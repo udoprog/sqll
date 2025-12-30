@@ -46,31 +46,7 @@
 //! # Ok::<_, sqlite_ll::Error>(())
 //! ```
 //!
-//! Select some rows and process them one by one as plain text:
-//!
-//! ```
-//! # use sqlite_ll::Connection;
-//! # let c = Connection::memory()?;
-//! # c.execute(
-//! #     "
-//! #     CREATE TABLE users (name TEXT, age INTEGER);
-//! #     INSERT INTO users VALUES ('Alice', 42);
-//! #     INSERT INTO users VALUES ('Bob', 69);
-//! #     ",
-//! # )?;
-//! c.iterate(c"SELECT * FROM users WHERE age > 50", |pairs| {
-//!     for &(column, value) in pairs.iter() {
-//!         println!("{} = {}", column, value.unwrap());
-//!     }
-//!
-//!     true
-//! })?;
-//! # Ok::<_, sqlite_ll::Error>(())
-//! ```
-//!
-//! The same query using a prepared statement, which is much more efficient than
-//! parsing and running statements ad-hoc. They must be reset before every
-//! re-use.
+//! Querying data using a parepared statement with bindings:
 //!
 //! ```
 //! use sqlite_ll::State;
@@ -127,7 +103,7 @@ mod statement;
 mod utils;
 mod value;
 
-pub use self::connection::{Connection, OpenOptions};
+pub use self::connection::{Connection, OpenOptions, Prepare};
 pub use self::error::{Code, Error, Result};
 pub use self::statement::{Bindable, FixedBytes, Readable, State, Statement};
 pub use self::value::{Type, Value};

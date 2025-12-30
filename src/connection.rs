@@ -1,6 +1,7 @@
 use core::ffi::CStr;
 use core::ffi::{c_int, c_uint, c_void};
 use core::mem::MaybeUninit;
+use core::ops::BitOr;
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -15,6 +16,46 @@ use crate::statement::Statement;
 use crate::utils::sqlite3_try;
 
 use sqlite3_sys as ffi;
+
+/// A collection of flags use to prepare a statement.
+pub struct Prepare(c_uint);
+
+impl Prepare {
+    /// No flags.
+    ///
+    /// This provides the default behavior when preparing a statement.
+    pub const EMPTY: Self = Self(0);
+
+    /// The PERSISTENT flag is a hint to the query planner that the prepared
+    /// statement will be retained for a long time and probably reused many
+    /// times. Without this flag, sqlite3_prepare_v3() and
+    /// sqlite3_prepare16_v3() assume that the prepared statement will be used
+    /// just once or at most a few times and then destroyed using
+    /// sqlite3_finalize() relatively soon. The current implementation acts on
+    /// this hint by avoiding the use of lookaside memory so as not to deplete
+    /// the limited store of lookaside memory. Future versions of SQLite may act
+    /// on this hint differently.
+    pub const PERSISTENT: Self = Self(ffi::SQLITE_PREPARE_PERSISTENT as c_uint);
+
+    /// The NORMALIZE flag is a no-op. This flag used to be required for any
+    /// prepared statement that wanted to use the sqlite3_normalized_sql()
+    /// interface. However, the sqlite3_normalized_sql() interface is now
+    /// available to all prepared statements, regardless of whether or not they
+    /// use this flag.
+    pub const NORMALIZE: Self = Self(ffi::SQLITE_PREPARE_NORMALIZE as c_uint);
+
+    /// The NO_VTAB flag causes the SQL compiler to return an error if the
+    /// statement uses any virtual tables.
+    pub const NO_VTAB: Self = Self(ffi::SQLITE_PREPARE_NO_VTAB as c_uint);
+}
+
+impl BitOr for Prepare {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
 
 /// A SQLite database connection.
 pub struct Connection {
@@ -86,30 +127,154 @@ impl Connection {
 
     /// Build a prepared statement.
     ///
-    /// By default, this has the `Prepare::PERSISTENT` flag set.
+    /// This is the same as calling `prepare_with` with `Prepare::EMPTY`.
     ///
     /// The database connection will be kept open for the lifetime of this
     /// statement.
+    ///
+    /// # Errors
+    ///
+    /// If the prepare call contains multiple statements, it will error. To
+    /// execute multiple statements, use [`execute`] instead.
+    ///
+    /// ```
+    /// use sqlite_ll::{Connection, Code};
+    ///
+    /// let connection = Connection::memory()?;
+    ///
+    /// let e = connection.prepare(
+    ///     "
+    ///     CREATE TABLE test (id INTEGER) /* test */;
+    ///     INSERT INTO test (id) VALUES (1);
+    ///     "
+    /// ).unwrap_err();
+    ///
+    /// assert_eq!(e.code(), Code::ERROR);
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
+    ///
+    /// [`execute`]: Self::execute
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::{Connection, State, Prepare};
+    ///
+    /// let c = Connection::memory()?;
+    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// let mut insert_stmt = c.prepare("INSERT INTO test (id) VALUES (?);")?;
+    /// let mut query_stmt = c.prepare("SELECT id FROM test;")?;
+    ///
+    /// drop(c);
+    ///
+    /// insert_stmt.reset()?;
+    /// insert_stmt.bind(1, 42)?;
+    /// assert_eq!(insert_stmt.step()?, State::Done);
+    ///
+    /// query_stmt.reset()?;
+    ///
+    /// while let State::Row = query_stmt.step()? {
+    ///     let id: i64 = query_stmt.read(0)?;
+    ///     assert_eq!(id, 42);
+    /// }
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
     #[inline]
     pub fn prepare(&self, statement: impl AsRef<str>) -> Result<Statement> {
-        let mut raw = MaybeUninit::uninit();
+        self.prepare_with(statement, Prepare::EMPTY)
+    }
+
+    /// Build a prepared statement with custom flags.
+    ///
+    /// For long-running statements it is recommended that they have the
+    /// [`Prepare::PERSISTENT`] flag set.
+    ///
+    /// The database connection will be kept open for the lifetime of this
+    /// statement.
+    ///
+    /// # Errors
+    ///
+    /// If the prepare call contains multiple statements, it will error. To
+    /// execute multiple statements, use [`execute`] instead.
+    ///
+    /// ```
+    /// use sqlite_ll::{Connection, Code, Prepare};
+    ///
+    /// let connection = Connection::memory()?;
+    ///
+    /// let e = connection.prepare_with(
+    ///     "
+    ///     CREATE TABLE test (id INTEGER) /* test */;
+    ///     INSERT INTO test (id) VALUES (1);
+    ///     ",
+    ///     Prepare::PERSISTENT
+    /// ).unwrap_err();
+    /// assert_eq!(e.code(), Code::ERROR);
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
+    ///
+    /// [`execute`]: Self::execute
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_ll::{Connection, State, Prepare};
+    ///
+    /// let c = Connection::memory()?;
+    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?);", Prepare::PERSISTENT)?;
+    /// let mut query_stmt = c.prepare_with("SELECT id FROM test;", Prepare::PERSISTENT)?;
+    ///
+    /// drop(c);
+    ///
+    /// /* .. */
+    ///
+    /// insert_stmt.reset()?;
+    /// insert_stmt.bind(1, 42)?;
+    /// assert_eq!(insert_stmt.step()?, State::Done);
+    ///
+    /// query_stmt.reset()?;
+    ///
+    /// while let State::Row = query_stmt.step()? {
+    ///     let id: i64 = query_stmt.read(0)?;
+    ///     assert_eq!(id, 42);
+    /// }
+    /// # Ok::<_, sqlite_ll::Error>(())
+    /// ```
+    pub fn prepare_with(&self, statement: impl AsRef<str>, flags: Prepare) -> Result<Statement> {
         let statement = statement.as_ref();
 
         unsafe {
+            let mut raw = MaybeUninit::uninit();
+            let mut rest = MaybeUninit::uninit();
+
+            let ptr = statement.as_ptr().cast();
+            let len = i32::try_from(statement.len()).unwrap_or(i32::MAX);
+
             sqlite3_try! {
                 self.raw.as_ptr(),
                 ffi::sqlite3_prepare_v3(
                     self.raw.as_ptr(),
-                    statement.as_ptr().cast(),
-                    statement.len() as c_int,
-                    ffi::SQLITE_PREPARE_PERSISTENT as c_uint,
+                    ptr,
+                    len,
+                    flags.0,
                     raw.as_mut_ptr(),
-                    ptr::null_mut(),
+                    rest.as_mut_ptr(),
                 )
             };
 
+            let rest = rest.assume_init();
+
+            let o = rest.offset_from_unsigned(ptr);
+
+            if o != statement.len() {
+                return Err(Error::new(ffi::SQLITE_ERROR));
+            }
+
             let raw = ptr::NonNull::new_unchecked(raw.assume_init());
-            return Ok(Statement::from_raw(raw));
+            Ok(Statement::from_raw(raw))
         }
     }
 
