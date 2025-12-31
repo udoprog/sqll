@@ -14,6 +14,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  RUSTDOCFLAGS: "-D warnings"
+  RUSTFLAGS: "-D warnings"
+
 jobs:
   msrv:
     runs-on: ${{matrix.os}}
@@ -71,3 +75,10 @@ jobs:
       with:
         components: rustfmt
     - run: cargo fmt --check
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - run: cargo doc --document-private-items --no-deps --all-features

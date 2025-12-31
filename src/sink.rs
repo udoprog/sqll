@@ -20,8 +20,8 @@ mod sealed {
 
 /// Trait governing types which can be written to in-place.
 ///
-/// Use with [`Statement::read_into`].
-pub trait Writable
+/// Use with [`Statement::read`].
+pub trait Sink
 where
     Self: self::sealed::Sealed,
 {
@@ -29,9 +29,9 @@ where
     fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()>;
 }
 
-impl<T> Writable for &mut T
+impl<T> Sink for &mut T
 where
-    T: ?Sized + Writable,
+    T: ?Sized + Sink,
 {
     #[inline]
     fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
@@ -39,7 +39,7 @@ where
     }
 }
 
-/// [`Writable`] implementation for [`String`] which appends the content of the
+/// [`Sink`] implementation for [`String`] which appends the content of the
 /// column to the current container.
 ///
 /// # Examples
@@ -59,7 +59,7 @@ where
 ///
 /// while let State::Row = stmt.step()? {
 ///     name.clear();
-///     stmt.read_into(0, &mut name)?;
+///     stmt.read(0, &mut name)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -82,12 +82,12 @@ where
 ///
 /// while let State::Row = stmt.step()? {
 ///     name.clear();
-///     stmt.read_into(0, &mut name)?;
+///     stmt.read(0, &mut name)?;
 ///     assert!(matches!(name.as_str(), "1" | "2"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Writable for String {
+impl Sink for String {
     #[inline]
     fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
         unsafe {
@@ -118,7 +118,7 @@ impl Writable for String {
     }
 }
 
-/// [`Writable`] implementation for [`String`] which appends the content of the
+/// [`Sink`] implementation for [`String`] which appends the content of the
 /// column to the current container.
 ///
 /// # Examples
@@ -138,7 +138,7 @@ impl Writable for String {
 ///
 /// while let State::Row = stmt.step()? {
 ///     name.clear();
-///     stmt.read_into(0, &mut name)?;
+///     stmt.read(0, &mut name)?;
 ///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -161,12 +161,12 @@ impl Writable for String {
 ///
 /// while let State::Row = stmt.step()? {
 ///     name.clear();
-///     stmt.read_into(0, &mut name)?;
+///     stmt.read(0, &mut name)?;
 ///     assert!(matches!(name.as_slice(), b"1" | b"2"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Writable for Vec<u8> {
+impl Sink for Vec<u8> {
     #[inline]
     fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
         unsafe {

@@ -62,7 +62,7 @@ where
 /// let mut names = Vec::new();
 ///
 /// while let Some(row) = stmt.next()? {
-///     names.push(row.read::<String>(0)?);
+///     names.push(row.get::<String>(0)?);
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
@@ -100,7 +100,7 @@ impl Bindable for Null {
 /// let mut names = Vec::new();
 ///
 /// while let Some(row) = stmt.next()? {
-///     names.push(row.read::<String>(0)?);
+///     names.push(row.get::<String>(0)?);
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
@@ -138,7 +138,7 @@ impl Bindable for Value {
 /// stmt.bind(1, &b"Hello"[..])?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.read::<i64>(0)?, 1);
+///     assert_eq!(row.get::<i64>(0)?, 1);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -182,7 +182,7 @@ impl Bindable for [u8] {
 /// stmt.bind(1, b"Hello")?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.read::<i64>(0)?, 1);
+///     assert_eq!(row.get::<i64>(0)?, 1);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -211,7 +211,7 @@ impl<const N: usize> Bindable for [u8; N] {
 /// stmt.bind(1, 2.0f64)?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.read::<i64>(0)?, 2);
+///     assert_eq!(row.get::<i64>(0)?, 2);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -250,7 +250,7 @@ impl Bindable for f64 {
 /// stmt.bind(1, 2)?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.read::<i64>(0)?, 1);
+///     assert_eq!(row.get::<i64>(0)?, 1);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -289,7 +289,7 @@ impl Bindable for i64 {
 /// stmt.bind(1, "Alice")?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.read::<i64>(0)?, 42);
+///     assert_eq!(row.get::<i64>(0)?, 42);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -342,9 +342,9 @@ impl Bindable for str {
 ///
 /// let mut names_and_ages = Vec::new();
 ///
-/// while let State::Row = stmt.step()? {
-///     let name: String = stmt.read(0)?;
-///     let age: Option<i64> = stmt.read(1)?;
+/// while let Some(row) = stmt.next()? {
+///     let name = row.get::<String>(0)?;
+///     let age = row.get::<Option<i64>>(1)?;
 ///     names_and_ages.push((name, age));
 /// }
 ///

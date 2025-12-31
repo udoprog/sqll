@@ -121,8 +121,8 @@ async fn get_user(Extension(db): Extension<Database>) -> Result<Html<String>, We
     writeln!(out, "<body>")?;
 
     while let Some(row) = db.select_users.next()? {
-        let name: String = row.read(0)?;
-        let age: i64 = row.read(1)?;
+        let name: String = row.get(0)?;
+        let age: i64 = row.get(1)?;
         writeln!(out, "<div>Name: {name}, Age: {age}</div>")?;
     }
 

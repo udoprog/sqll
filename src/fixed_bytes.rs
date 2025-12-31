@@ -52,7 +52,7 @@ impl<const N: usize> FixedBytes<N> {
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
     /// while let State::Row = stmt.step()? {
-    ///     let bytes = stmt.read::<FixedBytes<4>>(0)?;
+    ///     let bytes = stmt.get::<FixedBytes<4>>(0)?;
     ///     assert!(matches!(bytes.into_bytes(), Some([1, 2, 3, 4] | [5, 6, 7, 8])));
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -86,7 +86,7 @@ impl<const N: usize> FixedBytes<N> {
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
     /// while let State::Row = stmt.step()? {
-    ///     let bytes = stmt.read::<FixedBytes<10>>(0)?;
+    ///     let bytes = stmt.get::<FixedBytes<10>>(0)?;
     ///     assert!(matches!(bytes.as_bytes(), &[1, 2, 3, 4] | &[5, 6, 7, 8, 9]));
     /// }
     /// # Ok::<_, sqll::Error>(())

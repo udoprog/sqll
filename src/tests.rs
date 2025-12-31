@@ -189,11 +189,11 @@ fn statement_read() -> Result<()> {
     let mut stmt = c.prepare("SELECT * FROM users")?;
 
     assert_eq!(stmt.step()?, State::Row);
-    assert_eq!(stmt.read::<i64>(0)?, 1);
-    assert_eq!(stmt.read::<String>(1)?, String::from("Alice"));
-    assert_eq!(stmt.read::<f64>(2)?, 42.69);
-    assert_eq!(stmt.read::<Vec<u8>>(3)?, [0x42, 0x69]);
-    assert_eq!(stmt.read::<Value>(4)?, Value::null());
+    assert_eq!(stmt.get::<i64>(0)?, 1);
+    assert_eq!(stmt.get::<String>(1)?, String::from("Alice"));
+    assert_eq!(stmt.get::<f64>(2)?, 42.69);
+    assert_eq!(stmt.get::<Vec<u8>>(3)?, [0x42, 0x69]);
+    assert_eq!(stmt.get::<Value>(4)?, Value::null());
     assert_eq!(stmt.step()?, State::Done);
     Ok(())
 }
@@ -204,11 +204,11 @@ fn statement_read_with_nullable() -> Result<()> {
     let mut stmt = c.prepare("SELECT * FROM users")?;
 
     assert_eq!(stmt.step()?, State::Row);
-    assert_eq!(stmt.read::<Option<i64>>(0)?, Some(1));
-    assert_eq!(stmt.read::<Option<String>>(1)?, Some(String::from("Alice")));
-    assert_eq!(stmt.read::<Option<f64>>(2)?, Some(42.69));
-    assert_eq!(stmt.read::<Option<Vec<u8>>>(3)?, Some(vec![0x42, 0x69]));
-    assert_eq!(stmt.read::<Option<String>>(4)?, None);
+    assert_eq!(stmt.get::<Option<i64>>(0)?, Some(1));
+    assert_eq!(stmt.get::<Option<String>>(1)?, Some(String::from("Alice")));
+    assert_eq!(stmt.get::<Option<f64>>(2)?, Some(42.69));
+    assert_eq!(stmt.get::<Option<Vec<u8>>>(3)?, Some(vec![0x42, 0x69]));
+    assert_eq!(stmt.get::<Option<String>>(4)?, None);
     assert_eq!(stmt.step()?, State::Done);
     Ok(())
 }

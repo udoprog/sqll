@@ -95,7 +95,7 @@ impl Connection {
     ///
     /// Note that it is possible to open an in-memory database by passing
     /// `":memory:"` here, this call might require allocating depending on the
-    /// platform, so it should be avoided in favor of using [`memory`]. To avoid
+    /// platform, so it should be avoided in favor of using [`open_memory`]. To avoid
     /// allocating for regular paths, you can use [`open_c_str`], however you
     /// are responsible for ensuring the c-string is a valid path.
     ///
@@ -114,7 +114,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
-    /// [`memory`]: Self::memory
+    /// [`open_memory`]: Self::open_memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
@@ -355,8 +355,8 @@ impl Connection {
     ///
     /// query_stmt.reset()?;
     ///
-    /// while let State::Row = query_stmt.step()? {
-    ///     let id: i64 = query_stmt.read(0)?;
+    /// while let Some(row) = query_stmt.next()? {
+    ///     let id = row.get::<i64>(0)?;
     ///     assert_eq!(id, 42);
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -418,8 +418,8 @@ impl Connection {
     ///
     /// query_stmt.reset()?;
     ///
-    /// while let State::Row = query_stmt.step()? {
-    ///     let id: i64 = query_stmt.read(0)?;
+    /// while let Some(row) = query_stmt.next()? {
+    ///     let id = row.get::<i64>(0)?;
     ///     assert_eq!(id, 42);
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -561,7 +561,7 @@ impl Connection {
     /// select.bind(1, "Dave")?;
     ///
     /// while let Some(row) = select.next()? {
-    ///     let id = row.read::<i64>(0)?;
+    ///     let id = row.get::<i64>(0)?;
     ///     assert_eq!(id, 4);
     /// }
     ///
@@ -575,7 +575,7 @@ impl Connection {
     /// select.bind(1, "Charlie")?;
     ///
     /// while let Some(row) = select.next()? {
-    ///     let id = row.read::<i64>(0)?;
+    ///     let id = row.get::<i64>(0)?;
     ///     assert_eq!(id, 5);
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -686,9 +686,9 @@ pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
 /// separately from the connection that constructed them.
 ///
 /// To avoid this overhead in case you know how the statements will be used, you
-/// can unset this by calling [`unset_no_mutex`].
+/// can unset this by calling [`unsynchronized`].
 ///
-/// [`unset_no_mutex`]: Self::unset_no_mutex
+/// [`unsynchronized`]: Self::unsynchronized
 /// [`SQLITE_OPEN_NOMUTEX`]: https://sqlite.org/c3ref/open.html
 #[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
@@ -778,9 +778,11 @@ impl OpenOptions {
     }
 
     /// Set the database to be opened without the "multi-thread" [threading
-    /// mode]. The effect of calling this is that [`open_full_mutex`] and
-    /// [`open_no_mutex`] are unset.
+    /// mode]. The effect of calling this is that [`full_mutex`] and
+    /// [`no_mutex`] are unset.
     ///
+    /// [`full_mutex`]: Self::full_mutex
+    /// [`no_mutex`]: Self::no_mutex
     /// [threading mode]: https://www.sqlite.org/threadsafe.html
     ///
     /// # Safety
@@ -862,11 +864,11 @@ impl OpenOptions {
     ///
     /// Note that it is possible to open an in-memory database by passing
     /// `":memory:"` here, this call might require allocating depending on the
-    /// platform, so it should be avoided in favor of using [`memory`]. To avoid
+    /// platform, so it should be avoided in favor of using [`open_memory`]. To avoid
     /// allocating for regular paths, you can use [`open_c_str`], however you
     /// are responsible for ensuring the c-string is a valid path.
     ///
-    /// [`memory`]: Self::memory
+    /// [`open_memory`]: Self::open_memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]

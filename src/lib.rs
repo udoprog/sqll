@@ -8,6 +8,8 @@
 //!
 //! ## Examples
 //!
+//! * [`examples/persons.rs`] - A simple table with users, a primary key,
+//!   inserting and querying.
 //! * [`examples/axum.rs`] - Create an in-memory database connection and serve
 //!   it using [`axum`]. This showcases how do properly handle external
 //!   synchronization for the best performance.
@@ -99,7 +101,7 @@
 //!     stmt.bind(1, age)?;
 //!
 //!     while let Some(row) = stmt.next()? {
-//!         results.push((row.read::<String>(0)?, row.read::<i64>(1)?));
+//!         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
 //!     }
 //! }
 //!
@@ -122,6 +124,7 @@
 //!
 //! [`axum`]: https://docs.rs/axum
 //! [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
+//! [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 //! [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
 //! [`sqlite` crate]: https://github.com/stainless-steel/sqlite
 //! [`sqll-sys`]: https://crates.io/crates/sqll-sys
@@ -131,6 +134,7 @@
 #![no_std]
 #![allow(clippy::should_implement_trait)]
 #![allow(clippy::new_without_default)]
+#![warn(rustdoc::broken_intra_doc_links)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "std")]
@@ -148,14 +152,14 @@ mod connection;
 mod error;
 mod ffi;
 mod fixed_bytes;
+mod gettable;
 mod owned;
-mod readable;
+mod sink;
 mod statement;
 #[cfg(test)]
 mod tests;
 mod utils;
 mod value;
-mod writable;
 
 #[doc(inline)]
 pub use self::bindable::Bindable;
@@ -166,13 +170,13 @@ pub use self::error::{Code, Error, Result};
 #[doc(inline)]
 pub use self::fixed_bytes::FixedBytes;
 #[doc(inline)]
-pub use self::readable::Readable;
+pub use self::gettable::Gettable;
+#[doc(inline)]
+pub use self::sink::Sink;
 #[doc(inline)]
 pub use self::statement::{Null, State, Statement};
 #[doc(inline)]
 pub use self::value::{Type, Value};
-#[doc(inline)]
-pub use self::writable::Writable;
 
 /// Return the version number of SQLite.
 ///

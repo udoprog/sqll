@@ -6,13 +6,13 @@ use core::slice;
 
 use crate::ffi;
 use crate::utils::c_to_str;
-use crate::{Bindable, Code, Error, Readable, Result, Type, Writable};
+use crate::{Bindable, Code, Error, Gettable, Result, Sink, Type};
 
 /// A marker type representing a NULL value.
 ///
-/// This can be used with both [`Bindable`] and [`Writable`].
+/// This can be used both as [`Bindable`] and [`Gettable`].
 ///
-/// See [`Statement::bind`] and [`Statement::read`].
+/// See [`Statement::bind`] and [`Statement::get`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Null;
 
@@ -87,7 +87,7 @@ impl State {
 /// query_stmt.reset()?;
 ///
 /// while let Some(mut row) = query_stmt.next()? {
-///     let id: i64 = row.read(0)?;
+///     let id = row.get::<i64>(0)?;
 ///     assert_eq!(id, 42);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -159,7 +159,7 @@ impl Statement {
     ///     stmt.bind(1, age)?;
     ///
     ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.read::<String>(0)?, row.read::<i64>(1)?));
+    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -194,8 +194,8 @@ impl Statement {
     /// c.execute("INSERT INTO users (id, name) VALUES (0, 'Alice'), (1, 'Bob');")?;
     ///
     /// let mut stmt = c.prepare("SELECT name FROM users;")?;
-    /// assert_eq!(stmt.read::<i64>(0)?, 0);
-    /// assert_eq!(stmt.read::<String>(0)?, "");
+    /// assert_eq!(stmt.get::<i64>(0)?, 0);
+    /// assert_eq!(stmt.get::<String>(0)?, "");
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -225,7 +225,7 @@ impl Statement {
     ///     stmt.bind(1, age)?;
     ///
     ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -302,7 +302,7 @@ impl Statement {
     ///     stmt.bind(1, age)?;
     ///
     ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -350,7 +350,7 @@ impl Statement {
     ///     stmt.bind(1, age)?;
     ///
     ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -663,7 +663,7 @@ impl Statement {
         unsafe { c_to_str(ffi::sqlite3_bind_parameter_name(self.raw.as_ptr(), index)) }
     }
 
-    /// Read a value from a column into a [`Readable`].
+    /// Read a value from a column into a [`Gettable`].
     ///
     /// The first column has index 0. The same column can be read multiple
     /// times.
@@ -691,7 +691,7 @@ impl Statement {
     ///     stmt.bind(1, age)?;
     ///
     ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -705,14 +705,14 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn read<T>(&self, index: c_int) -> Result<T>
+    pub fn get<T>(&self, index: c_int) -> Result<T>
     where
-        T: Readable,
+        T: Gettable,
     {
-        Readable::read(self, index)
+        Gettable::get(self, index)
     }
 
-    /// Read a value from a column into the provided [`Writable`].
+    /// Read a value from a column into the provided [`Sink`].
     ///
     /// The first column has index 0. The same column can be read multiple
     /// times.
@@ -746,10 +746,10 @@ impl Statement {
     ///
     ///     while let State::Row = stmt.step()? {
     ///         name_buffer.clear();
-    ///         stmt.read_into(0, &mut name_buffer)?;
+    ///         stmt.read(0, &mut name_buffer)?;
     ///
     ///         if name_buffer == "Bob" {
-    ///             results.push(stmt.read::<i64>(1)?);
+    ///             results.push(stmt.get::<i64>(1)?);
     ///         }
     ///     }
     /// }
@@ -760,7 +760,7 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn read_into(&self, index: c_int, out: &mut (impl ?Sized + Writable)) -> Result<()> {
+    pub fn read(&self, index: c_int, mut out: impl Sink) -> Result<()> {
         out.write(self, index)?;
         Ok(())
     }
@@ -865,7 +865,7 @@ pub struct Row<'a> {
 }
 
 impl<'a> Row<'a> {
-    /// Read a value from a column into a [`Readable`].
+    /// Read a value from a column into a [`Gettable`].
     ///
     /// The first column has index 0. The same column can be read multiple
     /// times.
@@ -894,7 +894,7 @@ impl<'a> Row<'a> {
     ///     stmt.bind(1, age)?;
     ///
     ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.read::<String>(0)?, row.read::<i64>(1)?));
+    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -908,14 +908,14 @@ impl<'a> Row<'a> {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn read<T>(&self, index: c_int) -> Result<T>
+    pub fn get<T>(&self, index: c_int) -> Result<T>
     where
-        T: Readable,
+        T: Gettable,
     {
-        Readable::read(self.stmt, index)
+        Gettable::get(self.stmt, index)
     }
 
-    /// Read a value from a column into the provided [`Writable`].
+    /// Read a value from a column into the provided [`Sink`].
     ///
     /// The first column has index 0. The same column can be read multiple
     /// times.
@@ -949,10 +949,10 @@ impl<'a> Row<'a> {
     ///
     ///     while let Some(row) = stmt.next()? {
     ///         name_buffer.clear();
-    ///         row.read_into(0, &mut name_buffer)?;
+    ///         row.read(0, &mut name_buffer)?;
     ///
     ///         if name_buffer == "Bob" {
-    ///             results.push(row.read::<i64>(1)?);
+    ///             results.push(row.get::<i64>(1)?);
     ///         }
     ///     }
     /// }
@@ -963,7 +963,7 @@ impl<'a> Row<'a> {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn read_into(&self, index: c_int, out: &mut (impl ?Sized + Writable)) -> Result<()> {
+    pub fn read(&self, index: c_int, mut out: impl Sink) -> Result<()> {
         out.write(self.stmt, index)?;
         Ok(())
     }

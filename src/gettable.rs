@@ -5,7 +5,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::{Code, Error, FixedBytes, Null, Result, Statement, Type, Value, Writable};
+use crate::{Code, Error, FixedBytes, Null, Result, Sink, Statement, Type, Value};
 
 mod sealed {
     use alloc::string::String;
@@ -14,7 +14,17 @@ mod sealed {
     use crate::{FixedBytes, Null, Value};
 
     pub trait Sealed {}
+    impl Sealed for i8 {}
+    impl Sealed for i16 {}
+    impl Sealed for i32 {}
     impl Sealed for i64 {}
+    impl Sealed for i128 {}
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
+    impl Sealed for u128 {}
+    impl Sealed for f32 {}
     impl Sealed for f64 {}
     impl Sealed for Null {}
     impl Sealed for String {}
@@ -26,22 +36,60 @@ mod sealed {
 
 /// A type suitable for reading from a prepared statement.
 ///
-/// Use with [`Statement::read`].
-pub trait Readable
+/// Use with [`Statement::get`].
+pub trait Gettable
 where
     Self: self::sealed::Sealed + Sized,
 {
     #[doc(hidden)]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self>;
+    fn get(stmt: &Statement, index: c_int) -> Result<Self>;
 }
 
-impl Readable for Value {
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+/// [`Gettable`] implementation for [`Null`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, Null, State};
+///
+/// let c = Connection::open_memory()?;
+/// c.execute(r##"
+/// CREATE TABLE users (name TEXT, age INTEGER);
+/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "##)?;
+///
+/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
+/// stmt.bind(1, "Alice")?;
+///
+/// let mut names = Vec::new();
+///
+/// while let State::Row = stmt.step()? {
+///     names.push(stmt.get::<Null>(0)?);
+/// }
+///
+/// assert_eq!(names, vec![Null]);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl Gettable for Null {
+    #[inline]
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+        if stmt.column_type(index) == Type::NULL {
+            Ok(Null)
+        } else {
+            Err(Error::new(Code::MISMATCH))
+        }
+    }
+}
+
+/// [`Gettable`] implementation for [`Value`].
+impl Gettable for Value {
+    #[inline]
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         let value = match stmt.column_type(index) {
-            Type::BLOB => Value::blob(<_>::read(stmt, index)?),
-            Type::TEXT => Value::text(<_>::read(stmt, index)?),
-            Type::FLOAT => Value::float(<_>::read(stmt, index)?),
-            Type::INTEGER => Value::integer(<_>::read(stmt, index)?),
+            Type::BLOB => Value::blob(<_>::get(stmt, index)?),
+            Type::TEXT => Value::text(<_>::get(stmt, index)?),
+            Type::FLOAT => Value::float(<_>::get(stmt, index)?),
+            Type::INTEGER => Value::integer(<_>::get(stmt, index)?),
             Type::NULL => Value::null(),
             _ => return Err(Error::new(Code::MISMATCH)),
         };
@@ -50,7 +98,7 @@ impl Readable for Value {
     }
 }
 
-/// [`Readable`] implementation for `f64`.
+/// [`Gettable`] implementation for `f64`.
 ///
 /// # Examples
 ///
@@ -67,19 +115,19 @@ impl Readable for Value {
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
 /// while let State::Row = stmt.step()? {
-///     let value = stmt.read::<f64>(0)?;
+///     let value = stmt.get::<f64>(0)?;
 ///     assert!(matches!(value, 3.14 | 2.71));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Readable for f64 {
+impl Gettable for f64 {
     #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), index) })
     }
 }
 
-/// [`Readable`] implementation for `i64`.
+/// [`Gettable`] implementation for `i64`.
 ///
 /// # Examples
 ///
@@ -96,22 +144,72 @@ impl Readable for f64 {
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
 /// while let State::Row = stmt.step()? {
-///     let value = stmt.read::<i64>(0)?;
+///     let value = stmt.get::<i64>(0)?;
 ///     assert!(matches!(value, 3 | 2));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Readable for i64 {
+impl Gettable for i64 {
     #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), index) })
     }
 }
 
-/// [`Readable`] implementation which returns a newly allocated [`String`].
+macro_rules! integer {
+    ($ty:ty) => {
+        #[doc = concat!(" [`Gettable`] implementation for `", stringify!($ty), "`.")]
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use sqll::{Connection, State};
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r##"
+        /// CREATE TABLE numbers (value INTEGER);
+        /// INSERT INTO numbers (value) VALUES (3), (2);
+        /// "##)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+        ///
+        /// while let State::Row = stmt.step()? {
+        #[doc = concat!("     let value = stmt.get::<", stringify!($ty), ">(0)?;")]
+        ///     assert!(matches!(value, 3 | 2));
+        /// }
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        impl Gettable for $ty {
+            #[inline]
+            #[allow(irrefutable_let_patterns)]
+            fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+                let value = i64::get(stmt, index)?;
+
+                let Ok(value) = <$ty>::try_from(value) else {
+                    return Err(Error::new(Code::MISMATCH));
+                };
+
+                Ok(value)
+            }
+        }
+    };
+}
+
+integer!(i8);
+integer!(i16);
+integer!(i32);
+integer!(i128);
+integer!(u8);
+integer!(u16);
+integer!(u32);
+integer!(u64);
+integer!(u128);
+
+/// [`Gettable`] implementation which returns a newly allocated [`String`].
 ///
 /// For a more memory-efficient way of reading bytes, consider using its
-/// [`Writable`] implementation instead.
+/// [`Sink`] implementation instead.
 ///
 /// # Examples
 ///
@@ -128,7 +226,7 @@ impl Readable for i64 {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// while let State::Row = stmt.step()? {
-///     let name = stmt.read::<String>(0)?;
+///     let name = stmt.get::<String>(0)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -149,24 +247,24 @@ impl Readable for i64 {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while let State::Row = stmt.step()? {
-///     let name = stmt.read::<String>(0)?;
+///     let name = stmt.get::<String>(0)?;
 ///     assert!(matches!(name.as_str(), "1" | "2"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Readable for String {
+impl Gettable for String {
     #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         let mut s = String::new();
         s.write(stmt, index)?;
         Ok(s)
     }
 }
 
-/// [`Readable`] implementation which returns a newly allocated [`Vec`].
+/// [`Gettable`] implementation which returns a newly allocated [`Vec`].
 ///
 /// For a more memory-efficient way of reading bytes, consider using its
-/// [`Writable`] implementation instead.
+/// [`Sink`] implementation instead.
 ///
 /// # Examples
 ///
@@ -183,7 +281,7 @@ impl Readable for String {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// while let State::Row = stmt.step()? {
-///     let name = stmt.read::<Vec<u8>>(0)?;
+///     let name = stmt.get::<Vec<u8>>(0)?;
 ///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -204,21 +302,21 @@ impl Readable for String {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while let State::Row = stmt.step()? {
-///     let name = stmt.read::<Vec::<u8>>(0)?;
+///     let name = stmt.get::<Vec::<u8>>(0)?;
 ///     assert!(matches!(name.as_slice(), b"1" | b"2"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Readable for Vec<u8> {
+impl Gettable for Vec<u8> {
     #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         let mut buf = Vec::new();
         buf.write(stmt, index)?;
         Ok(buf)
     }
 }
 
-/// [`Readable`] implementation for [`FixedBytes`] which reads at most `N`
+/// [`Gettable`] implementation for [`FixedBytes`] which reads at most `N`
 /// bytes.
 ///
 /// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
@@ -238,20 +336,20 @@ impl Readable for Vec<u8> {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// assert_eq!(stmt.step()?, State::Row);
-/// let bytes = stmt.read::<FixedBytes<4>>(0)?;
+/// let bytes = stmt.get::<FixedBytes<4>>(0)?;
 /// assert_eq!(bytes.as_bytes(), &[1, 2, 3, 4]);
 ///
 /// assert_eq!(stmt.step()?, State::Row);
-/// let e = stmt.read::<FixedBytes<4>>(0).unwrap_err();
+/// let e = stmt.get::<FixedBytes<4>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
-/// let bytes = stmt.read::<FixedBytes<5>>(0)?;
+/// let bytes = stmt.get::<FixedBytes<5>>(0)?;
 /// assert_eq!(bytes.as_bytes(), &[5, 6, 7, 8, 9]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<const N: usize> Readable for FixedBytes<N> {
+impl<const N: usize> Gettable for FixedBytes<N> {
     #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         let mut bytes = FixedBytes::new();
 
         unsafe {
@@ -277,43 +375,7 @@ impl<const N: usize> Readable for FixedBytes<N> {
     }
 }
 
-/// [`Readable`] implementation for [`Null`].
-///
-/// # Examples
-///
-/// ```
-/// use sqll::{Connection, Null, State};
-///
-/// let c = Connection::open_memory()?;
-/// c.execute(r##"
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// "##)?;
-///
-/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind(1, "Alice")?;
-///
-/// let mut names = Vec::new();
-///
-/// while let State::Row = stmt.step()? {
-///     names.push(stmt.read::<Null>(0)?);
-/// }
-///
-/// assert_eq!(names, vec![Null]);
-/// # Ok::<_, sqll::Error>(())
-/// ```
-impl Readable for Null {
-    #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
-        if stmt.column_type(index) == Type::NULL {
-            Ok(Null)
-        } else {
-            Err(Error::new(Code::MISMATCH))
-        }
-    }
-}
-
-/// [`Readable`] implementation for [`Option`].
+/// [`Gettable`] implementation for [`Option`].
 ///
 /// # Examples
 ///
@@ -341,9 +403,9 @@ impl Readable for Null {
 ///
 /// let mut names_and_ages = Vec::new();
 ///
-/// while let State::Row = stmt.step()? {
-///     let name: String = stmt.read(0)?;
-///     let age: Option<i64> = stmt.read(1)?;
+/// while let Some(row) = stmt.next()? {
+///     let name = row.get::<String>(0)?;
+///     let age = row.get::<Option<i64>>(1)?;
 ///     names_and_ages.push((name, age));
 /// }
 ///
@@ -351,16 +413,16 @@ impl Readable for Null {
 /// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<T> Readable for Option<T>
+impl<T> Gettable for Option<T>
 where
-    T: Readable,
+    T: Gettable,
 {
     #[inline]
-    fn read(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
         if stmt.column_type(index) == Type::NULL {
             Ok(None)
         } else {
-            T::read(stmt, index).map(Some)
+            T::get(stmt, index).map(Some)
         }
     }
 }

@@ -11,6 +11,8 @@ Efficient interface interface to [SQLite] that doesn't get in your way.
 
 ## Examples
 
+* [`examples/persons.rs`] - A simple table with users, a primary key,
+  inserting and querying.
 * [`examples/axum.rs`] - Create an in-memory database connection and serve
   it using [`axum`]. This showcases how do properly handle external
   synchronization for the best performance.
@@ -101,7 +103,7 @@ for age in [40, 50] {
     stmt.bind(1, age)?;
 
     while let Some(row) = stmt.next()? {
-        results.push((row.read::<String>(0)?, row.read::<i64>(1)?));
+        results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
     }
 }
 
@@ -123,6 +125,7 @@ have been copied under the MIT license.
 
 [`axum`]: https://docs.rs/axum
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
+[`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
 [`sqlite` crate]: https://github.com/stainless-steel/sqlite
 [`sqll-sys`]: https://crates.io/crates/sqll-sys
