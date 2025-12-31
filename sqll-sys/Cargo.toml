@@ -6,7 +6,7 @@ authors = [
 ]
 edition = "2024"
 rust-version = "1.91"
-description = "The package provides bindings to SQLite."
+description = "Usable low-level interface to SQLite that doesn't get in your way"
 documentation = "https://docs.rs/sqll"
 readme = "README.md"
 homepage = "https://github.com/udoprog/sqll"
