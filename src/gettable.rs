@@ -53,10 +53,10 @@ where
 /// use sqll::{Connection, Null, State};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 /// stmt.bind(1, "Alice")?;
@@ -107,10 +107,10 @@ impl Gettable for Value {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE numbers (value REAL);
 /// INSERT INTO numbers (value) VALUES (3.14), (2.71);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -136,10 +136,10 @@ impl Gettable for f64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE numbers (value INTEGER);
 /// INSERT INTO numbers (value) VALUES (3), (2);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -167,10 +167,10 @@ macro_rules! integer {
         ///
         /// let c = Connection::open_memory()?;
         ///
-        /// c.execute(r##"
+        /// c.execute("
         /// CREATE TABLE numbers (value INTEGER);
         /// INSERT INTO numbers (value) VALUES (3), (2);
-        /// "##)?;
+        /// ")?;
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
@@ -218,10 +218,10 @@ integer!(u128);
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT);
 /// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
@@ -239,10 +239,10 @@ integer!(u128);
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (id INTEGER);
 /// INSERT INTO users (id) VALUES (1), (2);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -273,10 +273,10 @@ impl Gettable for String {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT);
 /// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
@@ -294,10 +294,10 @@ impl Gettable for String {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (id INTEGER);
 /// INSERT INTO users (id) VALUES (1), (2);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -328,10 +328,10 @@ impl Gettable for Vec<u8> {
 /// use sqll::{Connection, State, FixedBytes, Code};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (id BLOB);
 /// INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -383,9 +383,9 @@ impl<const N: usize> Gettable for FixedBytes<N> {
 /// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT, age INTEGER);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///

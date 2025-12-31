@@ -59,14 +59,12 @@
 //!
 //! let c = Connection::open_memory()?;
 //!
-//! c.execute(
-//!     r#"
+//! c.execute("
 //!     CREATE TABLE users (name TEXT, age INTEGER);
 //!
 //!     INSERT INTO users VALUES ('Alice', 42);
 //!     INSERT INTO users VALUES ('Bob', 69);
-//!     "#,
-//! )?;
+//! ")?;
 //! # Ok::<_, sqll::Error>(())
 //! ```
 //!
@@ -85,12 +83,12 @@
 //! use sqll::{Connection, Prepare};
 //!
 //! let c = Connection::open_memory()?;
-//! c.execute(r#"
+//! c.execute("
 //!     CREATE TABLE users (name TEXT, age INTEGER);
 //!
 //!     INSERT INTO users VALUES ('Alice', 42);
 //!     INSERT INTO users VALUES ('Bob', 69);
-//! "#)?;
+//! ")?;
 //!
 //! let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
 //!
@@ -147,6 +145,7 @@ extern crate alloc;
 compile_error!("The `alloc` feature must be enabled to use this crate.");
 
 mod bindable;
+mod borrowable;
 mod bytes;
 mod connection;
 mod error;
@@ -163,6 +162,8 @@ mod value;
 
 #[doc(inline)]
 pub use self::bindable::Bindable;
+#[doc(inline)]
+pub use self::borrowable::Borrowable;
 #[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]

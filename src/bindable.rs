@@ -51,10 +51,10 @@ where
 /// use sqll::{Connection, Null};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(1, Null)?;
@@ -89,10 +89,10 @@ impl Bindable for Null {
 /// use sqll::{Connection, Value};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(1, Value::null())?;
@@ -128,11 +128,11 @@ impl Bindable for Value {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE files (id INTEGER, data BLOB);
 /// INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
 /// INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 /// stmt.bind(1, &b"Hello"[..])?;
@@ -172,11 +172,11 @@ impl Bindable for [u8] {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE files (id INTEGER, data BLOB);
 /// INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
 /// INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 /// stmt.bind(1, b"Hello")?;
@@ -202,10 +202,10 @@ impl<const N: usize> Bindable for [u8; N] {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r#"
+/// c.execute("
 /// CREATE TABLE measurements (value REAL);
 /// INSERT INTO measurements (value) VALUES (3.14), (2.71), (1.61);
-/// "#)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
 /// stmt.bind(1, 2.0f64)?;
@@ -241,10 +241,10 @@ impl Bindable for f64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r#"
+/// c.execute("
 /// CREATE TABLE measurements (value INTEGER);
 /// INSERT INTO measurements (value) VALUES (3), (2), (1);
-/// "#)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
 /// stmt.bind(1, 2)?;
@@ -280,10 +280,10 @@ impl Bindable for i64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT, age INTEGER);
 /// INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 /// stmt.bind(1, "Alice")?;
@@ -322,9 +322,9 @@ impl Bindable for str {
 /// use sqll::{Connection, State};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute(r##"
+/// c.execute("
 /// CREATE TABLE users (name TEXT, age INTEGER);
-/// "##)?;
+/// ")?;
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///

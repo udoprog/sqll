@@ -6,7 +6,7 @@ use core::slice;
 
 use crate::ffi;
 use crate::utils::c_to_str;
-use crate::{Bindable, Code, Error, Gettable, Result, Sink, Type};
+use crate::{Bindable, Borrowable, Code, Error, Gettable, Result, Sink, Type};
 
 /// A marker type representing a NULL value.
 ///
@@ -29,7 +29,7 @@ pub enum State {
 }
 
 impl State {
-    /// Return `true` if the state is `Done`.
+    /// Return `true` if the state is [`State::Done`].
     ///
     /// # Examples
     ///
@@ -46,6 +46,29 @@ impl State {
     #[inline]
     pub fn is_done(&self) -> bool {
         matches!(self, State::Done)
+    }
+
+    /// Return `true` if the state is a [`State::Row`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, State};
+    ///
+    /// let c = Connection::open_memory()?;
+    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// let mut stmt = c.prepare("INSERT INTO test (id) VALUES (1)")?;
+    /// assert!(stmt.step()?.is_done());
+    ///
+    /// let mut stmt = c.prepare("SELECT id FROM test")?;
+    /// assert!(stmt.step()?.is_row());
+    /// assert!(stmt.step()?.is_done());
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn is_row(&self) -> bool {
+        matches!(self, State::Row)
     }
 }
 
@@ -142,13 +165,11 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -208,13 +229,11 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -258,11 +277,11 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(r#"
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 42);
     ///     INSERT INTO users VALUES ('Bob', 69);
-    /// "#)?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("UPDATE users SET age = age + 1")?;
     /// stmt.execute()?;
@@ -285,13 +304,11 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -333,13 +350,11 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -586,13 +601,10 @@ impl Statement {
     ///
     /// let mut c = Connection::open_memory()?;
     ///
-    /// c.execute(r##"
+    /// c.execute("
     /// CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age REAL, photo BLOB);
-    /// "##)?;
-    ///
-    /// c.execute(r##"
     /// INSERT INTO users (id, name, age, photo) VALUES (1, 'Bob', 30.5, X'01020304');
-    /// "##)?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users")?;
     ///
@@ -674,13 +686,11 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -712,6 +722,44 @@ impl Statement {
         Gettable::get(self, index)
     }
 
+    /// Borrow a value from a column.
+    ///
+    /// The first column has index 0. The same column can be read multiple
+    /// times.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute("
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// ")?;
+    ///
+    /// let mut stmt = c.prepare("SELECT name FROM users WHERE age > ?")?;
+    ///
+    /// for age in [30, 50] {
+    ///     stmt.reset()?;
+    ///     stmt.bind(1, age)?;
+    ///
+    ///     while stmt.step()?.is_row() {
+    ///         assert!(matches!(stmt.borrow::<str>(0)?, "Alice" | "Bob"));
+    ///     }
+    /// }
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn borrow<T>(&self, index: c_int) -> Result<&T>
+    where
+        T: ?Sized + Borrowable,
+    {
+        Borrowable::borrow(self, index)
+    }
+
     /// Read a value from a column into the provided [`Sink`].
     ///
     /// The first column has index 0. The same column can be read multiple
@@ -723,17 +771,15 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -744,7 +790,7 @@ impl Statement {
     ///     stmt.reset()?;
     ///     stmt.bind(1, age)?;
     ///
-    ///     while let State::Row = stmt.step()? {
+    ///     while stmt.step()?.is_row() {
     ///         name_buffer.clear();
     ///         stmt.read(0, &mut name_buffer)?;
     ///
@@ -877,13 +923,11 @@ impl<'a> Row<'a> {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -915,6 +959,44 @@ impl<'a> Row<'a> {
         Gettable::get(self.stmt, index)
     }
 
+    /// Borrow a value from a column.
+    ///
+    /// The first column has index 0. The same column can be read multiple
+    /// times.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute("
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// ")?;
+    ///
+    /// let mut stmt = c.prepare("SELECT name FROM users WHERE age > ?")?;
+    ///
+    /// for age in [30, 50] {
+    ///     stmt.reset()?;
+    ///     stmt.bind(1, age)?;
+    ///
+    ///     while let Some(row) = stmt.next()? {
+    ///         assert!(matches!(row.borrow::<str>(0)?, "Alice" | "Bob"));
+    ///     }
+    /// }
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn borrow<T>(&self, index: c_int) -> Result<&T>
+    where
+        T: ?Sized + Borrowable,
+    {
+        Borrowable::borrow(self.stmt, index)
+    }
+
     /// Read a value from a column into the provided [`Sink`].
     ///
     /// The first column has index 0. The same column can be read multiple
@@ -930,13 +1012,11 @@ impl<'a> Row<'a> {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(
-    ///     "
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    ///     ",
-    /// )?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///

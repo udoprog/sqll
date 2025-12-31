@@ -44,10 +44,10 @@ impl<const N: usize> FixedBytes<N> {
     /// use sqll::{Connection, State, FixedBytes};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute(r##"
+    /// c.execute("
     /// CREATE TABLE users (id BLOB);
     /// INSERT INTO users (id) VALUES (X'01020304'), (X'05060708');
-    /// "##)?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
@@ -78,10 +78,10 @@ impl<const N: usize> FixedBytes<N> {
     /// use sqll::{Connection, State, FixedBytes};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute(r##"
+    /// c.execute("
     /// CREATE TABLE users (id BLOB);
     /// INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
-    /// "##)?;
+    /// ")?;
     ///
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///

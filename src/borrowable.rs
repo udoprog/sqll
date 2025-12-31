@@ -1,46 +1,27 @@
 use core::ffi::c_int;
 use core::slice;
-use core::str;
-
-use alloc::string::String;
-use alloc::vec::Vec;
 
 use crate::ffi;
 use crate::{Code, Error, Result, Statement};
 
 mod sealed {
-    use alloc::string::String;
-    use alloc::vec::Vec;
-
     pub trait Sealed {}
-    impl Sealed for String {}
-    impl Sealed for Vec<u8> {}
-    impl<T> Sealed for &mut T where T: ?Sized + Sealed {}
+    impl Sealed for str {}
+    impl Sealed for [u8] {}
 }
 
-/// Trait governing types which can be written to in-place.
+/// A type suitable for borrow directly out of a prepared statement.
 ///
-/// Use with [`Statement::read`].
-pub trait Sink
+/// Use with [`Statement::borrow`].
+pub trait Borrowable
 where
     Self: self::sealed::Sealed,
 {
     #[doc(hidden)]
-    fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()>;
+    fn borrow(stmt: &Statement, index: c_int) -> Result<&Self>;
 }
 
-impl<T> Sink for &mut T
-where
-    T: ?Sized + Sink,
-{
-    #[inline]
-    fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
-        (**self).write(stmt, index)
-    }
-}
-
-/// [`Sink`] implementation for [`String`] which appends the content of the
-/// column to the current container.
+/// [`Borrowable`] implementation for [`str`].
 ///
 /// # Examples
 ///
@@ -50,17 +31,15 @@ where
 /// let c = Connection::open_memory()?;
 ///
 /// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+///     CREATE TABLE users (name TEXT);
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
 /// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
-/// let mut name = String::new();
 ///
 /// while let State::Row = stmt.step()? {
-///     name.clear();
-///     stmt.read(0, &mut name)?;
-///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
+///     let name = stmt.borrow::<str>(0)?;
+///     assert!(matches!(name, "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -73,23 +52,22 @@ where
 /// let c = Connection::open_memory()?;
 ///
 /// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
+///     CREATE TABLE users (id INTEGER);
+///     INSERT INTO users (id) VALUES (1), (2);
 /// ")?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = String::new();
 ///
-/// while let State::Row = stmt.step()? {
-///     name.clear();
-///     stmt.read(0, &mut name)?;
-///     assert!(matches!(name.as_str(), "1" | "2"));
+/// while let Some(row) = stmt.next()? {
+///     let name = row.borrow::<str>(0)?;
+///     assert!(matches!(name, "1" | "2"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Sink for String {
+impl Borrowable for str {
     #[inline]
-    fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
+    fn borrow(stmt: &Statement, index: c_int) -> Result<&Self> {
         unsafe {
             let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), index);
 
@@ -98,28 +76,24 @@ impl Sink for String {
             };
 
             if len == 0 {
-                return Ok(());
+                return Ok("");
             }
 
             // SAFETY: This is guaranteed to return valid UTF-8 by sqlite.
             let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index);
 
             if ptr.is_null() {
-                return Ok(());
+                return Ok("");
             }
-
-            self.reserve(len);
 
             let bytes = slice::from_raw_parts(ptr, len);
             let string = str::from_utf8_unchecked(bytes);
-            self.push_str(string);
-            Ok(())
+            Ok(string)
         }
     }
 }
 
-/// [`Sink`] implementation for [`String`] which appends the content of the
-/// column to the current container.
+/// [`Borrowable`] implementation for `[u8]`.
 ///
 /// # Examples
 ///
@@ -166,9 +140,9 @@ impl Sink for String {
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Sink for Vec<u8> {
+impl Borrowable for [u8] {
     #[inline]
-    fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
+    fn borrow(stmt: &Statement, index: c_int) -> Result<&Self> {
         unsafe {
             let i = c_int::try_from(index).unwrap_or(c_int::MAX);
 
@@ -177,20 +151,17 @@ impl Sink for Vec<u8> {
             };
 
             if len == 0 {
-                return Ok(());
+                return Ok(b"");
             }
 
             let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), i);
 
             if ptr.is_null() {
-                return Ok(());
+                return Ok(b"");
             }
 
-            self.reserve(len);
-
             let bytes = slice::from_raw_parts(ptr.cast(), len);
-            self.extend_from_slice(bytes);
-            Ok(())
+            Ok(bytes)
         }
     }
 }

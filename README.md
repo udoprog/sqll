@@ -62,14 +62,12 @@ use sqll::Connection;
 
 let c = Connection::open_memory()?;
 
-c.execute(
-    r#"
+c.execute("
     CREATE TABLE users (name TEXT, age INTEGER);
 
     INSERT INTO users VALUES ('Alice', 42);
     INSERT INTO users VALUES ('Bob', 69);
-    "#,
-)?;
+")?;
 ```
 
 <br>
@@ -87,12 +85,12 @@ queries:
 use sqll::{Connection, Prepare};
 
 let c = Connection::open_memory()?;
-c.execute(r#"
+c.execute("
     CREATE TABLE users (name TEXT, age INTEGER);
 
     INSERT INTO users VALUES ('Alice', 42);
     INSERT INTO users VALUES ('Bob', 69);
-"#)?;
+")?;
 
 let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
 

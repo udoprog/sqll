@@ -239,14 +239,12 @@ impl Connection {
     ///
     /// let mut c = OpenOptions::new().create().read_write().open_memory()?;
     ///
-    /// let e = c.execute(
-    ///     r#"
+    /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
     ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
     ///
     ///     INSERT INTO users VALUES ('Bob');
-    ///     "#,
-    /// );
+    /// ");
     ///
     /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
     /// assert_eq!(e.code(), Code::CONSTRAINT);
@@ -285,14 +283,12 @@ impl Connection {
     ///
     /// let mut c = Connection::open_memory()?;
     ///
-    /// let e = c.execute(
-    ///     r#"
+    /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
     ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
     ///
     ///     INSERT INTO users VALUES ('Bob');
-    ///     "#,
-    /// );
+    /// ");
     ///
     /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
     /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
@@ -468,11 +464,11 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(r#"
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 42);
     ///     INSERT INTO users VALUES ('Bob', 69);
-    /// "#)?;
+    /// ")?;
     ///
     /// assert_eq!(c.change_count(), 1);
     /// # Ok::<_, sqll::Error>(())
@@ -492,11 +488,11 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(r#"
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///     INSERT INTO users VALUES ('Alice', 42);
     ///     INSERT INTO users VALUES ('Bob', 69);
-    /// "#)?;
+    /// ")?;
     ///
     /// assert_eq!(c.total_change_count(), 2);
     /// # Ok::<_, sqll::Error>(())
@@ -519,11 +515,11 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(r#"
+    /// c.execute("
     ///     CREATE TABLE users (name TEXT);
     ///     INSERT INTO users VALUES ('Alice');
     ///     INSERT INTO users VALUES ('Bob');
-    /// "#)?;
+    /// ")?;
     /// assert_eq!(c.last_insert_rowid(), 2);
     ///
     /// c.execute("INSERT INTO users VALUES ('Charlie')")?;
@@ -544,11 +540,11 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute(r#"
+    /// c.execute("
     ///     CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
     ///     INSERT INTO users (name) VALUES ('Alice');
     ///     INSERT INTO users (name) VALUES ('Bob');
-    /// "#)?;
+    /// ")?;
     /// assert_eq!(c.last_insert_rowid(), 2);
     ///
     /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
@@ -840,14 +836,12 @@ impl OpenOptions {
     ///     .read_write()
     ///     .open_memory()?;
     ///
-    /// let e = c.execute(
-    ///     r#"
+    /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
     ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
     ///
     ///     INSERT INTO users VALUES ('Bob');
-    ///     "#,
-    /// );
+    /// ");
     ///
     /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
     /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
