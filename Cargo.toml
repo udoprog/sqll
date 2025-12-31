@@ -1,6 +1,6 @@
 [package]
 name = "sqll"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
@@ -22,7 +22,7 @@ alloc = []
 bundled = ["sqll-sys/bundled"]
 
 [dependencies]
-sqll-sys = { version = "0.2.0", path = "sqll-sys", default-features = false }
+sqll-sys = { version = "0.2.1", path = "sqll-sys", default-features = false }
 
 [dev-dependencies]
 anyhow = "1.0.100"
