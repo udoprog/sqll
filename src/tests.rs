@@ -170,15 +170,15 @@ fn statement_parameter_index() -> Result<()> {
     let statement = "INSERT INTO users VALUES (:id, :name, :age, :photo, :email)";
     let mut statement = c.prepare(statement)?;
 
-    statement.bind(statement.parameter_index(c":id").unwrap(), 2)?;
-    statement.bind(statement.parameter_index(c":name").unwrap(), "Bob")?;
-    statement.bind(statement.parameter_index(c":age").unwrap(), 69.42)?;
+    statement.bind(statement.bind_parameter_index(c":id").unwrap(), 2)?;
+    statement.bind(statement.bind_parameter_index(c":name").unwrap(), "Bob")?;
+    statement.bind(statement.bind_parameter_index(c":age").unwrap(), 69.42)?;
     statement.bind(
-        statement.parameter_index(c":photo").unwrap(),
+        statement.bind_parameter_index(c":photo").unwrap(),
         &[0x69u8, 0x42u8][..],
     )?;
-    statement.bind(statement.parameter_index(c":email").unwrap(), Null)?;
-    assert_eq!(statement.parameter_index(c":missing"), None);
+    statement.bind(statement.bind_parameter_index(c":email").unwrap(), Null)?;
+    assert_eq!(statement.bind_parameter_index(c":missing"), None);
     assert_eq!(statement.step()?, State::Done);
     Ok(())
 }

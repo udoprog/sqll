@@ -5,6 +5,7 @@ use core::ptr;
 use core::slice;
 
 use crate::ffi;
+use crate::utils::c_to_str;
 use crate::{Bindable, Code, Error, Readable, Result, Type, Writable};
 
 /// A marker type representing a NULL value.
@@ -274,6 +275,54 @@ impl Statement {
         Ok(())
     }
 
+    /// Contrary to the intuition of many, [`Statement::reset`] does not reset
+    /// the bindings on a [`Statement`].
+    ///
+    /// Use this routine to reset all host parameters to NULL.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, State};
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(
+    ///     "
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    ///     ",
+    /// )?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
+    ///
+    /// let mut results = Vec::new();
+    ///
+    /// for age in [30, 50] {
+    ///     stmt.reset()?;
+    ///     stmt.bind(1, age)?;
+    ///
+    ///     while let State::Row = stmt.step()? {
+    ///         results.push((stmt.read::<String>(0)?, stmt.read::<i64>(1)?));
+    ///     }
+    /// }
+    ///
+    /// let expected = [
+    ///     (String::from("Alice"), 72),
+    ///     (String::from("Bob"), 40),
+    ///     (String::from("Alice"), 72),
+    /// ];
+    ///
+    /// assert_eq!(results, expected);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn clear_bindings(&mut self) -> Result<()> {
+        unsafe { ffi::sqlite3_clear_bindings(self.raw.as_ptr()) };
+        Ok(())
+    }
+
     /// Bind a value to a parameter by index.
     ///
     /// If a statement is stepped without a parameter being bound, the parameter
@@ -325,7 +374,7 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn bind_by_name(&mut self, name: impl AsRef<CStr>, value: impl Bindable) -> Result<()> {
-        if let Some(index) = self.parameter_index(name) {
+        if let Some(index) = self.bind_parameter_index(name) {
             self.bind(index, value)?;
             Ok(())
         } else {
@@ -333,7 +382,16 @@ impl Statement {
         }
     }
 
-    /// Return the number of columns.
+    /// Return the number of columns in the result set returned by the
+    /// [`Statement`]. If this routine returns 0, that means the [`Statement`]
+    /// returns no data (for example an `UPDATE`).
+    ///
+    /// However, just because this routine returns a positive number does not
+    /// mean that one or more rows of data will be returned.
+    ///
+    /// A SELECT statement will always have a positive [`Self::column_count()`]
+    /// but depending on the WHERE clause constraints and the table content, it
+    /// might return no rows.
     #[inline]
     pub fn column_count(&self) -> c_int {
         unsafe { ffi::sqlite3_column_count(self.raw.as_ptr()) }
@@ -524,12 +582,12 @@ impl Statement {
     /// # let c = sqll::Connection::open(":memory:")?;
     /// c.execute("CREATE TABLE users (name STRING)");
     /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
-    /// assert_eq!(stmt.parameter_index(c":name"), Some(1));
-    /// assert_eq!(stmt.parameter_index(c":asdf"), None);
+    /// assert_eq!(stmt.bind_parameter_index(c":name"), Some(1));
+    /// assert_eq!(stmt.bind_parameter_index(c":asdf"), None);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn parameter_index(&self, parameter: impl AsRef<CStr>) -> Option<c_int> {
+    pub fn bind_parameter_index(&self, parameter: impl AsRef<CStr>) -> Option<c_int> {
         let index = unsafe {
             ffi::sqlite3_bind_parameter_index(self.raw.as_ptr(), parameter.as_ref().as_ptr())
         };
@@ -538,6 +596,25 @@ impl Statement {
             0 => None,
             _ => Some(index),
         }
+    }
+
+    /// Return the name for a bind parameter if it exists.
+    ///
+    /// If it does not exit, `None` is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let c = sqll::Connection::open(":memory:")?;
+    /// c.execute("CREATE TABLE users (name STRING)");
+    /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
+    /// assert_eq!(stmt.bind_parameter_name(1), Some(":name"));
+    /// assert_eq!(stmt.bind_parameter_name(2), None);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn bind_parameter_name(&self, index: c_int) -> Option<&str> {
+        unsafe { c_to_str(ffi::sqlite3_bind_parameter_name(self.raw.as_ptr(), index)) }
     }
 
     /// Read a value from a column into a [`Readable`].

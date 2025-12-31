@@ -16,6 +16,7 @@ use crate::error::{Code, Error, Result};
 use crate::ffi::{self, sqlite3_try};
 use crate::owned::Owned;
 use crate::statement::Statement;
+use crate::utils::c_to_str;
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -302,16 +303,7 @@ impl Connection {
         // NB: This is the same message as set by sqlite.
         static DEFAULT_MESSAGE: &str = "not an error";
 
-        unsafe {
-            let msg_ptr = ffi::sqlite3_errmsg(self.raw.as_ptr());
-
-            if msg_ptr.is_null() {
-                return DEFAULT_MESSAGE;
-            }
-
-            let c_str = CStr::from_ptr(msg_ptr);
-            str::from_utf8_unchecked(c_str.to_bytes())
-        }
+        unsafe { c_to_str(ffi::sqlite3_errmsg(self.raw.as_ptr())).unwrap_or(DEFAULT_MESSAGE) }
     }
 
     /// Build a prepared statement.

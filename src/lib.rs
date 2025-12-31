@@ -136,9 +136,6 @@ extern crate alloc;
 #[cfg(not(feature = "alloc"))]
 compile_error!("The `alloc` feature must be enabled to use this crate.");
 
-#[cfg(test)]
-mod tests;
-
 mod bindable;
 mod bytes;
 mod connection;
@@ -148,6 +145,9 @@ mod fixed_bytes;
 mod owned;
 mod readable;
 mod statement;
+#[cfg(test)]
+mod tests;
+mod utils;
 mod value;
 mod writable;
 
