@@ -1,4 +1,5 @@
 use core::ffi::c_int;
+use core::mem;
 use core::ptr;
 
 use alloc::string::String;
@@ -527,4 +528,89 @@ where
             T::get(stmt, index).map(Some)
         }
     }
+}
+
+macro_rules! repeat {
+    ($macro:path) => {
+        $macro!(A a 0);
+        $macro!(A a 0, B b 1);
+        $macro!(A a 0, B b 1, C c 2);
+        $macro!(A a 0, B b 1, C c 2, D d 3);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12, N n 13);
+        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12, N n 13, O o 14);
+    };
+}
+
+macro_rules! ignore {
+    ($var:ident) => {
+        ""
+    };
+}
+
+macro_rules! implement_tuple {
+    ($ty0:ident $var0:ident $value0:expr $(, $ty:ident $var:ident $value:expr)* $(,)? ) => {
+        impl<'stmt, $ty0 $(, $ty)*> self::sealed::Sealed<'stmt> for ($ty0, $($ty,)*)
+        where
+            $ty0: self::sealed::Sealed<'stmt>,
+            $($ty: self::sealed::Sealed<'stmt>,)*
+        {}
+
+        /// [`Gettable`] implementation for a tuple.
+        ///
+        /// A tuple reads elements one after another, starting at the index
+        /// specified in the call to [`Statement::get`].
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use sqll::Connection;
+        ///
+        /// let c = Connection::open_memory()?;
+        #[doc = concat!(" c.execute(\"CREATE TABLE users (", stringify!($var0) $(, ", ", stringify!($var), " INTEGER")*, ")\")?;")]
+        #[doc = concat!(" c.execute(\"INSERT INTO users VALUES (", stringify!($value0) $(, ", ", stringify!($value))*, ")\")?;")]
+        ///
+        /// let mut stmt = c.prepare("SELECT * FROM users")?;
+        ///
+        /// while let Some(row) = stmt.next()? {
+        #[doc = concat!("     let (", stringify!($var0), "," $(, " ", stringify!($var), ",")*, ") = row.get::<(", ignore!($var0), "i64," $(, " ", ignore!($var), "i64,")*, ")>(0)?;")]
+        #[doc = concat!("     assert_eq!(", stringify!($var0), ", ", stringify!($value0), ");")]
+        $(
+            #[doc = concat!("     assert_eq!(", stringify!($var), ", ", stringify!($value), ");")]
+        )*
+        /// }
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        impl<'stmt, $ty0, $($ty,)*> Gettable<'stmt> for ($ty0, $($ty,)*)
+        where
+            $ty0: Gettable<'stmt>,
+            $($ty: Gettable<'stmt>,)*
+        {
+            #[inline]
+            fn get(stmt: &'stmt Statement, mut index: c_int) -> Result<Self> {
+                let $var0 = Gettable::get(stmt, advance(&mut index))?;
+
+                $(
+                    let $var = Gettable::get(stmt, advance(&mut index))?;
+                )*
+
+                Ok(($var0, $($var,)*))
+            }
+        }
+    };
+}
+
+repeat!(implement_tuple);
+
+fn advance(index: &mut c_int) -> c_int {
+    let n = index.wrapping_add(1);
+    mem::replace(index, n)
 }
