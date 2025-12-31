@@ -1,5 +1,6 @@
 use core::ffi::{CStr, c_int};
 use core::fmt;
+use core::marker::PhantomData;
 use core::ops::Range;
 use core::ptr;
 use core::slice;
@@ -304,6 +305,41 @@ impl Statement {
         Ok(())
     }
 
+    /// Construct a typed iterator over the rows produced by this statement.
+    ///
+    /// This does not support borrowing from the statement, because a statement
+    /// stores the state for each row.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, Result};
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute("
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// ")?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > 40")?;
+    /// let results = stmt.iter::<(String, i64)>().collect::<Result<Vec<_>>>()?;
+    ///
+    /// let expected = [(String::from("Alice"), 72)];
+    /// assert_eq!(results, expected);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn iter<T>(&mut self) -> Iter<'_, T>
+    where
+        for<'stmt> T: Gettable<'stmt>,
+    {
+        Iter {
+            stmt: self,
+            _marker: PhantomData,
+        }
+    }
+
     /// Reset the statement allowing it to be re-used.
     ///
     /// Resetting a statement unsets all bindings set by [`Statement::bind`].
@@ -311,7 +347,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -329,8 +365,8 @@ impl Statement {
     ///     stmt.reset()?;
     ///     stmt.bind(1, age)?;
     ///
-    ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next()? {
+    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -827,6 +863,30 @@ impl Drop for Statement {
     #[inline]
     fn drop(&mut self) {
         unsafe { ffi::sqlite3_finalize(self.raw.as_ptr()) };
+    }
+}
+
+/// A typed iterator over the rows produced by a statement.
+///
+/// See [`Statement::iter`].
+pub struct Iter<'stmt, T> {
+    stmt: &'stmt mut Statement,
+    _marker: PhantomData<T>,
+}
+
+impl<T> Iterator for Iter<'_, T>
+where
+    for<'stmt> T: Gettable<'stmt>,
+{
+    type Item = Result<T>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.stmt.step() {
+            Ok(State::Row) => Some(self.stmt.get(0)),
+            Ok(State::Done) => None,
+            Err(e) => Some(Err(e)),
+        }
     }
 }
 
