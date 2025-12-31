@@ -285,7 +285,18 @@ impl Statement {
     ///
     /// let mut stmt = c.prepare("UPDATE users SET age = age + 1")?;
     /// stmt.execute()?;
+    /// stmt.reset()?;
     /// stmt.execute()?;
+    ///
+    /// let mut query_stmt = c.prepare("SELECT age FROM users ORDER BY name")?;
+    /// let mut results = Vec::new();
+    ///
+    /// while let Some(row) = query_stmt.next()? {
+    ///     results.push(row.get::<i64>(0)?);
+    /// }
+    ///
+    /// let expected = [44, 71];
+    /// assert_eq!(results, expected);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn execute(&mut self) -> Result<()> {
