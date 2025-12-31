@@ -22,6 +22,9 @@ use anyhow::{Context, Result};
 use bindgen::Builder;
 use bindgen::callbacks::{IntKind, ParseCallbacks};
 use clap::Parser;
+use regex::RegexSet;
+use relative_path::Component;
+use relative_path::RelativePath;
 use zip::ZipArchive;
 
 const URL: &str = "https://github.com/sqlite/sqlite";
@@ -50,6 +53,18 @@ const CONSTANTS: &[&str] = &[
     "OPEN_EXRESCODE",
 ];
 
+// NB: Excluding these files causes the source file to include a massive comment
+// about changed sources.
+const EXCLUDE: &[&str] = &[
+    // "^.fossil-settings/.*$",
+    // "^art/.*$",
+    // "^test/.*$",
+    // "^mptest/.*$",
+    // "^tsrc/.*$",
+    // "^contrib/.*$",
+    // "^doc/.*$",
+];
+
 #[derive(Parser)]
 struct Opts {
     /// Skip updating the sqlite3 source code.
@@ -61,6 +76,10 @@ struct Opts {
     /// Generate bindings without any filtering.
     #[clap(long)]
     unfiltered: bool,
+    /// Additional regex patterns to exclude files when extracting a source
+    /// archive.
+    #[clap(long)]
+    exclude: Vec<String>,
 }
 
 macro_rules! cmd {
@@ -100,10 +119,23 @@ async fn main() {
 }
 
 async fn entry(opts: &Opts) -> Result<()> {
+    let mut exclude = Vec::new();
+
+    for &e in EXCLUDE {
+        exclude.push(e.to_owned());
+    }
+
+    for e in &opts.exclude {
+        exclude.push(e.to_owned());
+    }
+
+    let exclude = RegexSet::new(exclude)?;
+
     let mut root = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR")
             .context("CARGO_MANIFEST_DIR environment variable not set")?,
     );
+
     root.pop();
 
     let sys_root = root.join("sqll-sys");
@@ -125,7 +157,7 @@ async fn entry(opts: &Opts) -> Result<()> {
 
         let url = format!("{URL}/archive/refs/tags/{version}.zip");
 
-        println!("Downloading sqlite3 version {version} from {url}");
+        println!("Downloading sqlite3 from {url}");
 
         let bytes = reqwest::get(&url)
             .await
@@ -139,7 +171,7 @@ async fn entry(opts: &Opts) -> Result<()> {
         }
 
         fs::create_dir_all(&work_dir).context("creating work directory")?;
-        extract_archive(&work_dir, &bytes)?;
+        extract_archive(&work_dir, &bytes, &exclude)?;
 
         if version_dir.is_dir() {
             fs::remove_dir_all(&version_dir).context("removing existing sqlite3 source")?;
@@ -204,22 +236,39 @@ async fn entry(opts: &Opts) -> Result<()> {
     Ok(())
 }
 
-fn extract_archive(out: &Path, data: &[u8]) -> Result<(), anyhow::Error> {
+fn extract_archive(out: &Path, data: &[u8], exclude: &RegexSet) -> Result<(), anyhow::Error> {
     let mut archive = ZipArchive::new(Cursor::new(data)).context("reading sqlite3 zip archive")?;
     let mut contents = Vec::new();
 
-    for i in 0..archive.len() {
+    'outer: for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
 
-        let Some(path) = file.enclosed_name() else {
+        let name = RelativePath::new(file.name());
+        let mut it = name.components();
+        it.next();
+        let name = it.as_relative_path();
+
+        if name.components().next().is_none() {
             continue;
-        };
+        }
 
         // Exported archives have a top-level directory we need to skip.
         let mut out_path = out.to_path_buf();
 
-        for c in path.components().skip(1) {
-            out_path.push(c);
+        for c in name.components() {
+            match c {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    continue 'outer;
+                }
+                Component::Normal(c) => {
+                    out_path.push(c);
+                }
+            }
+        }
+
+        if !exclude.is_empty() && exclude.is_match(name.as_str()) {
+            continue;
         }
 
         if file.is_dir() {
