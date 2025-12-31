@@ -127,5 +127,6 @@ fn bundled() {
         build.flag("-Wno-unused-parameter");
     }
 
+    build.define("NDEBUG", "1");
     build.compile("libsqlite3.a");
 }

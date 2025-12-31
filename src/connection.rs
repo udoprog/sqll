@@ -13,10 +13,10 @@ use std::path::Path;
 
 use crate::State;
 use crate::error::{Code, Error, Result};
-use crate::ffi::{self, sqlite3_try};
+use crate::ffi;
 use crate::owned::Owned;
 use crate::statement::Statement;
-use crate::utils::c_to_str;
+use crate::utils::{c_to_str, sqlite3_try};
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -460,6 +460,23 @@ impl Connection {
 
     /// Return the number of rows inserted, updated, or deleted by the most
     /// recent INSERT, UPDATE, or DELETE statement.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 42);
+    ///     INSERT INTO users VALUES ('Bob', 69);
+    /// "#)?;
+    ///
+    /// assert_eq!(c.change_count(), 1);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn change_count(&self) -> usize {
         unsafe { ffi::sqlite3_changes(self.raw.as_ptr()) as usize }
@@ -467,6 +484,23 @@ impl Connection {
 
     /// Return the total number of rows inserted, updated, and deleted by all
     /// INSERT, UPDATE, and DELETE statements since the connection was opened.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 42);
+    ///     INSERT INTO users VALUES ('Bob', 69);
+    /// "#)?;
+    ///
+    /// assert_eq!(c.total_change_count(), 2);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn total_change_count(&self) -> usize {
         unsafe { ffi::sqlite3_total_changes(self.raw.as_ptr()) as usize }
@@ -785,7 +819,7 @@ impl OpenOptions {
             let raw = raw.assume_init();
 
             if code != ffi::SQLITE_OK {
-                ffi::sqlite3_close(raw);
+                ffi::sqlite3_close_v2(raw);
                 return Err(Error::from_raw(code));
             }
 

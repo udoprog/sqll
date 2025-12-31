@@ -17,11 +17,42 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use bindgen::Builder;
 use bindgen::callbacks::{IntKind, ParseCallbacks};
+use clap::Parser;
 
 const URL: &str = "https://github.com/sqlite/sqlite";
 const HEADERS: &[&str] = &["sqlite3.h", "sqlite3ext.h"];
 const BUNDLED: &[&str] = &["sqlite3.c"];
+
+const CONSTANTS: &[&str] = &[
+    "NULL",
+    "INTEGER",
+    "FLOAT",
+    "TEXT",
+    "BLOB",
+    "OK",
+    "DONE",
+    "ROW",
+    "OPEN_READONLY",
+    "OPEN_READWRITE",
+    "OPEN_CREATE",
+    "OPEN_URI",
+    "OPEN_MEMORY",
+    "OPEN_NOMUTEX",
+    "OPEN_FULLMUTEX",
+    "OPEN_SHAREDCACHE",
+    "OPEN_PRIVATECACHE",
+    "OPEN_NOFOLLOW",
+    "OPEN_EXRESCODE",
+];
+
+#[derive(Parser)]
+struct Opts {
+    /// Skip updating the sqlite3 source code.
+    #[clap(long)]
+    skip_update: bool,
+}
 
 macro_rules! cmd {
     (in $path:expr, $cmd:expr $(, $arg:expr)* $(,)?) => {{
@@ -44,7 +75,9 @@ macro_rules! cmd {
 }
 
 fn main() {
-    if let Err(e) = entry() {
+    let opts = Opts::parse();
+
+    if let Err(e) = entry(&opts) {
         println!("Error: {e}");
 
         let mut cause = e.source();
@@ -56,7 +89,7 @@ fn main() {
     }
 }
 
-fn entry() -> Result<()> {
+fn entry(opts: &Opts) -> Result<()> {
     let mut root = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR")
             .context("CARGO_MANIFEST_DIR environment variable not set")?,
@@ -106,25 +139,32 @@ fn entry() -> Result<()> {
         Ok(())
     };
 
-    build(&min_rev, &HEADERS)?;
-    build(&bundled_rev, &BUNDLED)?;
+    if !opts.skip_update {
+        build(&min_rev, &HEADERS)?;
+        build(&bundled_rev, &BUNDLED)?;
+    }
 
     println!("Generating bindings");
 
-    bindgen::Builder::default()
+    let constants = CONSTANTS.join("|");
+
+    Builder::default()
         .header(sys_root.join("source/sqlite3.h").display().to_string())
         .use_core()
-        .blocklist_item("SQLITE_VERSION")
+        .disable_header_comment()
+        .allowlist_item(format!("SQLITE_({constants})"))
+        .allowlist_item("SQLITE_PREPARE_.*")
+        .allowlist_item("sqlite3_(reset|step|open_v2|close_v2|prepare_v3|finalize)")
+        .allowlist_item("sqlite3_(libversion_number|clear_bindings|busy_handler|busy_timeout|changes|total_changes|errstr|extended_result_codes|errmsg)")
+        .allowlist_item("sqlite3_bind_parameter_(index|name)")
+        .allowlist_item("sqlite3_column_(name|type|count|bytes|text|double|int64|null|blob)")
+        .allowlist_item("sqlite3_bind_(bytes|text|double|int64|null|blob)")
         .parse_callbacks(Box::new(CIntCallbacks))
         .generate()?
         .write_to_file(sys_root.join("src/base.rs"))
         .context("generating bindings")?;
 
-    for header in HEADERS {
-        let path = sys_root.join("source").join(header);
-        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
-    }
-
+    cmd!(in ".", "cargo", "check", "-p", "sqll", "--features", "bundled");
     Ok(())
 }
 
