@@ -24,7 +24,6 @@ unsafe extern "C" {
     pub fn sqlite3_libversion_number() -> ::core::ffi::c_int;
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct sqlite3 {
     _unused: [u8; 0],
 }
@@ -78,7 +77,6 @@ unsafe extern "C" {
     pub fn sqlite3_errstr(arg1: ::core::ffi::c_int) -> *const ::core::ffi::c_char;
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct sqlite3_stmt {
     _unused: [u8; 0],
 }

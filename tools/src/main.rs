@@ -212,7 +212,14 @@ async fn entry(opts: &Opts) -> Result<()> {
         .header(sys_root.join("source/sqlite3.h").display().to_string())
         .use_core()
         .disable_header_comment()
-        .parse_callbacks(Box::new(CIntCallbacks));
+        .derive_copy(false)
+        .derive_debug(false)
+        .derive_eq(false)
+        .derive_hash(false)
+        .derive_ord(false)
+        .derive_partialeq(false)
+        .derive_partialord(false)
+        .parse_callbacks(Box::new(IntegerDefines));
 
     if !opts.unfiltered {
         builder = builder
@@ -304,10 +311,10 @@ fn extract_archive(out: &Path, data: &[u8], exclude: &RegexSet) -> Result<(), an
 }
 
 #[derive(Debug)]
-struct CIntCallbacks;
+struct ParseCallbacks;
 
-impl ParseCallbacks for CIntCallbacks {
-    fn int_macro(&self, _name: &str, _value: i64) -> Option<IntKind> {
+impl IntegerDefines for ParseCallbacks {
+    fn int_macro(&self, _: &str, _: i64) -> Option<IntKind> {
         Some(IntKind::Int)
     }
 }
