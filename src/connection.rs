@@ -1,5 +1,5 @@
 use core::ffi::CStr;
-use core::ffi::{c_int, c_uint, c_void};
+use core::ffi::{c_int, c_longlong, c_uint, c_void};
 use core::mem::MaybeUninit;
 use core::ops::BitOr;
 use core::ptr;
@@ -504,6 +504,85 @@ impl Connection {
     #[inline]
     pub fn total_change_count(&self) -> usize {
         unsafe { ffi::sqlite3_total_changes(self.raw.as_ptr()) as usize }
+    }
+
+    /// Return the rowid of the most recent successful INSERT into a rowid table
+    /// or virtual table.
+    ///
+    /// # Examples
+    ///
+    /// If there is no primary key, the last inserted row id is an internal
+    /// identifier for the row:
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT);
+    ///     INSERT INTO users VALUES ('Alice');
+    ///     INSERT INTO users VALUES ('Bob');
+    /// "#)?;
+    /// assert_eq!(c.last_insert_rowid(), 2);
+    ///
+    /// c.execute("INSERT INTO users VALUES ('Charlie')")?;
+    /// assert_eq!(c.last_insert_rowid(), 3);
+    ///
+    /// let mut stmt = c.prepare("INSERT INTO users VALUES (?)")?;
+    /// stmt.bind(1, "Dave")?;
+    /// stmt.execute()?;
+    ///
+    /// assert_eq!(c.last_insert_rowid(), 4);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    ///
+    /// If there is a primary key, the last inserted row id corresponds to it:
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+    ///     INSERT INTO users (name) VALUES ('Alice');
+    ///     INSERT INTO users (name) VALUES ('Bob');
+    /// "#)?;
+    /// assert_eq!(c.last_insert_rowid(), 2);
+    ///
+    /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
+    /// assert_eq!(c.last_insert_rowid(), 3);
+    ///
+    /// c.execute("INSERT INTO users (name) VALUES ('Dave')")?;
+    /// assert_eq!(c.last_insert_rowid(), 4);
+    ///
+    /// let mut select = c.prepare("SELECT id FROM users WHERE name = ?")?;
+    /// select.bind(1, "Dave")?;
+    ///
+    /// while let Some(row) = select.next()? {
+    ///     let id = row.read::<i64>(0)?;
+    ///     assert_eq!(id, 4);
+    /// }
+    ///
+    /// c.execute("DELETE FROM users WHERE id = 3")?;
+    /// assert_eq!(c.last_insert_rowid(), 4);
+    ///
+    /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
+    /// assert_eq!(c.last_insert_rowid(), 5);
+    ///
+    /// select.reset()?;
+    /// select.bind(1, "Charlie")?;
+    ///
+    /// while let Some(row) = select.next()? {
+    ///     let id = row.read::<i64>(0)?;
+    ///     assert_eq!(id, 5);
+    /// }
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn last_insert_rowid(&self) -> c_longlong {
+        unsafe { ffi::sqlite3_last_insert_rowid(self.raw.as_ptr()) }
     }
 
     /// Set a callback for handling busy events.

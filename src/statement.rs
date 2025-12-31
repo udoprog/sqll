@@ -28,6 +28,27 @@ pub enum State {
     Done,
 }
 
+impl State {
+    /// Return `true` if the state is `Done`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, State};
+    ///
+    /// let c = Connection::open_memory()?;
+    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// let mut stmt = c.prepare("INSERT INTO test (id) VALUES (1)")?;
+    /// assert!(stmt.step()?.is_done());
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn is_done(&self) -> bool {
+        matches!(self, State::Done)
+    }
+}
+
 /// A prepared statement.
 ///
 /// Prepared statements are compiled using [`Connection::prepare`] or
@@ -226,6 +247,31 @@ impl Statement {
                 code => Err(Error::from_raw(code)),
             }
         }
+    }
+
+    /// Execute the statement without returning any rows until done.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///     INSERT INTO users VALUES ('Alice', 42);
+    ///     INSERT INTO users VALUES ('Bob', 69);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("UPDATE users SET age = age + 1")?;
+    /// stmt.execute()?;
+    /// stmt.execute()?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn execute(&mut self) -> Result<()> {
+        while !self.step()?.is_done() {}
+        Ok(())
     }
 
     /// Reset the statement allowing it to be re-used.

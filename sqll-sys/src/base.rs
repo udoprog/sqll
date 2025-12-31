@@ -40,6 +40,9 @@ unsafe extern "C" {
     ) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
+    pub fn sqlite3_last_insert_rowid(arg1: *mut sqlite3) -> sqlite3_int64;
+}
+unsafe extern "C" {
     pub fn sqlite3_changes(arg1: *mut sqlite3) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
