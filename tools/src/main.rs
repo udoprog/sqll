@@ -13,6 +13,8 @@
 
 use std::env;
 use std::fs;
+use std::fs::File;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -20,6 +22,7 @@ use anyhow::{Context, Result};
 use bindgen::Builder;
 use bindgen::callbacks::{IntKind, ParseCallbacks};
 use clap::Parser;
+use zip::ZipArchive;
 
 const URL: &str = "https://github.com/sqlite/sqlite";
 const HEADERS: &[&str] = &["sqlite3.h", "sqlite3ext.h"];
@@ -52,6 +55,12 @@ struct Opts {
     /// Skip updating the sqlite3 source code.
     #[clap(long)]
     skip_update: bool,
+    /// Force updating the sqlite3 source code even if it already exists.
+    #[clap(long)]
+    force_update: bool,
+    /// Generate bindings without any filtering.
+    #[clap(long)]
+    unfiltered: bool,
 }
 
 macro_rules! cmd {
@@ -74,10 +83,11 @@ macro_rules! cmd {
     }};
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let opts = Opts::parse();
 
-    if let Err(e) = entry(&opts) {
+    if let Err(e) = entry(&opts).await {
         println!("Error: {e}");
 
         let mut cause = e.source();
@@ -89,7 +99,7 @@ fn main() {
     }
 }
 
-fn entry(opts: &Opts) -> Result<()> {
+async fn entry(opts: &Opts) -> Result<()> {
     let mut root = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR")
             .context("CARGO_MANIFEST_DIR environment variable not set")?,
@@ -105,23 +115,41 @@ fn entry(opts: &Opts) -> Result<()> {
     let bundled_version = fs::read_to_string(sys_root.join("sqlite3-version-bundled"))
         .context("reading sqlite3-version-bundled")?;
 
-    let min_rev = format!("refs/tags/{version}");
-    let bundled_rev = format!("refs/tags/{bundled_version}");
+    let build = async |version: &str, files: &[&str]| -> Result<()> {
+        let version_dir = sqlite_root.join(version);
+        let work_dir = sqlite_root.join(format!(".work-{version}"));
 
-    let build = |rev: &str, files: &[&str]| -> Result<()> {
-        let rev_to = format!("{rev}:{rev}");
-
-        if !sqlite_root.is_dir() {
-            println!("Cloning to {}", sqlite_root.display());
-            cmd!(in sqlite_root, "git", "clone", "--depth", "1", URL, "--revision", rev);
+        if version_dir.is_dir() && !opts.force_update {
+            return Ok(());
         }
 
-        cmd!(in sqlite_root, "git", "fetch", "--depth", "1", "origin", &rev_to);
-        cmd!(in sqlite_root, "git", "checkout", rev);
+        let url = format!("{URL}/archive/refs/tags/{version}.zip");
 
-        cmd!(in sqlite_root, Path::new("./configure"));
-        cmd!(in sqlite_root, "make", "clean");
-        cmd!(in sqlite_root, "make", "sqlite3.c");
+        println!("Downloading sqlite3 version {version} from {url}");
+
+        let bytes = reqwest::get(&url)
+            .await
+            .context("downloading sqlite3 source")?
+            .bytes()
+            .await
+            .context("reading sqlite3 source")?;
+
+        if work_dir.is_dir() {
+            fs::remove_dir_all(&work_dir).context("removing existing work directory")?;
+        }
+
+        fs::create_dir_all(&work_dir).context("creating work directory")?;
+        extract_archive(&work_dir, &bytes)?;
+
+        if version_dir.is_dir() {
+            fs::remove_dir_all(&version_dir).context("removing existing sqlite3 source")?;
+        }
+
+        fs::rename(&work_dir, &version_dir).context("renaming sqlite3 source directory")?;
+
+        cmd!(in version_dir, Path::new("./configure"));
+        cmd!(in version_dir, "make", "clean");
+        cmd!(in version_dir, "make", "sqlite3.c");
 
         let source_dir = sys_root.join("source");
 
@@ -132,7 +160,7 @@ fn entry(opts: &Opts) -> Result<()> {
         for name in files {
             println!("Copying {name}");
 
-            fs::copy(sqlite_root.join(name), source_dir.join(name))
+            fs::copy(version_dir.join(name), source_dir.join(name))
                 .with_context(|| format!("copying {}", name))?;
         }
 
@@ -140,33 +168,89 @@ fn entry(opts: &Opts) -> Result<()> {
     };
 
     if !opts.skip_update {
-        build(&min_rev, &HEADERS)?;
-        build(&bundled_rev, &BUNDLED)?;
+        build(&version, &HEADERS).await?;
+        build(&bundled_version, &BUNDLED).await?;
     }
 
     println!("Generating bindings");
 
     let constants = CONSTANTS.join("|");
 
-    Builder::default()
+    let mut builder = Builder::default()
         .header(sys_root.join("source/sqlite3.h").display().to_string())
         .use_core()
         .disable_header_comment()
-        .allowlist_item(format!("SQLITE_({constants})"))
-        .allowlist_item("SQLITE_PREPARE_.*")
-        .allowlist_item("sqlite3_libversion_number")
-        .allowlist_item("sqlite3_(reset|step|open_v2|close_v2|prepare_v3|finalize)")
-        .allowlist_item("sqlite3_(errstr|errmsg|extended_result_codes)")
-        .allowlist_item("sqlite3_(clear_bindings|busy_handler|busy_timeout|changes|total_changes|last_insert_rowid)")
-        .allowlist_item("sqlite3_bind_parameter_(index|name)")
-        .allowlist_item("sqlite3_column_(name|type|count|bytes|text|double|int64|null|blob)")
-        .allowlist_item("sqlite3_bind_(bytes|text|double|int64|null|blob)")
-        .parse_callbacks(Box::new(CIntCallbacks))
+        .parse_callbacks(Box::new(CIntCallbacks));
+
+    if !opts.unfiltered {
+        builder = builder
+            .allowlist_item(format!("SQLITE_({constants})"))
+            .allowlist_item("SQLITE_PREPARE_.*")
+            .allowlist_item("sqlite3_libversion_number")
+            .allowlist_item("sqlite3_(reset|step|open_v2|close_v2|prepare_v3|finalize)")
+            .allowlist_item("sqlite3_(errstr|errmsg|extended_result_codes)")
+            .allowlist_item("sqlite3_(clear_bindings|busy_handler|busy_timeout|changes|total_changes|last_insert_rowid)")
+            .allowlist_item("sqlite3_bind_parameter_(index|name)")
+            .allowlist_item("sqlite3_column_(name|type|count|bytes|text|double|int64|null|blob)")
+            .allowlist_item("sqlite3_bind_(bytes|text|double|int64|null|blob)");
+    }
+
+    builder
         .generate()?
         .write_to_file(sys_root.join("src/base.rs"))
         .context("generating bindings")?;
 
     cmd!(in ".", "cargo", "check", "-p", "sqll", "--features", "bundled");
+    Ok(())
+}
+
+fn extract_archive(out: &Path, data: &[u8]) -> Result<(), anyhow::Error> {
+    let mut archive = ZipArchive::new(Cursor::new(data)).context("reading sqlite3 zip archive")?;
+    let mut contents = Vec::new();
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+
+        let Some(path) = file.enclosed_name() else {
+            continue;
+        };
+
+        // Exported archives have a top-level directory we need to skip.
+        let mut out_path = out.to_path_buf();
+
+        for c in path.components().skip(1) {
+            out_path.push(c);
+        }
+
+        if file.is_dir() {
+            if !out_path.is_dir() {
+                fs::create_dir_all(&out_path)
+                    .with_context(|| format!("creating {}", out_path.display()))?;
+            }
+
+            continue;
+        }
+
+        contents.clear();
+        file.read_to_end(&mut contents)?;
+
+        let f = File::create_new(&out_path)?;
+
+        #[cfg(unix)]
+        if let Some(m) = file.unix_mode() {
+            use std::fs::Permissions;
+            use std::os::unix::fs::PermissionsExt;
+
+            let p = Permissions::from_mode(m);
+
+            f.set_permissions(p)
+                .with_context(|| format!("setting permissions on {}", out_path.display()))?;
+        }
+
+        fs::write(&out_path, &contents)
+            .with_context(|| format!("writing {}", out_path.display()))?;
+    }
+
     Ok(())
 }
 
