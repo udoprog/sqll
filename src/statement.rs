@@ -715,9 +715,9 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn get<T>(&self, index: c_int) -> Result<T>
+    pub fn get<'stmt, T>(&'stmt self, index: c_int) -> Result<T>
     where
-        T: Gettable,
+        T: Gettable<'stmt>,
     {
         Gettable::get(self, index)
     }
@@ -906,11 +906,11 @@ impl DoubleEndedIterator for Columns {
 /// A row produced by a statement.
 ///
 /// See [`Statement::next`].
-pub struct Row<'a> {
-    stmt: &'a mut Statement,
+pub struct Row<'stmt> {
+    stmt: &'stmt Statement,
 }
 
-impl<'a> Row<'a> {
+impl<'stmt> Row<'stmt> {
     /// Read a value from a column into a [`Gettable`].
     ///
     /// The first column has index 0. The same column can be read multiple
@@ -954,7 +954,7 @@ impl<'a> Row<'a> {
     #[inline]
     pub fn get<T>(&self, index: c_int) -> Result<T>
     where
-        T: Gettable,
+        T: Gettable<'stmt>,
     {
         Gettable::get(self.stmt, index)
     }
