@@ -1,18 +1,18 @@
 [package]
 name = "sqll-sys"
-version = "0.1.5+sqlite-3.51.1"
+version = "0.1.6+sqlite-3.51.1"
 authors = [
     "John-John Tedro <udoprog@tedro.se>",
 ]
 edition = "2024"
 rust-version = "1.91"
-description = "Usable low-level interface to SQLite that doesn't get in your way"
+description = "Efficient interface interface to SQLite that doesn't get in your way"
 documentation = "https://docs.rs/sqll"
 readme = "README.md"
 homepage = "https://github.com/udoprog/sqll"
 repository = "https://github.com/udoprog/sqll"
 license = "MIT OR Apache-2.0"
-keywords = ["api-bindings", "database", "sqlite"]
+keywords = ["api-bindings", "database", "ffi", "sqlite"]
 categories = ["database", "external-ffi-bindings"]
 
 include = [
