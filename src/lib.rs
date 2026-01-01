@@ -212,7 +212,7 @@ pub use self::borrowable::Borrowable;
 #[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]
-pub use self::error::{Code, Error, Result};
+pub use self::error::{Code, DatabaseNotFound, Error, Result};
 #[doc(inline)]
 pub use self::fixed_bytes::FixedBytes;
 #[doc(inline)]

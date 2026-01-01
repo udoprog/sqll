@@ -260,3 +260,17 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {}
+
+/// Indicates that a database was not found.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct DatabaseNotFound;
+
+impl fmt::Display for DatabaseNotFound {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "database not found")
+    }
+}
+
+impl core::error::Error for DatabaseNotFound {}

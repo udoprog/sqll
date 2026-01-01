@@ -195,3 +195,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn sqlite3_reset(pStmt: *mut sqlite3_stmt) -> ::core::ffi::c_int;
 }
+unsafe extern "C" {
+    pub fn sqlite3_db_readonly(
+        db: *mut sqlite3,
+        zDbName: *const ::core::ffi::c_char,
+    ) -> ::core::ffi::c_int;
+}

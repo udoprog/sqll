@@ -15,20 +15,20 @@ use crate::{Code, Connection, Null, OpenOptions, Value};
 #[test]
 fn connection_change_count() -> Result<()> {
     let c = setup_users(":memory:")?;
-    assert_eq!(c.change_count(), 1);
-    assert_eq!(c.total_change_count(), 1);
+    assert_eq!(c.changes(), 1);
+    assert_eq!(c.total_changes(), 1);
 
     c.execute("INSERT INTO users VALUES (2, 'Bob', NULL, NULL, NULL)")?;
-    assert_eq!(c.change_count(), 1);
-    assert_eq!(c.total_change_count(), 2);
+    assert_eq!(c.changes(), 1);
+    assert_eq!(c.total_changes(), 2);
 
     c.execute("UPDATE users SET name = 'Bob' WHERE id = 1")?;
-    assert_eq!(c.change_count(), 1);
-    assert_eq!(c.total_change_count(), 3);
+    assert_eq!(c.changes(), 1);
+    assert_eq!(c.total_changes(), 3);
 
     c.execute("DELETE FROM users")?;
-    assert_eq!(c.change_count(), 2);
-    assert_eq!(c.total_change_count(), 5);
+    assert_eq!(c.changes(), 2);
+    assert_eq!(c.total_changes(), 5);
     Ok(())
 }
 
@@ -47,7 +47,8 @@ fn connection_open_with_flags() -> Result<()> {
 
     setup_users(&path)?;
 
-    let flags = OpenOptions::new().read_only();
+    let mut flags = OpenOptions::new();
+    flags.read_only();
     let c = flags.open(path)?;
     let e = c
         .execute("INSERT INTO users VALUES (2, 'Bob', NULL, NULL, NULL)")
@@ -58,7 +59,7 @@ fn connection_open_with_flags() -> Result<()> {
 }
 
 #[test]
-fn connection_set_busy_handler() -> Result<()> {
+fn connection_busy_handler() -> Result<()> {
     let dir = tempfile::tempdir().context("tempdir")?;
     let path = dir.path().join("database.sqlite3");
 
@@ -71,7 +72,7 @@ fn connection_set_busy_handler() -> Result<()> {
 
         guards.push(thread::spawn(move || -> Result<bool> {
             let mut c = Connection::open(path)?;
-            c.set_busy_handler(|_| true)?;
+            c.busy_handler(|_| true)?;
             let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
             stmt.bind(1, 2i64)?;
             stmt.bind(2, "Bob")?;

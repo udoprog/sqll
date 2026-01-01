@@ -1,9 +1,9 @@
 use core::ffi::CStr;
 use core::ffi::{c_int, c_longlong, c_uint, c_void};
+use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::BitOr;
-use core::ptr;
-use core::ptr::NonNull;
+use core::ptr::{self, NonNull};
 
 #[cfg(feature = "std")]
 use alloc::ffi::CString;
@@ -11,12 +11,10 @@ use alloc::ffi::CString;
 #[cfg(feature = "std")]
 use std::path::Path;
 
-use crate::State;
-use crate::error::{Code, Error, Result};
 use crate::ffi;
 use crate::owned::Owned;
-use crate::statement::Statement;
 use crate::utils::{c_to_str, sqlite3_try};
+use crate::{Code, DatabaseNotFound, Error, Result, State, Statement};
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -232,6 +230,36 @@ impl Connection {
             .open_memory()
     }
 
+    /// Check if the database connection is read-only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, Code, OpenOptions, DatabaseNotFound};
+    ///
+    /// let c = OpenOptions::new().read_write().open_memory()?;
+    ///
+    /// assert!(!c.database_read_only(c"main")?);
+    /// let e = c.database_read_only(c"not a db").unwrap_err();
+    /// assert!(matches!(e, DatabaseNotFound { .. }));
+    ///
+    /// let c = OpenOptions::new().read_only().open_memory()?;
+    ///
+    /// assert!(c.database_read_only(c"main")?);
+    /// let e = c.database_read_only(c"not a db").unwrap_err();
+    /// assert!(matches!(e, DatabaseNotFound { .. }));
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn database_read_only(&self, name: &CStr) -> Result<bool, DatabaseNotFound> {
+        unsafe {
+            match ffi::sqlite3_db_readonly(self.raw.as_ptr(), name.as_ptr()) {
+                1 => Ok(true),
+                0 => Ok(false),
+                _ => Err(DatabaseNotFound),
+            }
+        }
+    }
+
     /// Execute a batch of statements.
     ///
     /// Unlike [`prepare`], this can be used to execute multiple statements
@@ -325,15 +353,16 @@ impl Connection {
     /// ");
     ///
     /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
-    /// assert_eq!(e.code(), Code::CONSTRAINT);
-    ///
-    /// c.set_extended_result_codes(true)?;
-    ///
-    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
     /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
+    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
+    ///
+    /// c.extended_result_codes(false)?;
+    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
+    /// assert_eq!(e.code(), Code::CONSTRAINT);
+    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn set_extended_result_codes(&mut self, enabled: bool) -> Result<()> {
+    pub fn extended_result_codes(&mut self, enabled: bool) -> Result<()> {
         unsafe {
             let onoff = i32::from(enabled);
             sqlite3_try!(ffi::sqlite3_extended_result_codes(self.raw.as_ptr(), onoff));
@@ -543,11 +572,11 @@ impl Connection {
     ///     INSERT INTO users VALUES ('Bob', 69);
     /// "#)?;
     ///
-    /// assert_eq!(c.change_count(), 1);
+    /// assert_eq!(c.changes(), 1);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn change_count(&self) -> usize {
+    pub fn changes(&self) -> usize {
         unsafe { ffi::sqlite3_changes(self.raw.as_ptr()) as usize }
     }
 
@@ -568,11 +597,11 @@ impl Connection {
     ///     INSERT INTO users VALUES ('Bob', 69);
     /// "#)?;
     ///
-    /// assert_eq!(c.total_change_count(), 2);
+    /// assert_eq!(c.total_changes(), 2);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn total_change_count(&self) -> usize {
+    pub fn total_changes(&self) -> usize {
         unsafe { ffi::sqlite3_total_changes(self.raw.as_ptr()) as usize }
     }
 
@@ -673,6 +702,10 @@ impl Connection {
     /// due to processing of some other request. If the callback returns `true`,
     /// the operation will be repeated.
     ///
+    /// The busy callback should not take any actions which modify the database
+    /// connection that invoked the busy handler. In other words, the busy
+    /// handler is not reentrant. Any such actions result in undefined behavior.
+    ///
     /// # Examples
     ///
     /// ```
@@ -680,13 +713,13 @@ impl Connection {
     ///
     /// let mut c = Connection::open_memory()?;
     ///
-    /// c.set_busy_handler(|attempts| {
+    /// c.busy_handler(|attempts| {
     ///     println!("busy attempt: {attempts}");
     ///     attempts < 5
     /// })?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn set_busy_handler<F>(&mut self, callback: F) -> Result<()>
+    pub fn busy_handler<F>(&mut self, callback: F) -> Result<()>
     where
         F: FnMut(usize) -> bool + Send + 'static,
     {
@@ -703,8 +736,6 @@ impl Connection {
             }
         }
 
-        self.remove_busy_handler()?;
-
         unsafe {
             let callback = Owned::new(callback)?;
 
@@ -714,6 +745,8 @@ impl Connection {
                 callback.as_ptr().cast(),
             );
 
+            // NB: Old callback will be dropped and freed when we set the new
+            // one here.
             self.busy_callback = Some(callback);
             sqlite3_try!(result);
         }
@@ -721,8 +754,7 @@ impl Connection {
         Ok(())
     }
 
-    /// Set an implicit callback for handling busy events that tries to repeat
-    /// rejected operations until a timeout expires.
+    /// Clear any previously registered busy handler.
     ///
     /// # Examples
     ///
@@ -731,42 +763,16 @@ impl Connection {
     ///
     /// let mut c = Connection::open_memory()?;
     ///
-    /// c.set_busy_timeout(5000)?;
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn set_busy_timeout(&mut self, ms: c_int) -> Result<()> {
-        unsafe {
-            sqlite3_try! {
-                ffi::sqlite3_busy_timeout(
-                    self.raw.as_ptr(),
-                    ms
-                )
-            };
-        }
-
-        Ok(())
-    }
-
-    /// Remove any previously registered busy handler.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let mut c = Connection::open_memory()?;
-    ///
-    /// c.set_busy_handler(|attempts| {
+    /// c.busy_handler(|attempts| {
     ///     println!("busy attempt: {attempts}");
     ///     attempts < 5
     /// })?;
     ///
-    /// c.remove_busy_handler()?;
+    /// c.clear_busy_handler()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn remove_busy_handler(&mut self) -> Result<()> {
+    pub fn clear_busy_handler(&mut self) -> Result<()> {
         unsafe {
             sqlite3_try! {
                 ffi::sqlite3_busy_handler(
@@ -780,13 +786,47 @@ impl Connection {
         self.busy_callback = None;
         Ok(())
     }
+
+    /// Set an implicit callback for handling busy events that tries to repeat
+    /// rejected operations until a timeout expires.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let mut c = Connection::open_memory()?;
+    ///
+    /// c.busy_timeout(5000)?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn busy_timeout(&mut self, ms: c_int) -> Result<()> {
+        unsafe {
+            sqlite3_try! {
+                ffi::sqlite3_busy_timeout(
+                    self.raw.as_ptr(),
+                    ms
+                )
+            };
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Connection {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Connection").finish_non_exhaustive()
+    }
 }
 
 impl Drop for Connection {
     #[inline]
     #[allow(unused_must_use)]
     fn drop(&mut self) {
-        self.remove_busy_handler();
+        self.clear_busy_handler();
 
         // Will close the connection unconditionally. The database will stay
         // alive until all associated prepared statements have been closed since
@@ -817,14 +857,21 @@ pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
 
 /// Options that can be used to customize the opening of a SQLite database.
 ///
-/// By default the database is opened in multi-threaded mode with the
-/// [`SQLITE_OPEN_FULLMUTEX`] option enabled which makes [`Connection`] and
-/// [`Statement`] objects thread-safe by serializing access. This can be
-/// disabled at runtime through [`no_mutex`], but is unsafe since the caller has
-/// to guarantee that access to *all* database objects are synchronized.
+/// When using [`new`] the database is opened with the [`full_mutex`] and
+/// [`extended_result_codes`] options set which makes [`Connection`] and related
+/// database objects thread-safe by serializing access.
 ///
+/// This can be disabled at runtime through [`no_mutex`], but is unsafe since if
+/// set the caller has to guarantee that access to *all* database objects are
+/// synchronized with the connection. Even with [`no_mutex`] long as the
+/// `threadsafe` feature is set, you can correctly use one [`Connection`] per
+/// thread as long as they are distinct instances and they don't reference the
+/// same database.
+///
+/// [`new`]: Self::new
+/// [`full_mutex`]: Self::full_mutex
 /// [`no_mutex`]: Self::no_mutex
-/// [`SQLITE_OPEN_FULLMUTEX`]: https://sqlite.org/c3ref/open.html
+/// [`extended_result_codes`]: Self::extended_result_codes
 #[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
     raw: c_int,
@@ -840,6 +887,17 @@ impl OpenOptions {
     /// valid leaving it up to the caller to ensure proper synchronization.
     ///
     /// [`full_mutex`]: Self::full_mutex
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = unsafe {
+    ///     OpenOptions::empty().read_write().create().open_memory()?
+    /// };
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub unsafe fn empty() -> Self {
         Self { raw: 0 }
@@ -847,30 +905,62 @@ impl OpenOptions {
 
     /// Create flags for opening a database connection with default safe
     /// options.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new().read_write().create().open_memory()?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn new() -> Self {
         Self {
-            raw: ffi::SQLITE_OPEN_FULLMUTEX,
+            raw: ffi::SQLITE_OPEN_FULLMUTEX | ffi::SQLITE_OPEN_EXRESCODE,
         }
     }
 
     /// The database is opened in read-only mode. If the database does not
     /// already exist, an error is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new().read_only().open_memory()?;
+    ///
+    /// assert!(c.database_read_only(c"main")?);
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn read_only(mut self) -> Self {
+    pub fn read_only(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_READONLY;
         self
     }
 
     /// The database is opened for reading and writing if possible, or reading
-    /// only if the file is write protected by the operating system. In either
-    /// case the database must already exist, otherwise an error is returned.
-    /// For historical reasons, if opening in read-write mode fails due to
-    /// OS-level permissions, an attempt is made to open it in read-only mode.
-    /// sqlite3_db_readonly() can be used to determine whether the database is
-    /// actually read-write.
+    /// only if the file is write protected by the operating system.
+    ///
+    /// In either case the database must already exist, otherwise an error is
+    /// returned. For historical reasons, if opening in read-write mode fails
+    /// due to OS-level permissions, an attempt is made to open it in read-only
+    /// mode. [`Connection::database_read_only`] can be used to determine
+    /// whether the database is actually read-write.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new().read_write().open_memory()?;
+    ///
+    /// assert!(!c.database_read_only(c"main")?);
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn read_write(mut self) -> Self {
+    pub fn read_write(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_READWRITE;
         self
     }
@@ -878,19 +968,55 @@ impl OpenOptions {
     /// The database is opened for reading and writing, and is created if it
     /// does not already exist.
     ///
+    /// # Errors
+    ///
     /// Note that a mode option like [`read_write`] must be set, otherwise this
     /// will cause an error when opening.
     ///
+    /// ```
+    /// use sqll::{OpenOptions, Code};
+    ///
+    /// let mut opts = OpenOptions::new();
+    /// opts.create();
+    ///
+    /// let e = opts.open_memory().unwrap_err();
+    /// assert_eq!(e.code(), Code::MISUSE);
+    ///
+    /// opts.read_write();
+    /// let c = opts.open_memory()?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    ///
     /// [`read_write`]: Self::read_write
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new().read_write().create().open_memory()?;
+    ///
+    /// assert!(!c.database_read_only(c"main")?);
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn create(mut self) -> Self {
+    pub fn create(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_CREATE;
         self
     }
 
     /// The filename can be interpreted as a URI if this flag is set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new().read_write().create().uri().open("file:memorydb?mode=memory")?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
-    pub fn uri(mut self) -> Self {
+    pub fn uri(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_URI;
         self
     }
@@ -898,8 +1024,18 @@ impl OpenOptions {
     /// The database will be opened as an in-memory database. The database is
     /// named by the "filename" argument for the purposes of cache-sharing, if
     /// shared cache mode is enabled, but the "filename" is otherwise ignored.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{OpenOptions, Code};
+    ///
+    /// let c1 = OpenOptions::new().read_write().memory().open("database")?;
+    /// let c2 = OpenOptions::new().read_write().memory().open("database")?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
-    pub fn memory(mut self) -> Self {
+    pub fn memory(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_MEMORY;
         self
     }
@@ -916,8 +1052,23 @@ impl OpenOptions {
     /// This is unsafe, since it requires that the caller ensures that access to
     /// the any objects associated with the connection such as [`Statement`] is
     /// synchronized with the connection that constructed them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = unsafe {
+    ///     OpenOptions::new()
+    ///         .no_mutex()
+    ///         .read_write()
+    ///         .create()
+    ///         .open_memory()?
+    /// };
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
-    pub unsafe fn no_mutex(mut self) -> Self {
+    pub unsafe fn no_mutex(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
         self
     }
@@ -928,8 +1079,17 @@ impl OpenOptions {
     /// concurrency, but in this mode there is no harm in trying.
     ///
     /// [threading mode]: https://sqlite.org/threadsafe.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let c = OpenOptions::new().full_mutex().read_write().create().open_memory()?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
-    pub fn full_mutex(mut self) -> Self {
+    pub fn full_mutex(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_FULLMUTEX;
         self
     }
@@ -939,7 +1099,7 @@ impl OpenOptions {
     /// discouraged and hence shared cache capabilities may be omitted from many
     /// builds of SQLite. In such cases, this option is a no-op.
     #[inline]
-    pub fn shared_cache(mut self) -> Self {
+    pub fn shared_cache(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_SHAREDCACHE;
         self
     }
@@ -947,21 +1107,21 @@ impl OpenOptions {
     /// The database is opened with shared cache disabled, overriding the
     /// default shared cache setting provided.
     #[inline]
-    pub fn private_cache(mut self) -> Self {
+    pub fn private_cache(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_PRIVATECACHE;
         self
     }
 
     /// The database filename is not allowed to contain a symbolic link.
     #[inline]
-    pub fn no_follow(mut self) -> Self {
+    pub fn no_follow(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_NOFOLLOW;
         self
     }
 
     /// The database connection comes up in "extended result code mode". In
     /// other words, the database behaves as if
-    /// [`Connection::set_extended_result_codes`] were called on the database
+    /// [`Connection::extended_result_codes`] were called on the database
     /// connection as soon as the connection is created. In addition to setting
     /// the extended result code mode.
     ///
@@ -970,11 +1130,13 @@ impl OpenOptions {
     /// ```
     /// use sqll::{OpenOptions, Code};
     ///
-    /// let c = OpenOptions::new()
-    ///     .extended_result_codes()
-    ///     .create()
-    ///     .read_write()
-    ///     .open_memory()?;
+    /// let mut c = unsafe {
+    ///     OpenOptions::empty()
+    ///         .extended_result_codes()
+    ///         .create()
+    ///         .read_write()
+    ///         .open_memory()?
+    /// };
     ///
     /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
@@ -986,10 +1148,15 @@ impl OpenOptions {
     /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
     /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
     /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
+    ///
+    /// c.extended_result_codes(false)?;
+    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
+    /// assert_eq!(e.code(), Code::CONSTRAINT);
+    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn extended_result_codes(mut self) -> Self {
+    pub fn extended_result_codes(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_EXRESCODE;
         self
     }
