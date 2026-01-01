@@ -41,17 +41,19 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State, FixedBytes};
+    /// use sqll::{Connection, FixedBytes};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("
-    /// CREATE TABLE users (id BLOB);
-    /// INSERT INTO users (id) VALUES (X'01020304'), (X'05060708');
-    /// ")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (id BLOB);
+    ///
+    ///     INSERT INTO users (id) VALUES (X'01020304'), (X'05060708');
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
-    /// while let State::Row = stmt.step()? {
+    /// while stmt.step()?.is_row() {
     ///     let bytes = stmt.get::<FixedBytes<4>>(0)?;
     ///     assert!(matches!(bytes.into_bytes(), Some([1, 2, 3, 4] | [5, 6, 7, 8])));
     /// }
@@ -75,17 +77,19 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State, FixedBytes};
+    /// use sqll::{Connection, FixedBytes};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("
-    /// CREATE TABLE users (id BLOB);
-    /// INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
-    /// ")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (id BLOB);
+    ///
+    ///     INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
-    /// while let State::Row = stmt.step()? {
+    /// while stmt.step()?.is_row() {
     ///     let bytes = stmt.get::<FixedBytes<10>>(0)?;
     ///     assert!(matches!(bytes.as_bytes(), &[1, 2, 3, 4] | &[5, 6, 7, 8, 9]));
     /// }

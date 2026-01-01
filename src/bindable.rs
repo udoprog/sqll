@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
-use crate::{Null, Statement, Value};
+use crate::{Code, Error, Null, Statement, Value};
 
 mod sealed {
     use crate::{Null, Value};
@@ -14,8 +14,18 @@ mod sealed {
     impl Sealed for str {}
     impl Sealed for [u8] {}
     impl<const N: usize> Sealed for [u8; N] {}
+    impl Sealed for f32 {}
     impl Sealed for f64 {}
+    impl Sealed for i8 {}
+    impl Sealed for i16 {}
+    impl Sealed for i32 {}
     impl Sealed for i64 {}
+    impl Sealed for i128 {}
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
+    impl Sealed for u128 {}
     impl Sealed for Value {}
     impl Sealed for Null {}
     impl<T> Sealed for Option<T> where T: Sealed {}
@@ -51,10 +61,11 @@ where
 /// use sqll::{Connection, Null};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// ")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///     INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(1, Null)?;
@@ -89,10 +100,12 @@ impl Bindable for Null {
 /// use sqll::{Connection, Value};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// ")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(1, Value::null())?;
@@ -128,11 +141,12 @@ impl Bindable for Value {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE files (id INTEGER, data BLOB);
-/// INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
-/// INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE files (id INTEGER, data BLOB);
+///
+///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
+///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 /// stmt.bind(1, &b"Hello"[..])?;
@@ -172,11 +186,12 @@ impl Bindable for [u8] {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE files (id INTEGER, data BLOB);
-/// INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
-/// INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE files (id INTEGER, data BLOB);
+///
+///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
+///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 /// stmt.bind(1, b"Hello")?;
@@ -195,6 +210,10 @@ impl<const N: usize> Bindable for [u8; N] {
 
 /// [`Bindable`] implementation for [`f64`].
 ///
+/// This corresponds to the internal SQLite [`FLOAT`] type.
+///
+/// [`FLOAT`]: crate::Type::FLOAT
+///
 /// # Examples
 ///
 /// ```
@@ -202,10 +221,11 @@ impl<const N: usize> Bindable for [u8; N] {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE measurements (value REAL);
-/// INSERT INTO measurements (value) VALUES (3.14), (2.71), (1.61);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE measurements (value REAL);
+///
+///     INSERT INTO measurements (value) VALUES (3.14), (2.71), (1.61);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
 /// stmt.bind(1, 2.0f64)?;
@@ -232,7 +252,10 @@ impl Bindable for f64 {
     }
 }
 
-/// [`Bindable`] implementation for [`i64`].
+/// [`Bindable`] implementation for [`f32`].
+///
+/// Binding this type requires conversion and might be subject to precision
+/// loss. To avoid this, consider using [`f64`] instead.
 ///
 /// # Examples
 ///
@@ -241,13 +264,59 @@ impl Bindable for f64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE measurements (value INTEGER);
-/// INSERT INTO measurements (value) VALUES (3), (2), (1);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE measurements (value REAL);
+///
+///     INSERT INTO measurements (value) VALUES (3.14), (2.71), (1.61);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-/// stmt.bind(1, 2)?;
+/// stmt.bind(1, 2.0f32)?;
+///
+/// while let Some(row) = stmt.next()? {
+///     assert_eq!(row.get::<i64>(0)?, 2);
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl Bindable for f32 {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        unsafe {
+            sqlite3_try! {
+                ffi::sqlite3_bind_double(
+                    stmt.as_ptr_mut(),
+                    index,
+                    *self as f64
+                )
+            };
+        }
+
+        Ok(())
+    }
+}
+
+/// [`Bindable`] implementation for [`i64`].
+///
+/// This corresponds to the internal SQLite [`INTEGER`] type and can therefore
+/// represent any value.
+///
+/// [`INTEGER`]: crate::Type::INTEGER
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE measurements (value INTEGER);
+///
+///     INSERT INTO measurements (value) VALUES (3), (2), (1);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
+/// stmt.bind(1, 2i64)?;
 ///
 /// while let Some(row) = stmt.next()? {
 ///     assert_eq!(row.get::<i64>(0)?, 1);
@@ -271,6 +340,109 @@ impl Bindable for i64 {
     }
 }
 
+macro_rules! lossless {
+    ($ty:ty) => {
+        #[doc = concat!(" [`Bindable`] implementation for `", stringify!($ty), "`.")]
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use sqll::Connection;
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r#"
+        ///     CREATE TABLE measurements (value INTEGER);
+        ///
+        ///     INSERT INTO measurements (value) VALUES (3), (2), (1);
+        /// "#)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
+        #[doc = concat!(" stmt.bind(1, 2", stringify!($ty), ")?;")]
+        ///
+        /// assert!(stmt.step()?.is_row());
+        /// assert_eq!(stmt.get::<i64>(0)?, 1);
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        impl Bindable for $ty {
+            #[inline]
+            fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+                let value = *self as i64;
+                value.bind(stmt, index)
+            }
+        }
+    };
+}
+
+macro_rules! lossy {
+    ($ty:ty) => {
+        #[doc = concat!(" [`Bindable`] implementation for `", stringify!($ty), "`.")]
+        ///
+        /// # Errors
+        ///
+        /// Binding this type requires conversion and might fail if the value
+        /// cannot be represented by a [`i64`].
+        ///
+        /// ```
+        /// use sqll::{Connection, Code};
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r#"
+        ///     CREATE TABLE measurements (value INTEGER);
+        ///
+        ///     INSERT INTO measurements (value) VALUES (3), (2), (1);
+        /// "#)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
+        #[doc = concat!(" let e = stmt.bind(1, ", stringify!($ty), "::MAX).unwrap_err();")]
+        /// assert_eq!(e.code(), sqll::Code::MISMATCH);
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use sqll::Connection;
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r#"
+        ///     CREATE TABLE measurements (value INTEGER);
+        ///
+        ///     INSERT INTO measurements (value) VALUES (3), (2), (1);
+        /// "#)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
+        #[doc = concat!(" stmt.bind(1, 2", stringify!($ty), ")?;")]
+        ///
+        /// assert!(stmt.step()?.is_row());
+        /// assert_eq!(stmt.get::<i64>(0)?, 1);
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        impl Bindable for $ty {
+            #[inline]
+            fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+                let Ok(value) = i64::try_from(*self) else {
+                    return Err(Error::new(Code::MISMATCH));
+                };
+
+                value.bind(stmt, index)
+            }
+        }
+    };
+}
+
+lossless!(i8);
+lossless!(i16);
+lossless!(i32);
+lossy!(i128);
+lossless!(u8);
+lossless!(u16);
+lossless!(u32);
+lossy!(u64);
+lossy!(u128);
+
 /// [`Bindable`] implementation for [`str`] slices.
 ///
 /// # Examples
@@ -280,10 +452,11 @@ impl Bindable for i64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 /// stmt.bind(1, "Alice")?;
@@ -319,24 +492,25 @@ impl Bindable for str {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// ")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
 /// stmt.reset()?;
 /// stmt.bind(1, "Alice")?;
 /// stmt.bind(2, None::<i64>)?;
-/// assert_eq!(stmt.step()?, State::Done);
+/// assert!(stmt.step()?.is_done());
 ///
 /// stmt.reset()?;
 /// stmt.bind(1, "Bob")?;
 /// stmt.bind(2, Some(30i64))?;
-/// assert_eq!(stmt.step()?, State::Done);
+/// assert!(stmt.step()?.is_done());
 ///
 /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
 ///

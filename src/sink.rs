@@ -46,19 +46,20 @@ where
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 /// let mut name = String::new();
 ///
-/// while let State::Row = stmt.step()? {
+/// while stmt.step()?.is_row() {
 ///     name.clear();
 ///     stmt.read(0, &mut name)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
@@ -73,10 +74,11 @@ where
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = String::new();
@@ -131,10 +133,11 @@ impl Sink for String {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (blob BLOB);
-/// INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (blob BLOB);
+///
+///     INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 /// let mut blob = Vec::<u8>::new();
@@ -154,10 +157,11 @@ impl Sink for String {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = Vec::<u8>::new();

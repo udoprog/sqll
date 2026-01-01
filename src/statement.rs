@@ -35,10 +35,13 @@ impl State {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE test (id INTEGER);
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("INSERT INTO test (id) VALUES (1)")?;
     /// assert!(stmt.step()?.is_done());
@@ -54,10 +57,13 @@ impl State {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE test (id INTEGER);
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("INSERT INTO test (id) VALUES (1)")?;
     /// assert!(stmt.step()?.is_done());
@@ -76,26 +82,35 @@ impl State {
 /// A prepared statement.
 ///
 /// Prepared statements are compiled using [`Connection::prepare`] or
-/// [`Connection::prepare_with`].
+/// [`Connection::prepare_with`]. The [`Connection`] which constructed the
+/// prepared statement will remain alive for as long as the statement is alive,
+/// even if the connection is dropped.
 ///
 /// They can be re-used, but between each re-use they must be reset using
-/// [`Statement::reset`]. Defensive coding would suggest its appropriate to
-/// always call this before using a statement unless it was just created.
+/// [`reset`]. A defensive coding style suggests its appropriate to always call
+/// this before using a statement unless it was just created. A call to
+/// [`reset`] must also be done to refresh the prepared statement with respects
+/// to changes in the database.
 ///
 /// For durable prepared statements it is recommended that
 /// [`Connection::prepare_with`] is used with [`Prepare::PERSISTENT`] set.
 ///
-/// [`Connection::prepare`]: crate::Connection::prepare
 /// [`Connection::prepare_with`]: crate::Connection::prepare_with
+/// [`Connection::prepare`]: crate::Connection::prepare
+/// [`Connection`]: crate::Connection
 /// [`Prepare::PERSISTENT`]: crate::Prepare::PERSISTENT
+/// [`reset`]: Self::reset
 ///
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State, Prepare};
+/// use sqll::{Connection, Prepare};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("CREATE TABLE test (id INTEGER);")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (id INTEGER);
+/// "#)?;
 ///
 /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?);", Prepare::PERSISTENT)?;
 /// let mut query_stmt = c.prepare_with("SELECT id FROM test;", Prepare::PERSISTENT)?;
@@ -106,7 +121,7 @@ impl State {
 ///
 /// insert_stmt.reset()?;
 /// insert_stmt.bind(1, 42)?;
-/// assert_eq!(insert_stmt.step()?, State::Done);
+/// assert!(insert_stmt.step()?.is_done());
 ///
 /// query_stmt.reset()?;
 ///
@@ -167,11 +182,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -219,25 +235,29 @@ impl Statement {
     /// error.
     ///
     /// ```
-    /// use sqll::{Connection, Code, State};
+    /// use sqll::{Connection, Code};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (id INTEGER, name TEXT);")?;
-    /// c.execute("INSERT INTO users (id, name) VALUES (0, 'Alice'), (1, 'Bob');")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (id INTEGER, name TEXT);
+    ///
+    ///     INSERT INTO users (id, name) VALUES (0, 'Alice'), (1, 'Bob');
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT id, name FROM users;")?;
     /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
     /// assert_eq!(stmt.get::<String>(1).unwrap_err().code(), Code::MISMATCH);
     ///
-    /// assert_eq!(stmt.step()?, State::Row);
+    /// assert!(stmt.step()?.is_row());
     /// assert_eq!(stmt.get::<i64>(0)?, 0);
     /// assert_eq!(stmt.borrow::<str>(1)?, "Alice");
     ///
-    /// assert_eq!(stmt.step()?, State::Row);
+    /// assert!(stmt.step()?.is_row());
     /// assert_eq!(stmt.get::<i64>(0)?, 1);
     /// assert_eq!(stmt.borrow::<str>(1)?, "Bob");
     ///
-    /// assert_eq!(stmt.step()?, State::Done);
+    /// assert!(stmt.step()?.is_done());
     /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
     /// assert_eq!(stmt.get::<String>(1).unwrap_err().code(), Code::MISMATCH);
     /// # Ok::<_, sqll::Error>(())
@@ -246,15 +266,16 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -264,7 +285,7 @@ impl Statement {
     ///     stmt.reset()?;
     ///     stmt.bind(1, age)?;
     ///
-    ///     while let State::Row = stmt.step()? {
+    ///     while stmt.step()?.is_row() {
     ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
     ///     }
     /// }
@@ -298,11 +319,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 42);
     ///     INSERT INTO users VALUES ('Bob', 69);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("UPDATE users SET age = age + 1")?;
     /// stmt.execute()?;
@@ -337,11 +359,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > 40")?;
     /// let results = stmt.iter::<(String, i64)>().collect::<Result<Vec<_>>>()?;
@@ -375,11 +398,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -421,11 +445,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -466,10 +491,14 @@ impl Statement {
     /// an error.
     ///
     /// ```
-    /// use sqll::{Connection, Null, Code};
+    /// use sqll::{Connection, Code, Null};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (name STRING)");
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name STRING)
+    /// "#);
+    ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
     /// let e = stmt.bind(0, "Bob").unwrap_err();
     /// assert_eq!(e.code(), Code::RANGE);
@@ -479,14 +508,18 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, Null, Code, State};
+    /// use sqll::{Connection, Code, Null};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (name STRING)");
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name STRING)
+    /// "#);
+    ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
     /// stmt.bind(1, "Bob")?;
     ///
-    /// assert_eq!(stmt.step()?, State::Done);
+    /// assert!(stmt.step()?.is_done());
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -499,8 +532,13 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let c = sqll::Connection::open(":memory:")?;
-    /// # c.execute("CREATE TABLE users (name STRING)");
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name STRING)
+    /// "#);
     /// let mut statement = c.prepare("SELECT * FROM users WHERE name = :name")?;
     /// statement.bind_by_name(c":name", "Bob")?;
     /// # Ok::<_, sqll::Error>(())
@@ -537,7 +575,11 @@ impl Statement {
     /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    /// "#)?;
+    ///
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// assert_eq!(stmt.column_name(0), Some("name"));
@@ -552,7 +594,11 @@ impl Statement {
     /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    /// "#)?;
+    ///
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// let cols = stmt.columns().collect::<Vec<_>>();
@@ -599,7 +645,11 @@ impl Statement {
     /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    /// "#)?;
+    ///
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// let cols = stmt.columns().collect::<Vec<_>>();
@@ -633,7 +683,11 @@ impl Statement {
     /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER, occupation TEXT);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER, occupation TEXT);
+    /// "#)?;
+    ///
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// let column_names = stmt.column_names().collect::<Vec<_>>();
@@ -668,14 +722,15 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, Type, State};
+    /// use sqll::{Connection, Type};
     ///
-    /// let mut c = Connection::open_memory()?;
+    /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
-    /// CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age REAL, photo BLOB);
-    /// INSERT INTO users (id, name, age, photo) VALUES (1, 'Bob', 30.5, X'01020304');
-    /// ")?;
+    /// c.execute(r#"
+    ///     CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age REAL, photo BLOB);
+    ///
+    ///     INSERT INTO users (id, name, age, photo) VALUES (1, 'Bob', 30.5, X'01020304');
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users")?;
     ///
@@ -684,7 +739,7 @@ impl Statement {
     /// assert_eq!(stmt.column_type(2), Type::NULL);
     /// assert_eq!(stmt.column_type(3), Type::NULL);
     ///
-    /// assert_eq!(stmt.step()?, State::Row);
+    /// assert!(stmt.step()?.is_row());
     ///
     /// assert_eq!(stmt.column_type(0), Type::INTEGER);
     /// assert_eq!(stmt.column_type(1), Type::TEXT);
@@ -696,7 +751,7 @@ impl Statement {
     /// ```
     #[inline]
     pub fn column_type(&self, index: c_int) -> Type {
-        unsafe { Type::from_raw(ffi::sqlite3_column_type(self.raw.as_ptr(), index)) }
+        unsafe { Type::new(ffi::sqlite3_column_type(self.raw.as_ptr(), index)) }
     }
 
     /// Return the index for a named parameter if exists.
@@ -708,8 +763,14 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let c = sqll::Connection::open(":memory:")?;
-    /// c.execute("CREATE TABLE users (name STRING)");
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name STRING)
+    /// "#);
+    ///
     /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
     /// assert_eq!(stmt.bind_parameter_index(c":name"), Some(1));
     /// assert_eq!(stmt.bind_parameter_index(c":asdf"), None);
@@ -735,7 +796,9 @@ impl Statement {
     ///
     /// ```
     /// # let c = sqll::Connection::open(":memory:")?;
-    /// c.execute("CREATE TABLE users (name STRING)");
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name STRING)
+    /// "#);
     /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
     /// assert_eq!(stmt.bind_parameter_name(1), Some(":name"));
     /// assert_eq!(stmt.bind_parameter_name(2), None);
@@ -757,11 +820,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -805,11 +869,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT name FROM users WHERE age > ?")?;
     ///
@@ -846,11 +911,12 @@ impl Statement {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -1018,11 +1084,12 @@ impl<'stmt> Row<'stmt> {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
@@ -1066,11 +1133,12 @@ impl<'stmt> Row<'stmt> {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT name FROM users WHERE age > ?")?;
     ///
@@ -1107,11 +1175,12 @@ impl<'stmt> Row<'stmt> {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 72);
     ///     INSERT INTO users VALUES ('Bob', 40);
-    /// ")?;
+    /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///

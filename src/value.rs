@@ -9,31 +9,33 @@ use crate::ffi;
 /// The type of a value.
 #[derive(Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
-pub struct Type(c_int);
+pub struct Type {
+    raw: c_int,
+}
 
 impl Type {
     /// Construct from a raw type.
     #[inline]
-    pub(crate) fn from_raw(raw: c_int) -> Self {
-        Self(raw)
+    pub(crate) const fn new(raw: c_int) -> Self {
+        Self { raw }
     }
 
     /// The blob type.
-    pub const BLOB: Self = Self(ffi::SQLITE_BLOB);
+    pub const BLOB: Self = Self::new(ffi::SQLITE_BLOB);
     /// The text type.
-    pub const TEXT: Self = Self(ffi::SQLITE_TEXT);
+    pub const TEXT: Self = Self::new(ffi::SQLITE_TEXT);
     /// The floating-point type.
-    pub const FLOAT: Self = Self(ffi::SQLITE_FLOAT);
+    pub const FLOAT: Self = Self::new(ffi::SQLITE_FLOAT);
     /// The integer type.
-    pub const INTEGER: Self = Self(ffi::SQLITE_INTEGER);
+    pub const INTEGER: Self = Self::new(ffi::SQLITE_INTEGER);
     /// The null type.
-    pub const NULL: Self = Self(ffi::SQLITE_NULL);
+    pub const NULL: Self = Self::new(ffi::SQLITE_NULL);
 }
 
 impl fmt::Display for Type {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
+        match self.raw {
             ffi::SQLITE_BLOB => write!(f, "BLOB"),
             ffi::SQLITE_TEXT => write!(f, "TEXT"),
             ffi::SQLITE_FLOAT => write!(f, "FLOAT"),
@@ -47,7 +49,7 @@ impl fmt::Display for Type {
 impl fmt::Debug for Type {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
+        match self.raw {
             ffi::SQLITE_BLOB => write!(f, "BLOB"),
             ffi::SQLITE_TEXT => write!(f, "TEXT"),
             ffi::SQLITE_FLOAT => write!(f, "FLOAT"),

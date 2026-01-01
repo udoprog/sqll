@@ -31,10 +31,11 @@ where
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
+/// c.execute(r#"
 ///     CREATE TABLE users (name TEXT);
+///
 ///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// ")?;
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
@@ -52,10 +53,11 @@ where
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
+/// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
+///
 ///     INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = String::new();
@@ -101,14 +103,15 @@ impl Borrowable for str {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (name BLOB);
-/// INSERT INTO users (name) VALUES (X'aabb'), (X'bbcc');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (name BLOB);
+///
+///     INSERT INTO users (name) VALUES (X'aabb'), (X'bbcc');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 /// let mut name = Vec::<u8>::new();
@@ -128,10 +131,11 @@ impl Borrowable for str {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = Vec::<u8>::new();

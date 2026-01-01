@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use anyhow::{Context, Result};
 
-use crate::{Code, Connection, Null, OpenOptions, State, Value};
+use crate::{Code, Connection, Null, OpenOptions, Value};
 
 // Test cases copied from https://github.com/stainless-steel/sqlite under the
 // MIT license.
@@ -78,7 +78,7 @@ fn connection_set_busy_handler() -> Result<()> {
             stmt.bind(3, 69.42)?;
             stmt.bind(4, &[0x69u8, 0x42u8][..])?;
             stmt.bind(5, Null)?;
-            assert_eq!(stmt.step()?, State::Done);
+            assert!(stmt.step()?.is_done());
             Ok(true)
         }));
     }
@@ -101,7 +101,7 @@ fn statement_bind() -> Result<()> {
     stmt.bind(4, &[0x69u8, 0x42u8][..])?;
     stmt.bind(5, Null)?;
 
-    assert_eq!(stmt.step()?, State::Done);
+    assert!(stmt.step()?.is_done());
     Ok(())
 }
 
@@ -116,7 +116,7 @@ fn statement_bind_with_nullable() -> Result<()> {
     stmt.bind(4, None::<&[u8]>)?;
     stmt.bind(5, None::<&str>)?;
 
-    assert_eq!(stmt.step()?, State::Done);
+    assert!(stmt.step()?.is_done());
 
     let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
 
@@ -125,7 +125,7 @@ fn statement_bind_with_nullable() -> Result<()> {
     stmt.bind(3, Some(69.42))?;
     stmt.bind(4, Some(&[0x69u8, 0x42u8][..]))?;
     stmt.bind(5, None::<&str>)?;
-    assert_eq!(stmt.step()?, State::Done);
+    assert!(stmt.step()?.is_done());
     Ok(())
 }
 
@@ -140,7 +140,7 @@ fn statement_bind_by_name() -> Result<()> {
     stmt.bind_by_name(c":photo", &[0x69u8, 0x42u8][..])?;
     stmt.bind_by_name(c":email", Null)?;
     assert!(stmt.bind_by_name(c":missing", 404).is_err());
-    assert_eq!(stmt.step()?, State::Done);
+    assert!(stmt.step()?.is_done());
     Ok(())
 }
 
@@ -148,7 +148,7 @@ fn statement_bind_by_name() -> Result<()> {
 fn statement_column_count() -> Result<()> {
     let c = setup_users(":memory:")?;
     let mut stmt = c.prepare("SELECT * FROM users")?;
-    assert_eq!(stmt.step()?, State::Row);
+    assert!(stmt.step()?.is_row());
     assert_eq!(stmt.column_count(), 5);
     Ok(())
 }
@@ -168,18 +168,18 @@ fn statement_column_name() -> Result<()> {
 fn statement_parameter_index() -> Result<()> {
     let c = setup_users(":memory:")?;
     let statement = "INSERT INTO users VALUES (:id, :name, :age, :photo, :email)";
-    let mut statement = c.prepare(statement)?;
+    let mut stmt = c.prepare(statement)?;
 
-    statement.bind(statement.bind_parameter_index(c":id").unwrap(), 2)?;
-    statement.bind(statement.bind_parameter_index(c":name").unwrap(), "Bob")?;
-    statement.bind(statement.bind_parameter_index(c":age").unwrap(), 69.42)?;
-    statement.bind(
-        statement.bind_parameter_index(c":photo").unwrap(),
+    stmt.bind(stmt.bind_parameter_index(c":id").unwrap(), 2)?;
+    stmt.bind(stmt.bind_parameter_index(c":name").unwrap(), "Bob")?;
+    stmt.bind(stmt.bind_parameter_index(c":age").unwrap(), 69.42)?;
+    stmt.bind(
+        stmt.bind_parameter_index(c":photo").unwrap(),
         &[0x69u8, 0x42u8][..],
     )?;
-    statement.bind(statement.bind_parameter_index(c":email").unwrap(), Null)?;
-    assert_eq!(statement.bind_parameter_index(c":missing"), None);
-    assert_eq!(statement.step()?, State::Done);
+    stmt.bind(stmt.bind_parameter_index(c":email").unwrap(), Null)?;
+    assert_eq!(stmt.bind_parameter_index(c":missing"), None);
+    assert!(stmt.step()?.is_done());
     Ok(())
 }
 
@@ -188,13 +188,13 @@ fn statement_read() -> Result<()> {
     let c = setup_users(":memory:")?;
     let mut stmt = c.prepare("SELECT * FROM users")?;
 
-    assert_eq!(stmt.step()?, State::Row);
+    assert!(stmt.step()?.is_row());
     assert_eq!(stmt.get::<i64>(0)?, 1);
     assert_eq!(stmt.get::<String>(1)?, String::from("Alice"));
     assert_eq!(stmt.get::<f64>(2)?, 42.69);
     assert_eq!(stmt.get::<Vec<u8>>(3)?, [0x42, 0x69]);
     assert_eq!(stmt.get::<Value>(4)?, Value::null());
-    assert_eq!(stmt.step()?, State::Done);
+    assert!(stmt.step()?.is_done());
     Ok(())
 }
 
@@ -203,13 +203,13 @@ fn statement_read_with_nullable() -> Result<()> {
     let c = setup_users(":memory:")?;
     let mut stmt = c.prepare("SELECT * FROM users")?;
 
-    assert_eq!(stmt.step()?, State::Row);
+    assert!(stmt.step()?.is_row());
     assert_eq!(stmt.get::<Option<i64>>(0)?, Some(1));
     assert_eq!(stmt.get::<Option<String>>(1)?, Some(String::from("Alice")));
     assert_eq!(stmt.get::<Option<f64>>(2)?, Some(42.69));
     assert_eq!(stmt.get::<Option<Vec<u8>>>(3)?, Some(vec![0x42, 0x69]));
     assert_eq!(stmt.get::<Option<String>>(4)?, None);
-    assert_eq!(stmt.step()?, State::Done);
+    assert!(stmt.step()?.is_done());
     Ok(())
 }
 
@@ -220,7 +220,7 @@ fn statement_wildcard() -> Result<()> {
 
     let mut count = 0;
 
-    while let State::Row = stmt.step()? {
+    while stmt.step()?.is_row() {
         count += 1;
     }
 
@@ -237,7 +237,7 @@ fn statement_wildcard_with_binding() -> Result<()> {
 
     let mut count = 0;
 
-    while let State::Row = stmt.step()? {
+    while stmt.step()?.is_row() {
         count += 1;
     }
 

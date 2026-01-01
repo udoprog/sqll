@@ -2,7 +2,7 @@
 // license.
 
 use criterion::Criterion;
-use sqll::{Connection, Prepare, State};
+use sqll::{Connection, Prepare};
 
 criterion::criterion_group!(benches, read_statement, write_statement);
 criterion::criterion_main!(benches);
@@ -25,7 +25,7 @@ fn read_statement(bencher: &mut Criterion) {
             stmt.bind(1, 42).unwrap();
             stmt.bind(2, 42.0).unwrap();
 
-            while let State::Row = stmt.step().unwrap() {
+            while stmt.step().unwrap().is_row() {
                 assert!(stmt.get::<i64>(0).unwrap() > 42);
                 assert!(stmt.get::<f64>(1).unwrap() > 42.0);
             }

@@ -53,13 +53,15 @@ where
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, Null, State};
+/// use sqll::{Connection, Null};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
-/// ")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 /// stmt.bind(1, "Alice")?;
@@ -98,7 +100,7 @@ impl Gettable<'_> for Value {
     }
 }
 
-/// [`Gettable`] implementation for `f64`.
+/// [`Gettable`] implementation for [`f64`].
 ///
 /// # Examples
 ///
@@ -107,10 +109,11 @@ impl Gettable<'_> for Value {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE numbers (value REAL);
-/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE numbers (value REAL);
+///
+///     INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -128,10 +131,11 @@ impl Gettable<'_> for Value {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE numbers (value REAL);
-/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE numbers (value REAL);
+///
+///     INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -151,9 +155,10 @@ impl Gettable<'_> for f64 {
     }
 }
 
-/// [`Gettable`] implementation for `f32`.
+/// [`Gettable`] implementation for [`f32`].
 ///
-/// This performs coercion from an internal `f64` which can lead to some loss.
+/// Getting this type requires conversion and might be subject to precision
+/// loss. To avoid this, consider using [`f64`] instead.
 ///
 /// # Examples
 ///
@@ -162,10 +167,11 @@ impl Gettable<'_> for f64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE numbers (value REAL);
-/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE numbers (value REAL);
+///
+///     INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -183,10 +189,11 @@ impl Gettable<'_> for f64 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE numbers (value REAL);
-/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE numbers (value REAL);
+///
+///     INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -212,10 +219,11 @@ impl Gettable<'_> for f32 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE numbers (value INTEGER);
-/// INSERT INTO numbers (value) VALUES (3), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE numbers (value INTEGER);
+///
+///     INSERT INTO numbers (value) VALUES (3), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -233,10 +241,11 @@ impl Gettable<'_> for f32 {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE numbers (value INTEGER);
-/// INSERT INTO numbers (value) VALUES (3), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE numbers (value INTEGER);
+///
+///     INSERT INTO numbers (value) VALUES (3), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
@@ -254,7 +263,7 @@ impl Gettable<'_> for i64 {
     }
 }
 
-macro_rules! integer {
+macro_rules! lossless {
     ($ty:ty) => {
         #[doc = concat!(" [`Gettable`] implementation for `", stringify!($ty), "`.")]
         ///
@@ -265,10 +274,11 @@ macro_rules! integer {
         ///
         /// let c = Connection::open_memory()?;
         ///
-        /// c.execute("
-        /// CREATE TABLE numbers (value INTEGER);
-        /// INSERT INTO numbers (value) VALUES (3), (2);
-        /// ")?;
+        /// c.execute(r#"
+        ///     CREATE TABLE numbers (value INTEGER);
+        ///
+        ///     INSERT INTO numbers (value) VALUES (3), (2);
+        /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
@@ -286,10 +296,11 @@ macro_rules! integer {
         ///
         /// let c = Connection::open_memory()?;
         ///
-        /// c.execute("
-        /// CREATE TABLE numbers (value INTEGER);
-        /// INSERT INTO numbers (value) VALUES (3), (2);
-        /// ")?;
+        /// c.execute(r#"
+        ///     CREATE TABLE numbers (value INTEGER);
+        ///
+        ///     INSERT INTO numbers (value) VALUES (3), (2);
+        /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
@@ -304,6 +315,87 @@ macro_rules! integer {
             #[allow(irrefutable_let_patterns)]
             fn get(stmt: &Statement, index: c_int) -> Result<Self> {
                 let value = i64::get(stmt, index)?;
+                Ok(value as $ty)
+            }
+        }
+    };
+}
+
+macro_rules! lossy {
+    ($ty:ty) => {
+        #[doc = concat!(" [`Gettable`] implementation for `", stringify!($ty), "`.")]
+        ///
+        /// # Errors
+        ///
+        /// Getting this type requires conversion and might fail if the value
+        /// cannot be represented by a [`i64`].
+        ///
+        /// ```
+        /// use sqll::{Connection, Code};
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r#"
+        ///     CREATE TABLE numbers (value INTEGER);
+        ///
+        ///     INSERT INTO numbers (value) VALUES (-9223372036854775808);
+        /// "#)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+        ///
+        /// assert!(stmt.step()?.is_row());
+        #[doc = concat!(" let e = stmt.get::<", stringify!($ty), ">(0).unwrap_err();")]
+        /// assert_eq!(e.code(), Code::MISMATCH);
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use sqll::Connection;
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r#"
+        ///     CREATE TABLE numbers (value INTEGER);
+        ///
+        ///     INSERT INTO numbers (value) VALUES (3), (2);
+        /// "#)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+        ///
+        /// while let Some(row) = stmt.next()? {
+        #[doc = concat!("     let value = row.get::<", stringify!($ty), ">(0)?;")]
+        ///     assert!(matches!(value, 3 | 2));
+        /// }
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        ///
+        /// Automatic conversion being denied:
+        ///
+        /// ```
+        /// use sqll::{Connection, Code};
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute(r#"
+        ///     CREATE TABLE numbers (value INTEGER);
+        ///
+        ///     INSERT INTO numbers (value) VALUES (3), (2);
+        /// "#)?;
+        ///
+        /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+        ///
+        /// while let Some(row) = stmt.next()? {
+        ///     let e = row.get::<f64>(0).unwrap_err();
+        ///     assert_eq!(e.code(), Code::MISMATCH);
+        /// }
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        impl Gettable<'_> for $ty {
+            #[inline]
+            fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+                let value = i64::get(stmt, index)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
                     return Err(Error::new(Code::MISMATCH));
@@ -315,15 +407,15 @@ macro_rules! integer {
     };
 }
 
-integer!(i8);
-integer!(i16);
-integer!(i32);
-integer!(i128);
-integer!(u8);
-integer!(u16);
-integer!(u32);
-integer!(u64);
-integer!(u128);
+lossy!(i8);
+lossy!(i16);
+lossy!(i32);
+lossy!(u8);
+lossy!(u16);
+lossy!(u32);
+lossy!(u64);
+lossy!(u128);
+lossless!(i128);
 
 /// [`Gettable`] implementation which returns a borrowed [`str`].
 ///
@@ -334,10 +426,11 @@ integer!(u128);
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
@@ -355,10 +448,11 @@ integer!(u128);
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -387,10 +481,11 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
@@ -408,10 +503,11 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -442,10 +538,11 @@ impl Gettable<'_> for String {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (blob BLOB);
-/// INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (blob BLOB);
+///
+///     INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
@@ -463,10 +560,11 @@ impl Gettable<'_> for String {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -494,10 +592,11 @@ impl Gettable<'_> for Vec<u8> {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (blob BLOB);
-/// INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (blob BLOB);
+///
+///     INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
@@ -515,10 +614,11 @@ impl Gettable<'_> for Vec<u8> {
 ///
 /// let c = Connection::open_memory()?;
 ///
-/// c.execute("
-/// CREATE TABLE users (id INTEGER);
-/// INSERT INTO users (id) VALUES (1), (2);
-/// ")?;
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
@@ -544,21 +644,23 @@ impl<'stmt> Gettable<'stmt> for &'stmt [u8] {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State, FixedBytes, Code};
+/// use sqll::{Connection, FixedBytes, Code};
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("
-/// CREATE TABLE users (id BLOB);
-/// INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
-/// ")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id BLOB);
+///
+///     INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// assert_eq!(stmt.step()?, State::Row);
+/// assert!(stmt.step()?.is_row());
 /// let bytes = stmt.get::<FixedBytes<4>>(0)?;
 /// assert_eq!(bytes.as_bytes(), &[1, 2, 3, 4]);
 ///
-/// assert_eq!(stmt.step()?, State::Row);
+/// assert!(stmt.step()?.is_row());
 /// let e = stmt.get::<FixedBytes<4>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
@@ -599,24 +701,25 @@ impl<const N: usize> Gettable<'_> for FixedBytes<N> {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("
-/// CREATE TABLE users (name TEXT, age INTEGER);
-/// ")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+/// "#)?;
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
 /// stmt.reset()?;
 /// stmt.bind(1, "Alice")?;
 /// stmt.bind(2, None::<i64>)?;
-/// assert_eq!(stmt.step()?, State::Done);
+/// assert!(stmt.step()?.is_done());
 ///
 /// stmt.reset()?;
 /// stmt.bind(1, "Bob")?;
 /// stmt.bind(2, Some(30i64))?;
-/// assert_eq!(stmt.step()?, State::Done);
+/// assert!(stmt.step()?.is_done());
 ///
 /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
 ///

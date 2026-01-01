@@ -57,9 +57,52 @@ impl BitOr for Prepare {
     }
 }
 
-/// A sqlite database connection.
+/// A SQLite database connection.
 ///
-/// Connections are not thread-safe objects.
+/// # Thread safety
+///
+/// The [`Connection`] implements `Send` when the `threadsafe` feature is
+/// enabled and it is safe to use one [`Connection`] and [`Statement`] instances
+/// per thread unless [`OpenOptions::no_mutex`] is used during opening. If
+/// [`OpenOptions::no_mutex`] is set, then all database objects like
+/// [`Statement`] can only be used by a single thread at a time.
+///
+/// If the `threadsafe` feature is not enabled, it is not valid to use any
+/// [`Connection`] instances across multiple threads *in any capacity*. Doing so
+/// would be undefined behavior. This is typically because the SQLite library
+/// might use static data internally. This is typically only relevant in
+/// single-threaded environments.
+///
+/// By default the connection is set up using the serialized threading mode
+/// which performs internal locking through [`OpenOptions::full_mutex`].
+///
+/// # Database locking
+///
+/// Certain operations over the database require that it is exclusively held.
+/// This can manifest itself as errors when performing certain operations like
+/// dropping a table that has a prepared statement associated with it.
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_memory()?;
+///
+/// c.execute(r#"
+///    CREATE TABLE users (name TEXT);
+///
+///    INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+/// assert!(stmt.step()?.is_row());
+///
+/// let e = c.execute("DROP TABLE users").unwrap_err();
+/// assert_eq!(e.code(), Code::LOCKED);
+///
+/// drop(stmt);
+/// c.execute("DROP TABLE users")?;
+/// # Ok::<_, sqll::Error>(())
+/// ```
 ///
 /// # Examples
 ///
@@ -69,7 +112,10 @@ impl BitOr for Prepare {
 /// use sqll::Connection;
 ///
 /// let c = Connection::open("database.db")?;
-/// c.execute("CREATE TABLE test (id INTEGER);")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (id INTEGER);
+/// "#)?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -79,7 +125,10 @@ impl BitOr for Prepare {
 /// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
-/// c.execute("CREATE TABLE test (id INTEGER);")?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (id INTEGER);
+/// "#)?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
 pub struct Connection {
@@ -259,7 +308,6 @@ impl Connection {
     pub fn set_extended_result_codes(&mut self, enabled: bool) -> Result<()> {
         unsafe {
             let onoff = i32::from(enabled);
-
             sqlite3_try!(ffi::sqlite3_extended_result_codes(self.raw.as_ptr(), onoff));
         }
 
@@ -282,7 +330,7 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Code};
     ///
-    /// let mut c = Connection::open_memory()?;
+    /// let c = Connection::open_memory()?;
     ///
     /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
@@ -320,12 +368,7 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// let e = c.prepare(
-    ///     "
-    ///     CREATE TABLE test (id INTEGER) /* test */;
-    ///     INSERT INTO test (id) VALUES (1);
-    ///     "
-    /// ).unwrap_err();
+    /// let e = c.prepare("CREATE TABLE test (id INTEGER) /* test */; INSERT INTO test (id) VALUES (1);").unwrap_err();
     ///
     /// assert_eq!(e.code(), Code::ERROR);
     /// # Ok::<_, sqll::Error>(())
@@ -336,10 +379,13 @@ impl Connection {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State, Prepare};
+    /// use sqll::{Connection, Prepare};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE test (id INTEGER);")?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE test (id INTEGER);
+    /// "#)?;
     ///
     /// let mut insert_stmt = c.prepare("INSERT INTO test (id) VALUES (?);")?;
     /// let mut query_stmt = c.prepare("SELECT id FROM test;")?;
@@ -348,7 +394,7 @@ impl Connection {
     ///
     /// insert_stmt.reset()?;
     /// insert_stmt.bind(1, 42)?;
-    /// assert_eq!(insert_stmt.step()?, State::Done);
+    /// assert!(insert_stmt.step()?.is_done());
     ///
     /// query_stmt.reset()?;
     ///
@@ -381,13 +427,7 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// let e = c.prepare_with(
-    ///     "
-    ///     CREATE TABLE test (id INTEGER) /* test */;
-    ///     INSERT INTO test (id) VALUES (1);
-    ///     ",
-    ///     Prepare::PERSISTENT
-    /// ).unwrap_err();
+    /// let e = c.prepare_with("CREATE TABLE test (id INTEGER); INSERT INTO test (id) VALUES (1);", Prepare::PERSISTENT).unwrap_err();
     /// assert_eq!(e.code(), Code::ERROR);
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -397,13 +437,16 @@ impl Connection {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State, Prepare};
+    /// use sqll::{Connection, Prepare};
     ///
     /// let c = Connection::open_memory()?;
-    /// c.execute("CREATE TABLE test (id INTEGER);")?;
     ///
-    /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?);", Prepare::PERSISTENT)?;
-    /// let mut query_stmt = c.prepare_with("SELECT id FROM test;", Prepare::PERSISTENT)?;
+    /// c.execute(r#"
+    ///     CREATE TABLE test (id INTEGER);
+    /// "#)?;
+    ///
+    /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?)", Prepare::PERSISTENT)?;
+    /// let mut query_stmt = c.prepare_with("SELECT id FROM test", Prepare::PERSISTENT)?;
     ///
     /// drop(c);
     ///
@@ -411,7 +454,7 @@ impl Connection {
     ///
     /// insert_stmt.reset()?;
     /// insert_stmt.bind(1, 42)?;
-    /// assert_eq!(insert_stmt.step()?, State::Done);
+    /// assert!(insert_stmt.step()?.is_done());
     ///
     /// query_stmt.reset()?;
     ///
@@ -465,11 +508,12 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 42);
     ///     INSERT INTO users VALUES ('Bob', 69);
-    /// ")?;
+    /// "#)?;
     ///
     /// assert_eq!(c.change_count(), 1);
     /// # Ok::<_, sqll::Error>(())
@@ -489,11 +533,12 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
     ///     INSERT INTO users VALUES ('Alice', 42);
     ///     INSERT INTO users VALUES ('Bob', 69);
-    /// ")?;
+    /// "#)?;
     ///
     /// assert_eq!(c.total_change_count(), 2);
     /// # Ok::<_, sqll::Error>(())
@@ -516,14 +561,17 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT);
+    ///
     ///     INSERT INTO users VALUES ('Alice');
     ///     INSERT INTO users VALUES ('Bob');
-    /// ")?;
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 2);
     ///
-    /// c.execute("INSERT INTO users VALUES ('Charlie')")?;
+    /// c.execute(r#"
+    ///     INSERT INTO users VALUES ('Charlie');
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 3);
     ///
     /// let mut stmt = c.prepare("INSERT INTO users VALUES (?)")?;
@@ -541,17 +589,22 @@ impl Connection {
     ///
     /// let c = Connection::open_memory()?;
     ///
-    /// c.execute("
+    /// c.execute(r#"
     ///     CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+    ///
     ///     INSERT INTO users (name) VALUES ('Alice');
     ///     INSERT INTO users (name) VALUES ('Bob');
-    /// ")?;
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 2);
     ///
-    /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
+    /// c.execute(r#"
+    ///     INSERT INTO users (name) VALUES ('Charlie')
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 3);
     ///
-    /// c.execute("INSERT INTO users (name) VALUES ('Dave')")?;
+    /// c.execute(r#"
+    ///     INSERT INTO users (name) VALUES ('Dave')
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 4);
     ///
     /// let mut select = c.prepare("SELECT id FROM users WHERE name = ?")?;
@@ -562,10 +615,14 @@ impl Connection {
     ///     assert_eq!(id, 4);
     /// }
     ///
-    /// c.execute("DELETE FROM users WHERE id = 3")?;
+    /// c.execute(r#"
+    ///     DELETE FROM users WHERE id = 3
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 4);
     ///
-    /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
+    /// c.execute(r#"
+    ///     INSERT INTO users (name) VALUES ('Charlie')
+    /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 5);
     ///
     /// select.reset()?;
@@ -591,6 +648,19 @@ impl Connection {
     where
         F: FnMut(usize) -> bool + Send + 'static,
     {
+        extern "C" fn glue<F>(callback: *mut c_void, attempts: c_int) -> c_int
+        where
+            F: FnMut(usize) -> bool,
+        {
+            unsafe {
+                if (*(callback as *mut F))(attempts as usize) {
+                    1
+                } else {
+                    0
+                }
+            }
+        }
+
         self.remove_busy_handler()?;
 
         unsafe {
@@ -598,7 +668,7 @@ impl Connection {
 
             let result = ffi::sqlite3_busy_handler(
                 self.raw.as_ptr(),
-                Some(busy_callback::<F>),
+                Some(glue::<F>),
                 callback.as_ptr().cast(),
             );
 
@@ -692,7 +762,22 @@ pub struct OpenOptions {
 }
 
 impl OpenOptions {
-    /// Create flags for opening a database connection.
+    /// Create flags for opening a database connection with no options set.
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe since the [`full_mutex`] option is not set, meaning the
+    /// `Send` implementations for [`Connection`] and [`Statement`] are not
+    /// valid leaving it up to the caller to ensure proper synchronization.
+    ///
+    /// [`full_mutex`]: Self::full_mutex
+    #[inline]
+    pub unsafe fn empty() -> Self {
+        Self { raw: 0 }
+    }
+
+    /// Create flags for opening a database connection with default safe
+    /// options.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -816,7 +901,7 @@ impl OpenOptions {
     /// ```
     /// use sqll::{OpenOptions, Code};
     ///
-    /// let mut c = OpenOptions::new()
+    /// let c = OpenOptions::new()
     ///     .extended_result_codes()
     ///     .create()
     ///     .read_write()
@@ -888,19 +973,6 @@ impl OpenOptions {
                 raw: NonNull::new_unchecked(raw),
                 busy_callback: None,
             })
-        }
-    }
-}
-
-extern "C" fn busy_callback<F>(callback: *mut c_void, attempts: c_int) -> c_int
-where
-    F: FnMut(usize) -> bool,
-{
-    unsafe {
-        if (*(callback as *mut F))(attempts as usize) {
-            1
-        } else {
-            0
         }
     }
 }

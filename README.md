@@ -9,6 +9,24 @@ Efficient interface interface to [SQLite] that doesn't get in your way.
 
 <br>
 
+## Usage
+
+The two primary methods to interact with an SQLite database through this
+crate is through [`execute`] and [`prepare`].
+
+[`execute`] is used for batch statements, and allows for multiple queries to
+be specified. [`prepare`] only allows for a single statement to be
+specified, but in turn permits [reading rows] and [binding query
+parameters].
+
+Special consideration needs to be taken about the thread safety of
+connections. You can read more about that in the [`Connection`]
+documentation.
+
+You can find simple examples of this below.
+
+<br>
+
 ## Examples
 
 * [`examples/persons.rs`] - A simple table with users, a primary key,
@@ -40,28 +58,6 @@ Efficient interface interface to [SQLite] that doesn't get in your way.
 
 <br>
 
-## Why do we need another sqlite interface?
-
-It is difficult to set up and use prepared statements with existing crates,
-because they are all implemented in a manner which requires the caller to
-borrow the connection in use.
-
-Prepared statements can be expensive to create and *should* be cached and
-re-used to achieve the best performance. Statements can also benefit from
-using the [`Prepare::PERSISTENT`] option This library uses
-`sqlite3_close_v2` when the connection is dropped, causing the closing of
-the connection to be delayed until resources associated with it has been
-closed.
-
-We've also designed this library to avoid intermediary allocations. So for
-example [calling `execute`] doesn't allocate externally of the sqlite3
-bindings. This was achieved by porting the execute implementation from the
-sqlite library and works because sqlite actually uses UTF-8 internally but
-this is not exposed in the legacy C API that other crates use to execute
-statements.
-
-<br>
-
 ## Example
 
 Open an in-memory connection, create a table, and insert some rows:
@@ -71,12 +67,12 @@ use sqll::Connection;
 
 let c = Connection::open_memory()?;
 
-c.execute("
+c.execute(r#"
     CREATE TABLE users (name TEXT, age INTEGER);
 
     INSERT INTO users VALUES ('Alice', 42);
     INSERT INTO users VALUES ('Bob', 69);
-")?;
+"#)?;
 ```
 
 <br>
@@ -94,12 +90,13 @@ queries:
 use sqll::{Connection, Prepare};
 
 let c = Connection::open_memory()?;
-c.execute("
+
+c.execute(r#"
     CREATE TABLE users (name TEXT, age INTEGER);
 
     INSERT INTO users VALUES ('Alice', 42);
     INSERT INTO users VALUES ('Bob', 69);
-")?;
+"#)?;
 
 let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
 
@@ -125,17 +122,48 @@ assert_eq!(results, expected);
 
 <br>
 
+## Why do we need another sqlite interface?
+
+For other low-level crates, it is difficult to set up and use prepared
+statements, They are mostly implemented in a manner which requires the
+caller to borrow the connection in use.
+
+This library implements database objects through the v2 API which ensures
+that the database remains alive for as long as objects associated with it
+are alive. This is implemented in the SQLite library itself.
+
+Prepared statements can be expensive to create and *should* be cached and
+re-used to achieve the best performance. This is something that crates like
+`rusqlite` implements, but can easily be done manually by simply storing the
+[`Statement`] object directly. Statements can also benefit from using the
+[`Prepare::PERSISTENT`] option which this library supports through
+[`prepare_with`].
+
+This library is designed to the extent possible to avoid intermediary
+allocations. For example [calling `execute`] doesn't allocate externally of
+the sqlite3 bindings or we require that c-strings are used when SQLite
+itself doesn't provide an API for using Rust strings directly.
+
+<br>
+
 ## License
 
 This is a rewrite of the [`sqlite` crate], and components used from there
 have been copied under the MIT license.
 
 [`axum`]: https://docs.rs/axum
+[`Connection`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#thread-safety
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
+[`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
+[`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with
 [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
+[`prepare`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare
 [`sqlite` crate]: https://github.com/stainless-steel/sqlite
 [`sqll-sys`]: https://crates.io/crates/sqll-sys
+[`Statement`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html
+[binding query parameters]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.bind
 [calling `execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
+[reading rows]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 [SQLite]: https://www.sqlite.org
