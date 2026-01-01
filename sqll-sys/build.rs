@@ -5,9 +5,10 @@ use std::path::PathBuf;
 use cc::Build;
 use semver::{Version, VersionReq};
 
+/// Updated automatically. DO NOT TOUCH.
+const SQLITE_VERSION: &str = "3.37.0";
 const SDK_PATH_ENV: &[&str] = &["CARGO_CFG_SQLL_WASI_SDK_PATH", "WASI_SDK_PATH"];
 const WASI_TARGET_ENV: &[&str] = &["CARGO_CFG_SQLL_WASI_TARGET_ENV", "WASI_TARGET_ENV"];
-const SQLITE_VERSION: &str = include_str!("sqlite3-version");
 
 fn main() {
     if cfg!(feature = "bundled") {
@@ -31,12 +32,8 @@ fn env(names: &[&'static str]) -> OsString {
 }
 
 fn system() {
-    let Some(("version", sqlite3_version)) = SQLITE_VERSION.split_once('-') else {
+    let Ok(version_req) = SQLITE_VERSION.parse::<VersionReq>() else {
         panic!("invalid version: {SQLITE_VERSION}");
-    };
-
-    let Ok(sqlite3_version_req) = sqlite3_version.parse::<VersionReq>() else {
-        panic!("invalid version: {sqlite3_version}");
     };
 
     let mut errors = Vec::new();
@@ -66,10 +63,10 @@ fn system() {
             panic!("invalid sqlite3 library version: {}", library.version);
         };
 
-        if !sqlite3_version_req.matches(&version) {
+        if !version_req.matches(&version) {
             panic!(
                 "system sqlite3 library version {} does not match required version {}",
-                library.version, sqlite3_version_req
+                library.version, version_req
             );
         }
 

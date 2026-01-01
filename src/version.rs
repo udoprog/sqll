@@ -26,15 +26,15 @@ pub fn lib_version() -> &'static str {
 
 /// Return the version number of the SQLite library in use.
 ///
-/// The version `3.8.11.1` would correspond to the integer `3008011`.
+/// The version `3.51.1` as returned by [`lib_version`] would correspond to the
+/// integer `3051001`.
 ///
 /// # Examples
 ///
 /// ```
 /// # #[cfg(feature = "bundled")]
 /// assert_eq!(sqll::lib_version_number(), 3051001);
-/// # #[cfg(not(feature = "bundled"))]
-/// # assert!(matches!(sqll::lib_version_number(), 3000000..4000000));
+/// assert!(matches!(sqll::lib_version_number(), 3000000..4000000));
 /// ```
 #[inline]
 pub fn lib_version_number() -> c_int {

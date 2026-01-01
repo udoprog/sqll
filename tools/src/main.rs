@@ -18,16 +18,26 @@ use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result};
+use anyhow::ensure;
+use anyhow::{Context, Result, anyhow};
 use bindgen::Builder;
 use bindgen::callbacks::{IntKind, ParseCallbacks};
 use clap::Parser;
+use regex::Regex;
 use regex::RegexSet;
 use relative_path::Component;
 use relative_path::RelativePath;
+use reqwest::Client;
+use reqwest::Method;
+use reqwest::Request;
+use reqwest::header;
+use semver::Version;
+use serde::Deserialize;
 use zip::ZipArchive;
 
 const URL: &str = "https://github.com/sqlite/sqlite";
+const API_TAGS: &str = "https://api.github.com/repos/sqlite/sqlite/tags";
+const USER_AGENT: &str = "sqll-tools";
 const HEADERS: &[&str] = &["sqlite3.h"];
 const BUNDLED: &[&str] = &["sqlite3.c"];
 
@@ -67,13 +77,16 @@ const EXCLUDE: &[&str] = &[
 
 #[derive(Parser)]
 struct Opts {
-    /// Skip updating the sqlite3 source code.
+    /// Update to the latest remote version on github.
+    ///
+    /// If set, this overrides the version specified in `sqll-sys/versions`.
     #[clap(long)]
-    skip_update: bool,
+    update: bool,
     /// Force updating the sqlite3 source code even if it already exists.
     #[clap(long)]
-    force_update: bool,
-    /// Generate bindings without any filtering.
+    force: bool,
+    /// Generate bindings without any filtering. This can be useful when looking
+    /// for what bindings are available.
     #[clap(long)]
     unfiltered: bool,
     /// Additional regex patterns to exclude files when extracting a source
@@ -140,22 +153,41 @@ async fn entry(opts: &Opts) -> Result<()> {
 
     let sys_root = root.join("sqll-sys");
     let sqlite_root = root.join("sqlite3");
+    let versions_file = sys_root.join("versions");
 
-    let version =
-        fs::read_to_string(sys_root.join("sqlite3-version")).context("reading sqlite3-version")?;
+    let version = fs::read_to_string(&versions_file)
+        .with_context(|| anyhow!("{}", versions_file.display()))?;
 
-    let bundled_version = fs::read_to_string(sys_root.join("sqlite3-version-bundled"))
-        .context("reading sqlite3-version-bundled")?;
+    let (minimum, mut bundled) = parse_versions(&version)?;
 
-    let build = async |version: &str, files: &[&str]| -> Result<()> {
-        let version_dir = sqlite_root.join(version);
+    if opts.update {
+        let Some(version) = download_latest_version(3).await? else {
+            println!("no remote version found");
+            return Ok(());
+        };
+
+        if bundled < version {
+            println!("Updating bundled version {bundled} -> {version}");
+
+            replace_in_path(
+                &versions_file,
+                r#"bundled: [^\n]+"#,
+                format!("bundled: {version}"),
+            )?;
+
+            bundled = version;
+        }
+    }
+
+    let build = async |version: &Version, files: &[&str]| -> Result<()> {
+        let version_dir = sqlite_root.join(version.to_string());
         let work_dir = sqlite_root.join(format!(".work-{version}"));
 
-        if version_dir.is_dir() && !opts.force_update {
+        if version_dir.is_dir() && !opts.force {
             return Ok(());
         }
 
-        let url = format!("{URL}/archive/refs/tags/{version}.zip");
+        let url = format!("{URL}/archive/refs/tags/version-{version}.zip");
 
         println!("Downloading sqlite3 from {url}");
 
@@ -199,10 +231,8 @@ async fn entry(opts: &Opts) -> Result<()> {
         Ok(())
     };
 
-    if !opts.skip_update {
-        build(&version, &HEADERS).await?;
-        build(&bundled_version, &BUNDLED).await?;
-    }
+    build(&minimum, &HEADERS).await?;
+    build(&bundled, &BUNDLED).await?;
 
     println!("Generating bindings");
 
@@ -240,8 +270,103 @@ async fn entry(opts: &Opts) -> Result<()> {
         .write_to_file(sys_root.join("src/base.rs"))
         .context("generating bindings")?;
 
+    let build_rs = sys_root.join("build.rs");
+
+    replace_in_path(
+        &build_rs,
+        r#"///[^\n]*\nconst SQLITE_VERSION: &str = "[^"]+";"#,
+        format!(
+            "/// Updated automatically. DO NOT TOUCH.\nconst SQLITE_VERSION: &str = \"{minimum}\";"
+        ),
+    )
+    .with_context(|| anyhow!("updating {}", build_rs.display()))?;
+
     cmd!(in ".", "cargo", "check", "-p", "sqll", "--features", "bundled");
     Ok(())
+}
+
+/// Download the latest version using Github's public API.
+async fn download_latest_version(major_version: u64) -> Result<Option<Version>> {
+    #[derive(Deserialize)]
+    struct Tag {
+        name: String,
+    }
+
+    let mut request = Request::new(Method::GET, API_TAGS.parse()?);
+
+    request.headers_mut().insert(
+        header::USER_AGENT,
+        header::HeaderValue::from_static(USER_AGENT),
+    );
+
+    let resp = Client::builder()
+        .build()?
+        .execute(request)
+        .await
+        .context("downloading latest release")?;
+
+    ensure!(
+        resp.status().is_success(),
+        "failed to download latest release: {}: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+
+    let tags: Vec<Tag> = resp.json().await.context("parsing latest release")?;
+
+    let mut versions = Vec::new();
+
+    for tag in &tags {
+        if let Some(stripped) = tag.name.strip_prefix("version-") {
+            if let Ok(version) = Version::parse(stripped)
+                && version.major == major_version
+            {
+                versions.push(version);
+            }
+        }
+    }
+
+    versions.sort();
+    Ok(versions.into_iter().next_back())
+}
+
+fn parse_versions(versions: &str) -> Result<(Version, Version)> {
+    let mut minimum = None;
+    let mut bundled = None;
+
+    for line in versions.lines() {
+        let line = line.trim();
+
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once(": ") else {
+            return Err(anyhow!("invalid versions file: missing ': ' separator"));
+        };
+
+        let key = key.trim();
+        let value = value.trim();
+
+        let out = match key {
+            "minimum" => &mut minimum,
+            "bundled" => &mut bundled,
+            _ => return Err(anyhow!("invalid versions file: unknown key {key}")),
+        };
+
+        *out = Some(value);
+    }
+
+    let minimum = minimum.context("invalid versions file: missing minimum version")?;
+    let bundled = bundled.context("invalid versions file: missing bundled version")?;
+
+    let minimum = Version::parse(&minimum)
+        .with_context(|| anyhow!("invalid versions file: invalid minimum version {minimum}"))?;
+
+    let bundled = Version::parse(&bundled)
+        .with_context(|| anyhow!("invalid versions file: invalid bundled version {bundled}"))?;
+
+    Ok((minimum, bundled))
 }
 
 fn extract_archive(out: &Path, data: &[u8], exclude: &RegexSet) -> Result<(), anyhow::Error> {
@@ -307,6 +432,24 @@ fn extract_archive(out: &Path, data: &[u8], exclude: &RegexSet) -> Result<(), an
         fs::write(&out_path, &contents)
             .with_context(|| format!("writing {}", out_path.display()))?;
     }
+
+    Ok(())
+}
+
+fn replace_in_path(
+    build_rs: &Path,
+    pat: impl AsRef<str>,
+    replacement: impl AsRef<str>,
+) -> Result<()> {
+    let contents =
+        fs::read_to_string(build_rs).with_context(|| format!("reading {}", build_rs.display()))?;
+
+    let re = Regex::new(pat.as_ref())?;
+
+    let new_contents = re.replace_all(&contents, replacement.as_ref());
+
+    fs::write(build_rs, new_contents.as_bytes())
+        .with_context(|| format!("writing {}", build_rs.display()))?;
 
     Ok(())
 }

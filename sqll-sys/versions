@@ -1,0 +1,10 @@
+# The minimum version supported by this library.
+# When linking to a system variant of sqlite, we do our
+# best to check that the version is at least this.
+#
+# This is written out statically into `build.rs` when the update
+# script is run.
+minimum: 3.37.0
+# The bundled version of sqlite to use when the `bundled`
+# feature is used.
+bundled: 3.51.1

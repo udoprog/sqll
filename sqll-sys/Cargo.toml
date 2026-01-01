@@ -21,7 +21,6 @@ include = [
     "source/sqlite3.c",
     "src/**",
     "README.md",
-    "sqlite3-version",
 ]
 
 links = "sqlite3"
