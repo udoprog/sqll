@@ -21,6 +21,9 @@ pub const SQLITE_BLOB: ::core::ffi::c_int = 4;
 pub const SQLITE_NULL: ::core::ffi::c_int = 5;
 pub const SQLITE_TEXT: ::core::ffi::c_int = 3;
 unsafe extern "C" {
+    pub fn sqlite3_libversion() -> *const ::core::ffi::c_char;
+}
+unsafe extern "C" {
     pub fn sqlite3_libversion_number() -> ::core::ffi::c_int;
 }
 #[repr(C)]

@@ -203,6 +203,7 @@ mod statement;
 mod tests;
 mod utils;
 mod value;
+mod version;
 
 #[doc(inline)]
 pub use self::bindable::Bindable;
@@ -222,11 +223,5 @@ pub use self::sink::Sink;
 pub use self::statement::{Null, State, Statement};
 #[doc(inline)]
 pub use self::value::{Type, Value};
-
-/// Return the version number of SQLite.
-///
-/// For instance, the version `3.8.11.1` corresponds to the integer `3008011`.
-#[inline]
-pub fn version() -> u64 {
-    unsafe { crate::ffi::sqlite3_libversion_number() as u64 }
-}
+#[doc(inline)]
+pub use self::version::{lib_version, lib_version_number};

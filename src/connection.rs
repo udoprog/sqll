@@ -670,6 +670,20 @@ impl Connection {
     /// The callback is triggered when the database cannot perform an operation
     /// due to processing of some other request. If the callback returns `true`,
     /// the operation will be repeated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let mut c = Connection::open_memory()?;
+    ///
+    /// c.set_busy_handler(|attempts| {
+    ///     println!("busy attempt: {attempts}");
+    ///     attempts < 5
+    /// })?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     pub fn set_busy_handler<F>(&mut self, callback: F) -> Result<()>
     where
         F: FnMut(usize) -> bool + Send + 'static,
@@ -707,6 +721,17 @@ impl Connection {
 
     /// Set an implicit callback for handling busy events that tries to repeat
     /// rejected operations until a timeout expires.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let mut c = Connection::open_memory()?;
+    ///
+    /// c.set_busy_timeout(5000)?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn set_busy_timeout(&mut self, ms: c_int) -> Result<()> {
         unsafe {
@@ -721,7 +746,23 @@ impl Connection {
         Ok(())
     }
 
-    /// Remove the callback handling busy events.
+    /// Remove any previously registered busy handler.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let mut c = Connection::open_memory()?;
+    ///
+    /// c.set_busy_handler(|attempts| {
+    ///     println!("busy attempt: {attempts}");
+    ///     attempts < 5
+    /// })?;
+    ///
+    /// c.remove_busy_handler()?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn remove_busy_handler(&mut self) -> Result<()> {
         unsafe {
