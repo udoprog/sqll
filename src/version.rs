@@ -10,8 +10,10 @@ use crate::ffi;
 /// # Examples
 ///
 /// ```
-/// assert!(sqll::lib_version().starts_with("3."));
+/// # #[cfg(feature = "bundled")]
 /// assert_eq!(sqll::lib_version(), "3.51.1");
+/// # #[cfg(not(feature = "bundled"))]
+/// # assert!(sqll::lib_version().starts_with("3."));
 /// ```
 #[inline]
 pub fn lib_version() -> &'static str {
@@ -29,7 +31,10 @@ pub fn lib_version() -> &'static str {
 /// # Examples
 ///
 /// ```
-/// assert_eq!(sqll::lib_version_number() / 1000000, 3);
+/// # #[cfg(feature = "bundled")]
+/// assert_eq!(sqll::lib_version_number(), 3051001);
+/// # #[cfg(not(feature = "bundled"))]
+/// # assert!(matches!(sqll::lib_version_number(), 3000000..4000000));
 /// ```
 #[inline]
 pub fn lib_version_number() -> c_int {

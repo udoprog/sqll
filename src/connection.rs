@@ -238,6 +238,8 @@ impl Connection {
     /// separated by a semi-colon `;` and is internally optimized for one-off
     /// queries.
     ///
+    /// [`prepare`]: Self::prepare
+    ///
     /// # Examples
     ///
     /// ```
