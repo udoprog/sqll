@@ -66,7 +66,7 @@ where
 ///
 /// let mut names = Vec::new();
 ///
-/// while let State::Row = stmt.step()? {
+/// while let Some(row) = stmt.next()? {
 ///     names.push(stmt.get::<Null>(0)?);
 /// }
 ///
@@ -76,11 +76,8 @@ where
 impl Gettable<'_> for Null {
     #[inline]
     fn get(stmt: &Statement, index: c_int) -> Result<Self> {
-        if stmt.column_type(index) == Type::NULL {
-            Ok(Null)
-        } else {
-            Err(Error::new(Code::MISMATCH))
-        }
+        type_check(stmt, index, Type::NULL)?;
+        Ok(Null)
     }
 }
 
@@ -106,7 +103,7 @@ impl Gettable<'_> for Value {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -117,16 +114,92 @@ impl Gettable<'_> for Value {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let State::Row = stmt.step()? {
-///     let value = stmt.get::<f64>(0)?;
+/// while let Some(row) = stmt.next()? {
+///     let value = row.get::<f64>(0)?;
 ///     assert!(matches!(value, 3.14 | 2.71));
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_memory()?;
+///
+/// c.execute("
+/// CREATE TABLE numbers (value REAL);
+/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// ")?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+///
+/// while let Some(row) = stmt.next()? {
+///     let e = row.get::<i64>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Gettable<'_> for f64 {
     #[inline]
     fn get(stmt: &Statement, index: c_int) -> Result<Self> {
-        Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), index) })
+        Ok(unsafe {
+            type_check(stmt, index, Type::FLOAT)?;
+            ffi::sqlite3_column_double(stmt.as_ptr(), index)
+        })
+    }
+}
+
+/// [`Gettable`] implementation for `f32`.
+///
+/// This performs coercion from an internal `f64` which can lead to some loss.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_memory()?;
+///
+/// c.execute("
+/// CREATE TABLE numbers (value REAL);
+/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// ")?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+///
+/// while let Some(row) = stmt.next()? {
+///     let value = row.get::<f32>(0)?;
+///     assert!(matches!(value, 3.14 | 2.71));
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_memory()?;
+///
+/// c.execute("
+/// CREATE TABLE numbers (value REAL);
+/// INSERT INTO numbers (value) VALUES (3.14), (2.71);
+/// ")?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+///
+/// while let Some(row) = stmt.next()? {
+///     let e = row.get::<i32>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl Gettable<'_> for f32 {
+    #[inline]
+    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+        Ok(f64::get(stmt, index)? as f32)
     }
 }
 
@@ -135,7 +208,7 @@ impl Gettable<'_> for f64 {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -146,15 +219,37 @@ impl Gettable<'_> for f64 {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let State::Row = stmt.step()? {
-///     let value = stmt.get::<i64>(0)?;
+/// while let Some(row) = stmt.next()? {
+///     let value = row.get::<i64>(0)?;
 ///     assert!(matches!(value, 3 | 2));
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_memory()?;
+///
+/// c.execute("
+/// CREATE TABLE numbers (value INTEGER);
+/// INSERT INTO numbers (value) VALUES (3), (2);
+/// ")?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+///
+/// while let Some(row) = stmt.next()? {
+///     let e = row.get::<f64>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Gettable<'_> for i64 {
     #[inline]
     fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+        type_check(stmt, index, Type::INTEGER)?;
         Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), index) })
     }
 }
@@ -166,7 +261,7 @@ macro_rules! integer {
         /// # Examples
         ///
         /// ```
-        /// use sqll::{Connection, State};
+        /// use sqll::Connection;
         ///
         /// let c = Connection::open_memory()?;
         ///
@@ -177,9 +272,30 @@ macro_rules! integer {
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
-        /// while let State::Row = stmt.step()? {
-        #[doc = concat!("     let value = stmt.get::<", stringify!($ty), ">(0)?;")]
+        /// while let Some(row) = stmt.next()? {
+        #[doc = concat!("     let value = row.get::<", stringify!($ty), ">(0)?;")]
         ///     assert!(matches!(value, 3 | 2));
+        /// }
+        /// # Ok::<_, sqll::Error>(())
+        /// ```
+        ///
+        /// Automatic conversion being denied:
+        ///
+        /// ```
+        /// use sqll::{Connection, Code};
+        ///
+        /// let c = Connection::open_memory()?;
+        ///
+        /// c.execute("
+        /// CREATE TABLE numbers (value INTEGER);
+        /// INSERT INTO numbers (value) VALUES (3), (2);
+        /// ")?;
+        ///
+        /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
+        ///
+        /// while let Some(row) = stmt.next()? {
+        ///     let e = row.get::<f64>(0).unwrap_err();
+        ///     assert_eq!(e.code(), Code::MISMATCH);
         /// }
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -214,7 +330,7 @@ integer!(u128);
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -225,17 +341,17 @@ integer!(u128);
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let State::Row = stmt.step()? {
+/// while let Some(row) = stmt.next()? {
 ///     let name = stmt.get::<String>(0)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
-/// Automatic conversion:
+/// Automatic conversion being denied:
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::{Connection, Code};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -247,8 +363,8 @@ integer!(u128);
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     let name = row.get::<&str>(0)?;
-///     assert!(matches!(name, "1" | "2"));
+///     let e = row.get::<&str>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -267,7 +383,7 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -278,17 +394,17 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let State::Row = stmt.step()? {
+/// while let Some(row) = stmt.next()? {
 ///     let name = stmt.get::<String>(0)?;
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
-/// Automatic conversion:
+/// Automatic conversion being denied:
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::{Connection, Code};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -300,8 +416,8 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     let name = row.get::<String>(0)?;
-///     assert!(matches!(name.as_str(), "1" | "2"));
+///     let e = row.get::<String>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -322,28 +438,28 @@ impl Gettable<'_> for String {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
 /// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// CREATE TABLE users (blob BLOB);
+/// INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
 /// ")?;
 ///
-/// let mut stmt = c.prepare("SELECT name FROM users")?;
+/// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
-/// while let State::Row = stmt.step()? {
-///     let name = stmt.get::<Vec<u8>>(0)?;
-///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
+/// while let Some(row) = stmt.next()? {
+///     let blob = row.get::<Vec<u8>>(0)?;
+///     assert!(matches!(blob.as_slice(), b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
-/// Automatic conversion:
+/// Automatic conversion being denied:
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::{Connection, Code};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -355,8 +471,8 @@ impl Gettable<'_> for String {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     let name = row.get::<Vec::<u8>>(0)?;
-///     assert!(matches!(name.as_slice(), b"1" | b"2"));
+///     let e = row.get::<Vec::<u8>>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -374,28 +490,28 @@ impl Gettable<'_> for Vec<u8> {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
 /// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// CREATE TABLE users (blob BLOB);
+/// INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
 /// ")?;
 ///
-/// let mut stmt = c.prepare("SELECT name FROM users")?;
+/// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
-/// while let State::Row = stmt.step()? {
-///     let name = stmt.get::<Vec<u8>>(0)?;
-///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
+/// while let Some(row) = stmt.next()? {
+///     let blob = stmt.get::<&[u8]>(0)?;
+///     assert!(matches!(blob, b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
-/// Automatic conversion:
+/// Automatic conversion being denied:
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::{Connection, Code};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -407,8 +523,8 @@ impl Gettable<'_> for Vec<u8> {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while let Some(row) = stmt.next()? {
-///     let name = row.get::<&[u8]>(0)?;
-///     assert!(matches!(name, b"1" | b"2"));
+///     let e = row.get::<&[u8]>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -523,10 +639,10 @@ where
     #[inline]
     fn get(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
         if stmt.column_type(index) == Type::NULL {
-            Ok(None)
-        } else {
-            T::get(stmt, index).map(Some)
+            return Ok(None);
         }
+
+        Ok(Some(T::get(stmt, index)?))
     }
 }
 
@@ -613,4 +729,18 @@ repeat!(implement_tuple);
 fn advance(index: &mut c_int) -> c_int {
     let n = index.wrapping_add(1);
     mem::replace(index, n)
+}
+
+// NB: We have to perform strict type checking to avoid auto-conversion, if we
+// permit it, the pointers that have previously been fetched for a given column
+// may become invalidated.
+//
+// See: https://sqlite.org/c3ref/column_blob.html
+#[inline(always)]
+pub(crate) fn type_check(stmt: &Statement, index: c_int, expected: Type) -> Result<()> {
+    if stmt.column_type(index) != expected {
+        return Err(Error::new(Code::MISMATCH));
+    }
+
+    Ok(())
 }

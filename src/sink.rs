@@ -6,7 +6,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::{Code, Error, Result, Statement};
+use crate::gettable::type_check;
+use crate::{Code, Error, Result, Statement, Type};
 
 mod sealed {
     use alloc::string::String;
@@ -65,10 +66,10 @@ where
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
-/// Automatic conversion:
+/// Automatic conversion being denied:
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::{Connection, Code};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -80,10 +81,10 @@ where
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = String::new();
 ///
-/// while let State::Row = stmt.step()? {
+/// while let Some(row) = stmt.next()? {
 ///     name.clear();
-///     stmt.read(0, &mut name)?;
-///     assert!(matches!(name.as_str(), "1" | "2"));
+///     let e = row.read(0, &mut name).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -91,6 +92,8 @@ impl Sink for String {
     #[inline]
     fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
         unsafe {
+            type_check(stmt, index, Type::TEXT)?;
+
             let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), index);
 
             let Ok(len) = usize::try_from(len) else {
@@ -124,30 +127,30 @@ impl Sink for String {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::Connection;
 ///
 /// let c = Connection::open_memory()?;
 ///
 /// c.execute("
-/// CREATE TABLE users (name TEXT);
-/// INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// CREATE TABLE users (blob BLOB);
+/// INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
 /// ")?;
 ///
-/// let mut stmt = c.prepare("SELECT name FROM users")?;
-/// let mut name = Vec::<u8>::new();
+/// let mut stmt = c.prepare("SELECT blob FROM users")?;
+/// let mut blob = Vec::<u8>::new();
 ///
-/// while let State::Row = stmt.step()? {
-///     name.clear();
-///     stmt.read(0, &mut name)?;
-///     assert!(matches!(name.as_slice(), b"Alice" | b"Bob"));
+/// while let Some(row) = stmt.next()? {
+///     blob.clear();
+///     row.read(0, &mut blob)?;
+///     assert!(matches!(blob.as_slice(), b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
-/// Automatic conversion:
+/// Automatic conversion being denied:
 ///
 /// ```
-/// use sqll::{Connection, State};
+/// use sqll::{Connection, Code};
 ///
 /// let c = Connection::open_memory()?;
 ///
@@ -159,10 +162,10 @@ impl Sink for String {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = Vec::<u8>::new();
 ///
-/// while let State::Row = stmt.step()? {
+/// while let Some(row) = stmt.next()? {
 ///     name.clear();
-///     stmt.read(0, &mut name)?;
-///     assert!(matches!(name.as_slice(), b"1" | b"2"));
+///     let e = stmt.read(0, &mut name).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -170,6 +173,8 @@ impl Sink for Vec<u8> {
     #[inline]
     fn write(&mut self, stmt: &Statement, index: c_int) -> Result<()> {
         unsafe {
+            type_check(stmt, index, Type::BLOB)?;
+
             let i = c_int::try_from(index).unwrap_or(c_int::MAX);
 
             let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), i)) else {

@@ -204,24 +204,43 @@ impl Statement {
     /// Step the statement.
     ///
     /// This is necessary in order to produce rows from a statement. It must be
-    /// called once before the first row is returned. Trying to read data from a
-    /// statement which has not been stepped will always result in a NULL value
-    /// being read which is subject to auto-conversion.
+    /// called once before the first row is returned in order for results to be
+    /// meaningful.
+    ///
+    /// When step returns [`State::Row`] it indicates that a row is ready to
+    /// read from the statement. When step returns [`State::Done`] no more rows
+    /// are available.
+    ///
+    /// For a less error-prone alternative, consider using [`Statement::next`].
+    ///
+    /// Trying to read data from a statement which has not been stepped will
+    /// always result in a NULL value being read which will always result in an
+    /// error.
     ///
     /// ```
-    /// use sqll::{Connection, State, Code};
+    /// use sqll::{Connection, Code, State};
     ///
     /// let c = Connection::open_memory()?;
     /// c.execute("CREATE TABLE users (id INTEGER, name TEXT);")?;
     /// c.execute("INSERT INTO users (id, name) VALUES (0, 'Alice'), (1, 'Bob');")?;
     ///
-    /// let mut stmt = c.prepare("SELECT name FROM users;")?;
+    /// let mut stmt = c.prepare("SELECT id, name FROM users;")?;
+    /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
+    /// assert_eq!(stmt.get::<String>(1).unwrap_err().code(), Code::MISMATCH);
+    ///
+    /// assert_eq!(stmt.step()?, State::Row);
     /// assert_eq!(stmt.get::<i64>(0)?, 0);
-    /// assert_eq!(stmt.get::<String>(0)?, "");
+    /// assert_eq!(stmt.borrow::<str>(1)?, "Alice");
+    ///
+    /// assert_eq!(stmt.step()?, State::Row);
+    /// assert_eq!(stmt.get::<i64>(0)?, 1);
+    /// assert_eq!(stmt.borrow::<str>(1)?, "Bob");
+    ///
+    /// assert_eq!(stmt.step()?, State::Done);
+    /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
+    /// assert_eq!(stmt.get::<String>(1).unwrap_err().code(), Code::MISMATCH);
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    ///
-    /// When the statement returns [`State::Done`] no more rows are available.
     ///
     /// # Examples
     ///
@@ -340,9 +359,13 @@ impl Statement {
         }
     }
 
-    /// Reset the statement allowing it to be re-used.
+    /// Reset the statement allowing it to be re-executed.
     ///
-    /// Resetting a statement unsets all bindings set by [`Statement::bind`].
+    /// The next call to [`Statement::step`] will start over from the first
+    /// resulting row again.
+    ///
+    /// Note that resetting a statement doesn't unset bindings set by
+    /// [`Statement::bind`]. To do this, use [`Statement::clear_bindings`].
     ///
     /// # Examples
     ///
@@ -393,7 +416,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -411,8 +434,8 @@ impl Statement {
     ///     stmt.reset()?;
     ///     stmt.bind(1, age)?;
     ///
-    ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next()? {
+    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -729,7 +752,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -747,8 +770,8 @@ impl Statement {
     ///     stmt.reset()?;
     ///     stmt.bind(1, age)?;
     ///
-    ///     while let State::Row = stmt.step()? {
-    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next()? {
+    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
     ///     }
     /// }
     ///
@@ -1079,7 +1102,7 @@ impl<'stmt> Row<'stmt> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, State};
+    /// use sqll::Connection;
     ///
     /// let c = Connection::open_memory()?;
     ///

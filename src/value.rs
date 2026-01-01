@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use crate::ffi;
 
 /// The type of a value.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct Type(c_int);
 
@@ -39,7 +39,21 @@ impl fmt::Display for Type {
             ffi::SQLITE_FLOAT => write!(f, "FLOAT"),
             ffi::SQLITE_INTEGER => write!(f, "INTEGER"),
             ffi::SQLITE_NULL => write!(f, "NULL"),
-            _ => write!(f, "UNKNOWN"),
+            raw => write!(f, "UNKNOWN({raw})"),
+        }
+    }
+}
+
+impl fmt::Debug for Type {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            ffi::SQLITE_BLOB => write!(f, "BLOB"),
+            ffi::SQLITE_TEXT => write!(f, "TEXT"),
+            ffi::SQLITE_FLOAT => write!(f, "FLOAT"),
+            ffi::SQLITE_INTEGER => write!(f, "INTEGER"),
+            ffi::SQLITE_NULL => write!(f, "NULL"),
+            raw => write!(f, "UNKNOWN({raw})"),
         }
     }
 }
