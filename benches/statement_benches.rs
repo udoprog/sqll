@@ -50,7 +50,7 @@ fn write_statement(bencher: &mut Criterion) {
             stmt.bind(2, 42.0).unwrap();
             stmt.bind(3, 42.0).unwrap();
             stmt.bind(4, 42.0).unwrap();
-            assert_eq!(stmt.step().unwrap(), State::Done);
+            assert!(stmt.step().unwrap().is_done());
         });
     });
 }
@@ -73,6 +73,6 @@ fn populate(c: &Connection, count: usize) {
         statement.bind(2, i as f64).unwrap();
         statement.bind(3, i as f64).unwrap();
         statement.bind(4, i as f64).unwrap();
-        assert_eq!(statement.step().unwrap(), State::Done);
+        assert!(statement.step().unwrap().is_done());
     }
 }

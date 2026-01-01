@@ -85,6 +85,7 @@ fn system() {
 
 fn bundled() {
     let mut build = Build::new();
+
     build.file("source/sqlite3.c");
 
     for (name, value) in env::vars() {
@@ -128,5 +129,10 @@ fn bundled() {
     }
 
     build.define("NDEBUG", "1");
+
+    if !cfg!(feature = "threadsafe") {
+        build.define("SQLITE_THREADSAFE", "0");
+    }
+
     build.compile("libsqlite3.a");
 }

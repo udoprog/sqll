@@ -129,6 +129,7 @@ impl fmt::Debug for Statement {
 }
 
 /// A prepared statement is `Send`.
+#[cfg(feature = "threadsafe")]
 unsafe impl Send for Statement {}
 
 impl Statement {

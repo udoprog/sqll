@@ -21,3 +21,8 @@
 #[allow(clippy::all)]
 mod base;
 pub use base::*;
+
+#[cfg(all(not(feature = "bundled"), not(feature = "threadsafe")))]
+compile_error!(
+    "sqll-sys: If the `threadsafe` feature is disabled, the `bundled` feature must be enabled. Otherwise it has no effect."
+);

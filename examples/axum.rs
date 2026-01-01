@@ -31,7 +31,7 @@ fn setup_db() -> Result<Database> {
             .create()
             .read_write()
             .extended_result_codes()
-            .unsynchronized()
+            .no_mutex()
             .open_memory()?
     };
 
