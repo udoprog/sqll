@@ -41,4 +41,3 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
 members = ["sqll-sys", "tools"]
-exclude = ["tools"]

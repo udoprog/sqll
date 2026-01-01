@@ -28,7 +28,7 @@ use relative_path::RelativePath;
 use zip::ZipArchive;
 
 const URL: &str = "https://github.com/sqlite/sqlite";
-const HEADERS: &[&str] = &["sqlite3.h", "sqlite3ext.h"];
+const HEADERS: &[&str] = &["sqlite3.h"];
 const BUNDLED: &[&str] = &["sqlite3.c"];
 
 const CONSTANTS: &[&str] = &[
@@ -311,9 +311,9 @@ fn extract_archive(out: &Path, data: &[u8], exclude: &RegexSet) -> Result<(), an
 }
 
 #[derive(Debug)]
-struct ParseCallbacks;
+struct IntegerDefines;
 
-impl IntegerDefines for ParseCallbacks {
+impl ParseCallbacks for IntegerDefines {
     fn int_macro(&self, _: &str, _: i64) -> Option<IntKind> {
         Some(IntKind::Int)
     }
