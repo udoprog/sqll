@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use anyhow::{Context, Result};
 
-use crate::{Code, Connection, Error, Null, OpenOptions, State, Value};
+use crate::{Code, Connection, Null, OpenOptions, State, Value};
 
 // Test cases copied from https://github.com/stainless-steel/sqlite under the
 // MIT license.
@@ -69,7 +69,7 @@ fn connection_set_busy_handler() -> Result<()> {
     for _ in 0..100 {
         let path = path.to_path_buf();
 
-        guards.push(thread::spawn(move || {
+        guards.push(thread::spawn(move || -> Result<bool> {
             let mut c = Connection::open(path)?;
             c.set_busy_handler(|_| true)?;
             let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
@@ -79,7 +79,7 @@ fn connection_set_busy_handler() -> Result<()> {
             stmt.bind(4, &[0x69u8, 0x42u8][..])?;
             stmt.bind(5, Null)?;
             assert_eq!(stmt.step()?, State::Done);
-            Ok::<_, Error>(true)
+            Ok(true)
         }));
     }
 

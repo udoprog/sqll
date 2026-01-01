@@ -25,6 +25,15 @@
 //! * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
 //!   [`sqll-sys`] crate and the sqlite version used is part of the build
 //!   metadata of that crate.
+//! * `threadsafe` - Enable usage of sqlite with the threadsafe option set. We
+//!   assume any system level libraries have this build option enabled, if this
+//!   is disabled the `bundled` feature has to be enabled. If `threadsafe` is
+//!   disabled, `Connection` and `Statement` does not implement `Send`. But it
+//!   is also important to understand that if this option is not set, sqlite
+//!   **may not be used by multiple threads at all** even if threads have
+//!   distinct connections. To disable mutexes instead which allows for
+//!   efficient one connection per thread the [`OpenOptions::no_mutex`] option
+//!   should be used instead.
 //!
 //! <br>
 //!
@@ -123,6 +132,7 @@
 //! [`axum`]: https://docs.rs/axum
 //! [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 //! [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
+//! [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 //! [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
 //! [`sqlite` crate]: https://github.com/stainless-steel/sqlite
 //! [`sqll-sys`]: https://crates.io/crates/sqll-sys

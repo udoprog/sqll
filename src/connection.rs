@@ -88,6 +88,7 @@ pub struct Connection {
 }
 
 /// Connection is `Send`.
+#[cfg(feature = "threadsafe")]
 unsafe impl Send for Connection {}
 
 impl Connection {
@@ -678,14 +679,13 @@ pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
 /// Options that can be used to customize the opening of a SQLite database.
 ///
 /// By default the database is opened in multi-threaded mode with the
-/// [`SQLITE_OPEN_NOMUTEX`] set to ensure that [`Statement`] objects can be used
-/// separately from the connection that constructed them.
+/// [`SQLITE_OPEN_FULLMUTEX`] option enabled which makes [`Connection`] and
+/// [`Statement`] objects thread-safe by serializing access. This can be
+/// disabled at runtime through [`no_mutex`], but is unsafe since the caller has
+/// to guarantee that access to *all* database objects are synchronized.
 ///
-/// To avoid this overhead in case you know how the statements will be used, you
-/// can unset this by calling [`unsynchronized`].
-///
-/// [`unsynchronized`]: Self::unsynchronized
-/// [`SQLITE_OPEN_NOMUTEX`]: https://sqlite.org/c3ref/open.html
+/// [`no_mutex`]: Self::no_mutex
+/// [`SQLITE_OPEN_FULLMUTEX`]: https://sqlite.org/c3ref/open.html
 #[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
     raw: c_int,
@@ -696,7 +696,7 @@ impl OpenOptions {
     #[inline]
     pub fn new() -> Self {
         Self {
-            raw: ffi::SQLITE_OPEN_NOMUTEX,
+            raw: ffi::SQLITE_OPEN_FULLMUTEX,
         }
     }
 
@@ -750,13 +750,20 @@ impl OpenOptions {
         self
     }
 
-    /// The new database connection will use the "multi-thread" [threading mode].
-    /// This means that separate threads are allowed to use SQLite at the same
-    /// time, as long as each thread is using a different database connection.
+    /// The new database connection will use the "multi-thread" [threading
+    /// mode]. This means that separate threads are allowed to use SQLite at the
+    /// same time, as long as each thread is using a different database
+    /// connection.
     ///
     /// [threading mode]: https://www.sqlite.org/threadsafe.html
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe, since it requires that the caller ensures that access to
+    /// the any objects associated with the connection such as [`Statement`] is
+    /// synchronized with the connection that constructed them.
     #[inline]
-    pub fn no_mutex(mut self) -> Self {
+    pub unsafe fn no_mutex(mut self) -> Self {
         self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
         self
     }
@@ -770,27 +777,6 @@ impl OpenOptions {
     #[inline]
     pub fn full_mutex(mut self) -> Self {
         self.raw |= ffi::SQLITE_OPEN_FULLMUTEX;
-        self
-    }
-
-    /// Set the database to be opened without the "multi-thread" [threading
-    /// mode]. The effect of calling this is that [`full_mutex`] and
-    /// [`no_mutex`] are unset.
-    ///
-    /// [`full_mutex`]: Self::full_mutex
-    /// [`no_mutex`]: Self::no_mutex
-    /// [threading mode]: https://www.sqlite.org/threadsafe.html
-    ///
-    /// # Safety
-    ///
-    /// Prepared statements being separated from the connection object rely on
-    /// sqlite being in a multi-threaded mode to work safely. Unsetting this
-    /// option means you take responsibility for ensuring that no two threads
-    /// access the same connection even indirectly through [`Statement`]
-    /// simultaneously.
-    #[inline]
-    pub unsafe fn unsynchronized(mut self) -> Self {
-        self.raw &= !(ffi::SQLITE_OPEN_NOMUTEX | ffi::SQLITE_OPEN_FULLMUTEX);
         self
     }
 

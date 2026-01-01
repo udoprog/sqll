@@ -1,6 +1,6 @@
 [package]
 name = "sqll"
-version = "0.2.2"
+version = "0.2.3"
 authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
@@ -16,13 +16,14 @@ keywords = ["api-bindings", "database", "ffi", "sqlite"]
 categories = ["api-bindings", "database"]
 
 [features]
-default = ["std"]
+default = ["std", "threadsafe"]
 std = ["alloc"]
 alloc = []
 bundled = ["sqll-sys/bundled"]
+threadsafe = ["sqll-sys/threadsafe"]
 
 [dependencies]
-sqll-sys = { version = "0.2.1", path = "sqll-sys", default-features = false }
+sqll-sys = { version = "0.2.3", path = "sqll-sys", default-features = false }
 
 [dev-dependencies]
 anyhow = "1.0.100"
