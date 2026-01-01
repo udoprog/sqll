@@ -1,6 +1,6 @@
 [package]
 name = "sqll"
-version = "0.2.7"
+version = "0.2.8"
 authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
@@ -23,7 +23,7 @@ bundled = ["sqll-sys/bundled"]
 threadsafe = ["sqll-sys/threadsafe"]
 
 [dependencies]
-sqll-sys = { version = "0.2.6", path = "sqll-sys", default-features = false }
+sqll-sys = { version = "0.2.8", path = "sqll-sys", default-features = false }
 
 [dev-dependencies]
 anyhow = "1.0.100"
