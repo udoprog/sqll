@@ -232,7 +232,33 @@ impl Connection {
             .open_memory()
     }
 
-    /// Execute a statement without processing the resulting rows if any.
+    /// Execute a batch of statements.
+    ///
+    /// Unlike [`prepare`], this can be used to execute multiple statements
+    /// separated by a semi-colon `;` and is internally optimized for one-off
+    /// queries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, Result};
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 42);
+    ///     INSERT INTO users VALUES ('Bob', 69);
+    /// "#)?;
+    ///
+    /// let results = c.prepare("SELECT name, age FROM users")?
+    ///     .iter::<(String, u32)>()
+    ///     .collect::<Result<Vec<_>>>()?;
+    ///
+    /// assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 69)]);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
     pub fn execute(&self, stmt: impl AsRef<str>) -> Result<()> {
         self._execute(stmt.as_ref())

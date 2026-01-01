@@ -57,10 +57,10 @@
 //!
 //! ## Example
 //!
-//! Open an in-memory connection, create a table, and insert some rows:
+//! Open an in-memory connection, create a table, insert and query some rows:
 //!
 //! ```
-//! use sqll::Connection;
+//! use sqll::{Connection, Result};
 //!
 //! let c = Connection::open_memory()?;
 //!
@@ -70,6 +70,12 @@
 //!     INSERT INTO users VALUES ('Alice', 42);
 //!     INSERT INTO users VALUES ('Bob', 69);
 //! "#)?;
+//!
+//! let results = c.prepare("SELECT name, age FROM users ORDER BY age")?
+//!     .iter::<(String, u32)>()
+//!     .collect::<Result<Vec<_>>>()?;
+//!
+//! assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 69)]);
 //! # Ok::<_, sqll::Error>(())
 //! ```
 //!
