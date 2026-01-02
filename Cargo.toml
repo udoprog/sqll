@@ -16,12 +16,13 @@ keywords = ["api-bindings", "database", "ffi", "sqlite"]
 categories = ["api-bindings", "database"]
 
 [features]
-default = ["std", "threadsafe", "derive"]
+default = ["std", "derive", "bundled", "threadsafe"]
 std = ["alloc"]
 alloc = []
+derive = ["dep:sqll-macros"]
 bundled = ["sqll-sys/bundled"]
 threadsafe = ["sqll-sys/threadsafe"]
-derive = ["dep:sqll-macros"]
+strict = ["sqll-sys/strict"]
 
 [dependencies]
 sqll-sys = { version = "0.2.11", path = "sqll-sys", default-features = false }

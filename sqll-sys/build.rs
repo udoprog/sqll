@@ -132,9 +132,7 @@ fn bundled() {
     }
 
     if cfg!(feature = "strict") {
-        build.flag("-Wno-unused");
-        build.flag("-Wno-unused-parameter");
-        build.flag("-Wall");
+        build.flags(["-Wall", "-Wextra", "-Werror"]);
     }
 
     if cfg!(not(debug_assertions)) {
