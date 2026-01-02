@@ -17,6 +17,7 @@ concurrency:
 env:
   RUSTDOCFLAGS: "-D warnings"
   RUSTFLAGS: "-D warnings"
+  VCPKG_GIT_COMMIT_ID: af752f21c9d79ba3df9cb0250ce2233933f58486
 
 jobs:
   msrv:
@@ -28,25 +29,34 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@1.91
-    - run: cargo build --lib --all-features
+    - uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_GIT_COMMIT_ID }}
+      if: runner.os == 'Windows'
+    - run: vcpkg install sqlite3 --triplet x64-windows-static-md
+      if: runner.os == 'Windows'
     - run: cargo build --lib
-      if: matrix.os != 'windows-latest'
+    - run: cargo build --lib --all-features
 
   test:
     runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
+    - uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_GIT_COMMIT_ID }}
+      if: runner.os == 'Windows'
+    - run: vcpkg install sqlite3 --triplet x64-windows-static-md
+      if: runner.os == 'Windows'
+    - run: cargo test --all-targets
+    - run: cargo test --doc
     - run: cargo test --all-targets --all-features
     - run: cargo test --doc --all-features
-    - run: cargo test --all-targets
-      if: matrix.os != 'windows-latest'
-    - run: cargo test --doc
-      if: matrix.os != 'windows-latest'
 
   clippy:
     runs-on: ubuntu-latest

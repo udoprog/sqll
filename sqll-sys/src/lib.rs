@@ -7,9 +7,46 @@
 //! Note that the metadata field of this crate specified which version of sqlite
 //! is provided *if* the `bundled` feature is enabled, like `+sqlite-3.51.1`.
 //!
+//! <br>
+//!
+//! ## Features
+//!
+//! * `bundled` - Use the bundled sqlite3 source code. If this feature is not
+//!   enabled see the building with system dependencies section below.
+//! * `threadsafe` - Build sqlite3 with threadsafe support. If this is not set
+//!   then the `bundled` feature has to be set since we otherwise cannot control
+//!   how sqlite is built.
+//! * `strict` - Build sqlite3 with strict compiler flags enabled. This is only
+//!   used when the `bundled` feature is enabled.
+//!
+//! <br>
+//!
+//! ## Building
+//!
 //! When linking to a system sqlite library there is a minimum required version.
 //! This is specified in the [`sqlite3-version`] file and is checked at build
 //! time.
+//!
+//! If the `bundled` feature is not set, this will attempt to find the native
+//! sqlite3 bindings using the following methods:
+//! * Calling `vcpkg`, this can be disabled by setting the `NO_VCPKG` or
+//!   `SQLITE3_NO_VCPKG` environment variables.
+//! * Finding the library through `pkg-config`, this can be disabled by setting
+//!   or by setting the `SQLITE3_NO_PKG_CONFIG` environment variables.
+//!
+//! <br>
+//!
+//! ## Building under WASM
+//!
+//! If the target is is `wasm`, you can set the `SDK_PATH_ENV` to specify an SDK
+//! path to a particular compiler to use when building the wasm bindings. This
+//! is only supported when the `bundled` feature is enabled.
+//!
+//! The following environment variables can be set to modify this behavior:
+//! * `SQLL_TARGET` or `TARGET` to specify the build target. You probably want
+//!   to set this to something like `wasm32-wasi-unknown`.
+//! * `SQLL_CLANG_PATH` or `CLANG_PATH` to specify a custom path to a clang
+//!   compiler installation.
 //!
 //! [`sqlite3-version`]: https://github.com/udoprog/sqll/blob/main/sqll-sys/sqlite3-version
 //! [sqlite]: https://www.sqlite.org
@@ -25,4 +62,9 @@ pub use base::*;
 #[cfg(all(not(feature = "bundled"), not(feature = "threadsafe")))]
 compile_error!(
     "sqll-sys: If the `threadsafe` feature is disabled, the `bundled` feature must be enabled. Otherwise it has no effect."
+);
+
+#[cfg(all(not(feature = "bundled"), feature = "strict"))]
+compile_error!(
+    "sqll-sys: The `strict` feature can only be used when the `bundled` feature is enabled."
 );

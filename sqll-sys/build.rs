@@ -1,3 +1,5 @@
+use core::error::Error;
+
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -7,8 +9,8 @@ use semver::{Version, VersionReq};
 
 /// Updated automatically. DO NOT TOUCH.
 const SQLITE_VERSION: &str = "3.37.0";
-const SDK_PATH_ENV: &[&str] = &["CARGO_CFG_SQLL_WASI_SDK_PATH", "WASI_SDK_PATH"];
-const WASI_TARGET_ENV: &[&str] = &["CARGO_CFG_SQLL_WASI_TARGET_ENV", "WASI_TARGET_ENV"];
+const CLANG_ENV: &[&str] = &["SQLL_CLANG_PATH", "CLANG_PATH"];
+const TARGET_ENV: &[&str] = &["SQLL_TARGET", "TARGET"];
 
 fn main() {
     if cfg!(feature = "bundled") {
@@ -18,17 +20,16 @@ fn main() {
     }
 }
 
-fn env(names: &[&'static str]) -> OsString {
+fn env(names: &[&'static str]) -> Option<OsString> {
     for &name in names {
         println!("cargo:rerun-if-env-changed={name}");
 
         if let Some(value) = env::var_os(name) {
-            return value;
+            return Some(value);
         }
     }
 
-    let expected = names.join(", ");
-    panic!("expected one of these environments to be set: {expected}");
+    None
 }
 
 fn system() {
@@ -38,40 +39,41 @@ fn system() {
 
     let mut errors = Vec::new();
 
-    'vcpkg: {
-        _ = match vcpkg::find_package("sqlite3") {
-            Ok(library) => library,
-            Err(error) => {
-                errors.push(format!("vcpkg failed: {error}"));
-                break 'vcpkg;
+    match pkg_config::find_library("sqlite3") {
+        Ok(library) => {
+            let Ok(version) = library.version.parse::<Version>() else {
+                panic!("invalid sqlite3 library version: {}", library.version);
+            };
+
+            if !version_req.matches(&version) {
+                panic!(
+                    "system sqlite3 library version {} does not match required version {}",
+                    library.version, version_req
+                );
             }
-        };
 
-        return;
-    };
-
-    'pkg_config: {
-        let library = match pkg_config::find_library("sqlite3") {
-            Ok(library) => library,
-            Err(error) => {
-                errors.push(format!("pkg-config failed: {error}"));
-                break 'pkg_config;
-            }
-        };
-
-        let Ok(version) = library.version.parse::<Version>() else {
-            panic!("invalid sqlite3 library version: {}", library.version);
-        };
-
-        if !version_req.matches(&version) {
-            panic!(
-                "system sqlite3 library version {} does not match required version {}",
-                library.version, version_req
-            );
+            return;
         }
+        Err(error) => {
+            errors.push(format!("pkg-config: {error}"));
+        }
+    }
 
-        return;
-    };
+    match vcpkg::find_package("sqlite3") {
+        Ok(..) => {
+            return;
+        }
+        Err(error) => {
+            errors.push(format!("vcpkg: {error}"));
+
+            let mut cause = error.source();
+
+            while let Some(inner) = cause {
+                errors.push(format!("vcpkg: {inner}"));
+                cause = inner.source();
+            }
+        }
+    }
 
     for error in errors {
         println!("{error}");
@@ -92,42 +94,52 @@ fn bundled() {
         }
     }
 
+    if let Some(mut sdk_path) = env(CLANG_ENV).map(PathBuf::from) {
+        sdk_path.push("bin");
+        sdk_path.push("clang");
+
+        if !sdk_path.is_file() {
+            panic!("Not a file: {}", sdk_path.display());
+        }
+
+        build.compiler(sdk_path);
+    }
+
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=source/sqlite3.c");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FAMILY");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
 
+    let mut is_wasm = false;
+
     if let Ok(target_family) = env::var("CARGO_CFG_TARGET_FAMILY")
-        && let Ok(target_os) = env::var("CARGO_CFG_TARGET_OS")
         && target_family == "wasm"
     {
-        let mut sdk_path = PathBuf::from(env(SDK_PATH_ENV));
-
-        sdk_path.push("bin");
-        sdk_path.push("clang");
-
-        if !sdk_path.is_file() {
-            panic!("not a file: {}", sdk_path.display());
-        }
-
-        build.compiler(sdk_path);
-
-        if target_os != "wasi" {
-            let target_env = env(WASI_TARGET_ENV);
-            let target = format!("wasm32-wasi{}", target_env.to_string_lossy());
-            build.target(&target);
-        }
-
-        build.define("__wasi__", None);
-        build.define("SQLITE_OMIT_LOAD_EXTENSION", "1");
-        build.flag("-Wno-unused");
-        build.flag("-Wno-unused-parameter");
+        is_wasm = true;
     }
 
-    build.define("NDEBUG", "1");
+    if let Some(target_env) = env(TARGET_ENV) {
+        let target = format!("{}", target_env.to_string_lossy());
+        build.target(&target);
+    }
 
-    if !cfg!(feature = "threadsafe") {
+    if !cfg!(feature = "threadsafe") || is_wasm {
         build.define("SQLITE_THREADSAFE", "0");
+    }
+
+    if is_wasm {
+        build.define("SQLITE_OMIT_LOAD_EXTENSION", "1");
+    }
+
+    if cfg!(feature = "strict") {
+        build.flag("-Wno-unused");
+        build.flag("-Wno-unused-parameter");
+        build.flag("-Wall");
+    }
+
+    if cfg!(not(debug_assertions)) {
+        build.define("NDEBUG", "1");
+        build.flag("-O3");
     }
 
     build.compile("libsqlite3.a");

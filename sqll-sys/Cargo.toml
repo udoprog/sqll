@@ -26,12 +26,13 @@ include = [
 links = "sqlite3"
 
 [features]
-default = ["bundled", "threadsafe"]
+default = ["bundled", "threadsafe", "strict"]
 bundled = []
 threadsafe = []
+strict = []
 
 [build-dependencies]
 cc = "1.2.51"
-pkg-config = "0.3.32"
 semver = "1.0.27"
+pkg-config = "0.3.32"
 vcpkg = "0.2.15"
