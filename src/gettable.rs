@@ -6,6 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
+use crate::utils::repeat;
 use crate::{Borrowable, Code, Error, FixedBytes, Null, Result, Sink, Statement, Type, Value};
 
 mod sealed {
@@ -747,26 +748,6 @@ where
 
         Ok(Some(T::get(stmt, index)?))
     }
-}
-
-macro_rules! repeat {
-    ($macro:path) => {
-        $macro!(A a 0);
-        $macro!(A a 0, B b 1);
-        $macro!(A a 0, B b 1, C c 2);
-        $macro!(A a 0, B b 1, C c 2, D d 3);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12, N n 13);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12, N n 13, O o 14);
-    };
 }
 
 macro_rules! ignore {

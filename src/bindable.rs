@@ -1,11 +1,10 @@
 use core::ffi::c_int;
 
 use crate::bytes;
-use crate::error::Result;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
-use crate::{Code, Error, Null, Statement, Value};
+use crate::{Code, Error, Null, Result, Statement, Value};
 
 mod sealed {
     use crate::{Null, Value};

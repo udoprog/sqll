@@ -81,6 +81,39 @@
 //!
 //! <br>
 //!
+//! ## The [`FromRow`] helper trait.
+//!
+//! For the example below, we can define a `Person` struct that binds to the row
+//! conveniently using the [`FromRow` derive] macro.
+//!
+//! ```
+//! use sqll::{Connection, FromRow, Result};
+//!
+//! #[derive(FromRow)]
+//! struct Person<'stmt> {
+//!     name: &'stmt str,
+//!     age: u32,
+//! }
+//!
+//! let mut c = Connection::open_memory()?;
+//!
+//! c.execute(r#"
+//!     CREATE TABLE users (name TEXT, age INTEGER);
+//!
+//!     INSERT INTO users VALUES ('Alice', 42);
+//!     INSERT INTO users VALUES ('Bob', 69);
+//! "#)?;
+//!
+//! let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
+//!
+//! while let Some(person) = results.next_row::<Person<'_>>()? {
+//!     println!("{} is {} years old", person.name, person.age);
+//! }
+//! # Ok::<_, sqll::Error>(())
+//! ```
+//!
+//! <br>
+//!
 //! #### Prepared Statements
 //!
 //! Correct handling of prepared statements are crucial to get good performance
@@ -161,6 +194,8 @@
 //! [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 //! [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 //! [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
+//! [`FromRow` derive]: https://docs.rs/sqll/latest/sqll/derive.FromRow.html
+//! [`FromRow`]: https://docs.rs/sqll/latest/sqll/trait.FromRow.html
 //! [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 //! [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with
 //! [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
@@ -195,6 +230,7 @@ mod connection;
 mod error;
 mod ffi;
 mod fixed_bytes;
+mod from_row;
 mod gettable;
 mod owned;
 mod sink;
@@ -216,12 +252,71 @@ pub use self::error::{Code, DatabaseNotFound, Error, Result};
 #[doc(inline)]
 pub use self::fixed_bytes::FixedBytes;
 #[doc(inline)]
+pub use self::from_row::FromRow;
+#[doc(inline)]
 pub use self::gettable::Gettable;
 #[doc(inline)]
 pub use self::sink::Sink;
 #[doc(inline)]
-pub use self::statement::{Null, State, Statement};
+pub use self::statement::{Null, Row, State, Statement};
 #[doc(inline)]
 pub use self::value::{Type, Value};
 #[doc(inline)]
 pub use self::version::{lib_version, lib_version_number};
+
+/// Derive macro for [`FromRow`].
+///
+/// This can be used on a struct, and allows the struct to be constructed from
+/// a. [`Row`], each field in the struct is one-by-one mapped into a
+/// corresponding index in the SQLite row.
+///
+/// ```
+/// use sqll::FromRow;
+///
+/// #[derive(FromRow)]
+/// struct Person<'stmt> {
+///     name: &'stmt str,
+///     age: u32,
+/// }
+/// ```
+///
+/// ## Container attributes
+///
+/// #### `#[row(crate = ..)]`
+///
+/// This attributes allows specifying an alternative path to the `sqll` crate.
+///
+/// This is useful when the crate is renamed from the default `::sqll`.
+///
+/// ```
+/// # extern crate sqll as my_sqll;
+/// use my_sqll::FromRow;
+///
+/// #[derive(FromRow)]
+/// #[row(crate = ::my_sqll)]
+/// struct Person<'stmt> {
+///     name: &'stmt str,
+///     age: u32,
+/// }
+/// ```
+///
+/// ## Field attribuets
+///
+/// #### `#[row(index = N)]`
+///
+/// This allows the index being used for a particular row to be overriden.
+///
+/// ```
+/// use sqll::FromRow;
+///
+/// #[derive(FromRow)]
+/// struct Person<'stmt> {
+///     #[row(index = 1)]
+///     name: &'stmt str,
+///     #[row(index = 0)]
+///     age: u32,
+/// }
+/// ```
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use sqll_macros::FromRow;

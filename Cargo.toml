@@ -16,14 +16,16 @@ keywords = ["api-bindings", "database", "ffi", "sqlite"]
 categories = ["api-bindings", "database"]
 
 [features]
-default = ["std", "threadsafe"]
+default = ["std", "threadsafe", "derive"]
 std = ["alloc"]
 alloc = []
 bundled = ["sqll-sys/bundled"]
 threadsafe = ["sqll-sys/threadsafe"]
+derive = ["dep:sqll-macros"]
 
 [dependencies]
 sqll-sys = { version = "0.2.9", path = "sqll-sys", default-features = false }
+sqll-macros = { version = "0.2.9", path = "sqll-macros", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.100"
@@ -41,4 +43,4 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
-members = ["sqll-sys", "tools"]
+members = ["sqll-macros","sqll-sys", "tools"]

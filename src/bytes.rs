@@ -3,7 +3,7 @@ use core::ffi::{c_int, c_void};
 use core::mem::{align_of, size_of};
 use core::ptr::dangling_mut;
 
-use crate::error::{Code, Error, Result};
+use crate::{Code, Error, Result};
 
 #[cfg(test)]
 mod tests;

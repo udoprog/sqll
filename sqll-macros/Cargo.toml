@@ -1,0 +1,21 @@
+[package]
+name = "sqll-macros"
+version = "0.2.9"
+authors = ["John-John Tedro <udoprog@tedro.se>"]
+edition = "2024"
+description = "Efficient interface to SQLite that doesn't get in your way"
+documentation = "https://docs.rs/sqll"
+readme = "README.md"
+homepage = "https://github.com/udoprog/sqll"
+repository = "https://github.com/udoprog/sqll"
+license = "MIT OR Apache-2.0"
+keywords = ["api-bindings", "database", "ffi", "sqlite"]
+categories = ["api-bindings", "database"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.66"
+quote = "1.0.34"
+syn = "2.0.38"

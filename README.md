@@ -83,6 +83,38 @@ assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 69)]);
 
 <br>
 
+## The [`FromRow`] helper trait.
+
+For the example below, we can define a `Person` struct that binds to the row
+conveniently using the [`FromRow` derive] macro.
+
+```rust
+use sqll::{Connection, FromRow, Result};
+
+#[derive(FromRow)]
+struct Person<'stmt> {
+    name: &'stmt str,
+    age: u32,
+}
+
+let mut c = Connection::open_memory()?;
+
+c.execute(r#"
+    CREATE TABLE users (name TEXT, age INTEGER);
+
+    INSERT INTO users VALUES ('Alice', 42);
+    INSERT INTO users VALUES ('Bob', 69);
+"#)?;
+
+let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
+
+while let Some(person) = results.next_row::<Person<'_>>()? {
+    println!("{} is {} years old", person.name, person.age);
+}
+```
+
+<br>
+
 #### Prepared Statements
 
 Correct handling of prepared statements are crucial to get good performance
@@ -162,6 +194,8 @@ have been copied under the MIT license.
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
+[`FromRow` derive]: https://docs.rs/sqll/latest/sqll/derive.FromRow.html
+[`FromRow`]: https://docs.rs/sqll/latest/sqll/trait.FromRow.html
 [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with
 [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT

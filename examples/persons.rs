@@ -1,8 +1,9 @@
-use sqll::{Connection, Prepare, Result};
+use sqll::{Connection, FromRow, Prepare, Result};
 
-struct Person<'a> {
+#[derive(FromRow)]
+struct Person<'stmt> {
     id: i32,
-    name: &'a str,
+    name: &'stmt str,
 }
 
 fn main() -> Result<()> {
@@ -25,22 +26,13 @@ fn main() -> Result<()> {
 
     let mut stmt = conn.prepare_with("SELECT id, name FROM persons", Prepare::PERSISTENT)?;
 
-    let mut name_buf = String::new();
-
     for _ in 0..10 {
         stmt.reset()?;
 
         println!("Found persons:");
 
         while let Some(row) = stmt.next()? {
-            name_buf.clear();
-            row.read(1, &mut name_buf)?;
-
-            let p = Person {
-                id: row.get(0)?,
-                name: &name_buf,
-            };
-
+            let p = row.as_row::<Person<'_>>()?;
             println!("ID: {}, Name: {}", p.id, p.name);
         }
     }

@@ -1,7 +1,7 @@
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
-use crate::error::{Code, Error, Result};
+use crate::{Code, Error, Result};
 
 /// An owned pointer with drop glue.
 ///

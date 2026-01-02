@@ -5,9 +5,9 @@ use core::ops::Range;
 use core::ptr;
 use core::slice;
 
-use crate::ffi;
 use crate::utils::c_to_str;
 use crate::{Bindable, Borrowable, Code, Error, Gettable, Result, Sink, Type};
+use crate::{FromRow, ffi};
 
 /// A marker type representing a NULL value.
 ///
@@ -175,6 +175,11 @@ impl Statement {
     /// only surprising behavior such as NULL values being auto-converted (see
     /// [`Statement::step`]).
     ///
+    /// Note that since this borrows from a mutable reference, it is *not*
+    /// possible to decode multiple rows simultaneously. This is intentional
+    /// since the state of the [`Row`] is stored in the [`Statement`] from which
+    /// it is returned.
+    ///
     /// # Examples
     ///
     /// ```
@@ -214,6 +219,103 @@ impl Statement {
     pub fn next(&mut self) -> Result<Option<Row<'_>>> {
         match self.step()? {
             State::Row => Ok(Some(Row { stmt: self })),
+            State::Done => Ok(None),
+        }
+    }
+
+    /// Get and read the next row from the statement using the [`FromRow`]
+    /// trait.
+    ///
+    /// The [`FromRow`] trait is a convenience trait which is usually
+    /// implemented using the [`FromRow` derive].
+    ///
+    /// Returns `None` when there are no more rows.
+    ///
+    /// This is a higher level API than `step` and is less prone to misuse. Note
+    /// however that misuse never leads to corrupted data or undefined behavior,
+    /// only surprising behavior such as NULL values being auto-converted (see
+    /// [`Statement::step`]).
+    ///
+    /// Note that since this borrows from a mutable reference, it is *not*
+    /// possible to decode multiple rows that borrow from the statement
+    /// simultaneously. This is intentional since the state of the [`Row`] is
+    /// stored in the [`Statement`] from which it is returned.
+    ///
+    /// ```compile_fail
+    /// use sqll::{Connection, FromRow};
+    ///
+    /// #[derive(FromRow)]
+    /// struct Person {
+    ///     name: String,
+    ///     age: i64,
+    /// }
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users")?;
+    ///
+    /// let a = stmt.next_row::<Person<'_>>()?;
+    /// let b = stmt.next_row::<Person<'_>>()?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    ///
+    /// [`FromRow` derive]: derive@crate::from_row::FromRow
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, FromRow};
+    ///
+    /// #[derive(FromRow)]
+    /// struct Person {
+    ///     name: String,
+    ///     age: i64,
+    /// }
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
+    ///
+    /// let mut results = Vec::new();
+    ///
+    /// for age in [30, 50] {
+    ///     stmt.reset()?;
+    ///     stmt.bind(1, age)?;
+    ///
+    ///     while let Some(person) = stmt.next_row::<Person>()? {
+    ///         results.push((person.name, person.age));
+    ///     }
+    /// }
+    ///
+    /// let expected = [
+    ///     (String::from("Alice"), 72),
+    ///     (String::from("Bob"), 40),
+    ///     (String::from("Alice"), 72),
+    /// ];
+    ///
+    /// assert_eq!(results, expected);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn next_row<'stmt, T>(&'stmt mut self) -> Result<Option<T>>
+    where
+        T: FromRow<'stmt>,
+    {
+        match self.step()? {
+            State::Row => Ok(Some(T::from_row(&Row { stmt: self })?)),
             State::Done => Ok(None),
         }
     }
@@ -347,7 +449,8 @@ impl Statement {
         Ok(())
     }
 
-    /// Construct a typed iterator over the rows produced by this statement.
+    /// Construct a typed iterator over the rows produced by this statement
+    /// through the [`FromRow`] trait.
     ///
     /// This does not support borrowing from the statement, because a statement
     /// stores the state for each row.
@@ -355,7 +458,13 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, Result};
+    /// use sqll::{Connection, FromRow, Result};
+    ///
+    /// #[derive(FromRow, Debug, PartialEq)]
+    /// struct Person {
+    ///     name: String,
+    ///     age: i64,
+    /// }
     ///
     /// let c = Connection::open_memory()?;
     ///
@@ -367,15 +476,21 @@ impl Statement {
     /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > 40")?;
-    /// let results = stmt.iter::<(String, i64)>().collect::<Result<Vec<_>>>()?;
     ///
+    /// stmt.reset()?;
+    /// let results = stmt.iter::<(String, i64)>().collect::<Result<Vec<_>>>()?;
     /// let expected = [(String::from("Alice"), 72)];
+    /// assert_eq!(results, expected);
+    ///
+    /// stmt.reset()?;
+    /// let results = stmt.iter::<Person>().collect::<Result<Vec<_>>>()?;
+    /// let expected = [Person { name: String::from("Alice"), age: 72 }];
     /// assert_eq!(results, expected);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn iter<T>(&mut self) -> Iter<'_, T>
     where
-        for<'stmt> T: Gettable<'stmt>,
+        for<'stmt> T: FromRow<'stmt>,
     {
         Iter {
             stmt: self,
@@ -966,14 +1081,18 @@ pub struct Iter<'stmt, T> {
 
 impl<T> Iterator for Iter<'_, T>
 where
-    for<'stmt> T: Gettable<'stmt>,
+    for<'stmt> T: FromRow<'stmt>,
 {
     type Item = Result<T>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.stmt.step() {
-            Ok(State::Row) => Some(self.stmt.get(0)),
+            Ok(State::Row) => {
+                let row = Row { stmt: self.stmt };
+
+                Some(row.as_row())
+            }
             Ok(State::Done) => None,
             Err(e) => Some(Err(e)),
         }
@@ -1072,6 +1191,58 @@ pub struct Row<'stmt> {
 }
 
 impl<'stmt> Row<'stmt> {
+    /// Convert the entire row into a type implementing [`FromRow`].
+    ///
+    /// The [`FromRow`] trait is a convenience trait which is usually
+    /// implemented using the [`FromRow` derive].
+    ///
+    /// [`FromRow` derive]: derive@crate::from_row::FromRow
+    ///
+    /// # Examples
+    ////
+    /// ```
+    /// use sqll::{Connection, FromRow};
+    ///
+    /// #[derive(FromRow)]
+    /// struct Person {
+    ///     name: String,
+    ///     age: i64,
+    /// }
+    ///
+    /// let c = Connection::open_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
+    ///
+    /// let mut results = Vec::new();
+    ///
+    /// for age in [30, 50] {
+    ///     stmt.reset()?;
+    ///     stmt.bind(1, age)?;
+    ///
+    ///     while let Some(row) = stmt.next()? {
+    ///         let (_, age) = row.as_row::<(&str, i64)>()?;
+    ///         results.push(age);
+    ///
+    ///         let person = row.as_row::<Person>()?;
+    ///         results.push(person.age);
+    ///     }
+    /// }
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn as_row<T>(&self) -> Result<T>
+    where
+        T: FromRow<'stmt>,
+    {
+        FromRow::from_row(self)
+    }
+
     /// Read a value from a column into a [`Gettable`].
     ///
     /// The first column has index 0. The same column can be read multiple
@@ -1210,5 +1381,13 @@ impl<'stmt> Row<'stmt> {
     pub fn read(&self, index: c_int, mut out: impl Sink) -> Result<()> {
         out.write(self.stmt, index)?;
         Ok(())
+    }
+
+    /// Access the borrowed underlying statement for this row.
+    ///
+    /// This is primarily useful for advanced use-cases where you are
+    /// implementing [`FromRow`].
+    pub fn as_stmt(&self) -> &'stmt Statement {
+        self.stmt
     }
 }
