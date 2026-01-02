@@ -467,14 +467,14 @@ lossy!(u128);
 /// ```
 impl Bindable for str {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, i: c_int) -> Result<()> {
+    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         let (data, len, dealloc) = bytes::alloc(self.as_bytes())?;
 
         unsafe {
             sqlite3_try! {
                 ffi::sqlite3_bind_text(
                     stmt.as_ptr_mut(),
-                    i,
+                    index,
                     data.cast(),
                     len,
                     dealloc,

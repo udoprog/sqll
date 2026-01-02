@@ -266,7 +266,7 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
-    /// [`FromRow` derive]: derive@crate::from_row::FromRow
+    /// [`FromRow` derive]: derive@crate::FromRow
     ///
     /// # Examples
     ///
@@ -1196,7 +1196,7 @@ impl<'stmt> Row<'stmt> {
     /// The [`FromRow`] trait is a convenience trait which is usually
     /// implemented using the [`FromRow` derive].
     ///
-    /// [`FromRow` derive]: derive@crate::from_row::FromRow
+    /// [`FromRow` derive]: derive@crate::FromRow
     ///
     /// # Examples
     ////

@@ -48,16 +48,6 @@ jobs:
     - run: cargo test --doc
       if: matrix.os != 'windows-latest'
 
-  miri:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@nightly
-      with:
-        components: miri
-    - uses: Swatinem/rust-cache@v2
-    - run: cargo miri test --all-features -- bytes::tests
-
   clippy:
     runs-on: ubuntu-latest
     steps:

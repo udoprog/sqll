@@ -66,6 +66,12 @@ unsafe extern "C" {
     pub fn sqlite3_busy_timeout(arg1: *mut sqlite3, ms: ::core::ffi::c_int) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
+    pub fn sqlite3_malloc(arg1: ::core::ffi::c_int) -> *mut ::core::ffi::c_void;
+}
+unsafe extern "C" {
+    pub fn sqlite3_free(arg1: *mut ::core::ffi::c_void);
+}
+unsafe extern "C" {
     pub fn sqlite3_open_v2(
         filename: *const ::core::ffi::c_char,
         ppDb: *mut *mut sqlite3,
