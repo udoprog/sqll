@@ -43,9 +43,11 @@ You can find simple examples of this below.
 * `alloc` - Enable usage of the Rust alloc library. This is required and is
   enabled by default. Disabling this option will currently cause a compile
   error.
+* `derive` - Add a dependency to and re-export of the [`FromRow` derive]
+  macro.
 * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
   [`sqll-sys`] crate and the sqlite version used is part of the build
-  metadata of that crate.
+  metadata of that crate[^sqll-sys].
 * `threadsafe` - Enable usage of sqlite with the threadsafe option set. We
   assume any system level libraries have this build option enabled, if this
   is disabled the `bundled` feature has to be enabled. If `threadsafe` is
@@ -54,7 +56,11 @@ You can find simple examples of this below.
   **may not be used by multiple threads at all** even if threads have
   distinct connections. To disable mutexes instead which allows for
   efficient one connection per thread the [`OpenOptions::no_mutex`] option
-  should be used instead.
+  should be used instead[^sqll-sys].
+* `strict` - Enable usage of sqlite with the strict compiler options
+  enabled[^sqll-sys].
+
+[^sqll-sys]: This is a forwarded sqll-sys option, see <https://docs.rs/sqll-sys>.
 
 <br>
 
