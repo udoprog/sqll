@@ -36,13 +36,46 @@ pub trait Bind {
     fn bind(&self, stmt: &mut Statement) -> Result<(), Error>;
 }
 
+/// [`Bind`] implementation for a single value.
+///
+/// A single value binds to the first index.
+///
+/// See [`Statement::bind_value`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///     INSERT INTO users VALUES (1);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM users WHERE id = ?")?;
+/// stmt.bind(1)?;
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+///
+/// stmt.bind((1,))?;
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// # Ok::<_, sqll::Error>(())
+/// ```
 impl<T> Bind for T
 where
     T: BindValue,
 {
     #[inline]
     fn bind(&self, stmt: &mut Statement) -> Result<(), Error> {
-        BindValue::bind_value(self, stmt, 0)?;
+        BindValue::bind_value(self, stmt, 1)?;
+        Ok(())
+    }
+}
+
+impl Bind for () {
+    #[inline]
+    fn bind(&self, _stmt: &mut Statement) -> Result<(), Error> {
         Ok(())
     }
 }

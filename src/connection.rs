@@ -637,8 +637,7 @@ impl Connection {
     /// assert_eq!(c.last_insert_rowid(), 3);
     ///
     /// let mut stmt = c.prepare("INSERT INTO users VALUES (?)")?;
-    /// stmt.bind_value(1, "Dave")?;
-    /// stmt.execute()?;
+    /// stmt.execute("Dave")?;
     ///
     /// assert_eq!(c.last_insert_rowid(), 4);
     /// # Ok::<_, sqll::Error>(())

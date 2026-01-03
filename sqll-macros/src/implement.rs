@@ -1,13 +1,14 @@
 use core::cell::RefCell;
 use core::ffi::c_int;
 use core::fmt;
+use std::ffi::CString;
 
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::punctuated::Punctuated;
 use syn::{
-    Data, DataStruct, DeriveInput, Error, Ident, Index, Lifetime, LifetimeParam, LitInt, Member,
-    Path, PathArguments, PathSegment,
+    Data, DataStruct, DeriveInput, Error, Ident, Index, Lifetime, LifetimeParam, LitCStr, LitInt,
+    Member, Path, PathArguments, PathSegment,
 };
 
 #[derive(Clone, Copy)]
@@ -29,6 +30,7 @@ struct Tokens<'a> {
     bind_t: TypePath<'a, 1>,
     bind_value_t: TypePath<'a, 1>,
     error: TypePath<'a, 1>,
+    code: TypePath<'a, 1>,
     from_column_t: TypePath<'a, 1>,
     from_row_t: TypePath<'a, 1>,
     result: TypePath<'a, 2>,
@@ -68,6 +70,7 @@ impl<'a> Tokens<'a> {
             bind_t: TypePath::new(crate_path, ["Bind"]),
             bind_value_t: TypePath::new(crate_path, ["BindValue"]),
             error: TypePath::new(crate_path, ["Error"]),
+            code: TypePath::new(crate_path, ["Code"]),
             from_column_t: TypePath::new(crate_path, ["FromColumn"]),
             from_row_t: TypePath::new(crate_path, ["FromRow"]),
             result: TypePath::new(core_path, ["result", "Result"]),
@@ -96,13 +99,21 @@ fn cx() -> Ctxt {
 pub(super) fn expand(input: TokenStream, what: What) -> TokenStream {
     let cx = cx();
 
-    if let Ok(stream) = inner(&cx, input, what) {
-        return stream;
-    }
+    let errors = 'errors: {
+        if let Ok(stream) = inner(&cx, input, what) {
+            let errors = cx.errors.into_inner();
 
-    let errors = cx.errors.into_inner();
+            if !errors.is_empty() {
+                break 'errors errors;
+            }
+
+            return stream;
+        }
+
+        cx.errors.into_inner()
+    };
+
     debug_assert!(!errors.is_empty());
-
     let mut out = TokenStream::new();
 
     for err in errors {
@@ -110,6 +121,12 @@ pub(super) fn expand(input: TokenStream, what: What) -> TokenStream {
     }
 
     out
+}
+
+struct Attrs {
+    crate_path: Path,
+    core_path: Path,
+    named: bool,
 }
 
 fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
@@ -121,8 +138,11 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
         }
     };
 
-    let mut crate_path = syn::parse_quote!(::sqll);
-    let core_path = syn::parse_quote!(::core);
+    let mut attrs = Attrs {
+        crate_path: syn::parse_quote!(::sqll),
+        core_path: syn::parse_quote!(::core),
+        named: false,
+    };
 
     for attr in &input.attrs {
         if !attr.path().is_ident("sql") {
@@ -131,7 +151,12 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
 
         let result = attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("crate") {
-                crate_path = meta.value()?.parse()?;
+                attrs.crate_path = meta.value()?.parse()?;
+                return Ok(());
+            }
+
+            if meta.path.is_ident("named") {
+                attrs.named = true;
                 return Ok(());
             }
 
@@ -147,10 +172,10 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
         }
     }
 
-    let tokens = Tokens::new(&crate_path, &core_path);
+    let tokens = Tokens::new(&attrs.crate_path, &attrs.core_path);
 
     let st = match &input.data {
-        Data::Struct(data) => expand_struct(cx, data, what)?,
+        Data::Struct(data) => expand_struct(cx, data, &attrs, what)?,
         _ => {
             cx.spanned(input.ident, "Row can only be derived for structs");
             return Err(());
@@ -167,12 +192,29 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
         from_row_t,
         result,
         statement,
+        code,
     } = &tokens;
 
-    let Struct { fields, indexes } = st;
+    let Struct { fields, bindings } = st;
 
     match what {
         What::Bind => {
+            let bindings = fields
+                .iter()
+                .zip(bindings.iter())
+                .map(|(field, binding)| match binding {
+                    Binding::Index(n) => quote! {
+                        #bind_value_t::bind_value(&self.#field, stmt, #n)?;
+                    },
+                    Binding::Name(name) => quote! {{
+                        let Some(index) = stmt.bind_parameter_index(#name) else {
+                            return #result::Err(#error::new(#code::MISMATCH, format_args!("bad parameter name {:?}", #name)));
+                        };
+
+                        #bind_value_t::bind_value(&self.#field, stmt, index)?;
+                    }},
+                });
+
             let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
             let expanded = quote! {
@@ -180,7 +222,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                 impl #impl_generics #bind_t for #ident #ty_generics #where_clause {
                     #[inline]
                     fn bind(&self, stmt: &mut #statement) -> #result<(), #error> {
-                        #(#bind_value_t::bind_value(&self.#fields, stmt, #indexes)?;)*
+                        #(#bindings)*
                         #result::Ok(())
                     }
                 }
@@ -209,10 +251,24 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                 }
             };
 
-            let this = quote! {
-                Self {
-                    #(#fields: #from_column_t::<#lt>::from_column(stmt, #indexes)?,)*
+            for binding in &bindings {
+                if let Binding::Name(name) = binding {
+                    cx.spanned(name, "cannot use named bindings when deriving FromRow");
                 }
+            }
+
+            let fields = fields
+                .iter()
+                .zip(bindings.iter())
+                .flat_map(|(field, binding)| match binding {
+                    Binding::Index(index) => Some(quote! {
+                        #field: #from_column_t::<#lt>::from_column(stmt, #index)?
+                    }),
+                    Binding::Name(..) => None,
+                });
+
+            let this = quote! {
+                Self { #(#fields),* }
             };
 
             let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
@@ -233,18 +289,25 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
     }
 }
 
+enum Binding {
+    Index(c_int),
+    Name(LitCStr),
+}
+
 #[derive(Default)]
 struct Struct {
     fields: Vec<Member>,
-    indexes: Vec<c_int>,
+    bindings: Vec<Binding>,
 }
 
-fn expand_struct(cx: &Ctxt, data: &DataStruct, what: What) -> Result<Struct, ()> {
+fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Result<Struct, ()> {
     let mut st = Struct::default();
 
     let mut index = what.start_index();
 
     for field in data.fields.iter() {
+        let mut name: Option<LitCStr> = None;
+
         for attr in &field.attrs {
             if !attr.path().is_ident("sql") {
                 continue;
@@ -252,8 +315,12 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, what: What) -> Result<Struct, ()>
 
             let result = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("index") {
-                    let lit = meta.value()?.parse::<LitInt>()?;
-                    index = lit.base10_parse::<usize>()?;
+                    index = meta.value()?.parse::<LitInt>()?.base10_parse::<usize>()?;
+                    return Ok(());
+                }
+
+                if meta.path.is_ident("name") {
+                    name = Some(meta.value()?.parse::<LitCStr>()?);
                     return Ok(());
                 }
 
@@ -269,23 +336,51 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, what: What) -> Result<Struct, ()>
             }
         }
 
+        let name = match (what, name, &field.ident) {
+            (What::Bind, Some(name), _) => Some(name),
+            (What::Bind, None, Some(ident)) if attrs.named => {
+                let name = format!(":{ident}");
+
+                let Ok(c_str) = CString::new(name.clone()) else {
+                    cx.spanned(
+                        ident,
+                        format_args!("custom field name {name:?} contains interior null byte"),
+                    );
+                    continue;
+                };
+
+                Some(LitCStr::new(&c_str, ident.span()))
+            }
+            (What::Bind, None, None) if attrs.named => {
+                cx.spanned(&field.ty, "named fields require field names derive");
+                continue;
+            }
+            _ => None,
+        };
+
         let member = match &field.ident {
             Some(ident) => Member::Named(ident.clone()),
             None => Member::Unnamed(Index::from(index)),
         };
 
-        let Ok(n) = c_int::try_from(index) else {
-            cx.spanned(
-                &field.ty,
-                format_args!("The index {index} is too large for a c_int"),
-            );
-            return Err(());
+        let access = match name {
+            Some(name) => Binding::Name(name),
+            None => {
+                let Ok(n) = c_int::try_from(index) else {
+                    cx.spanned(
+                        field,
+                        format_args!("The index {index} is too large for a c_int"),
+                    );
+                    continue;
+                };
+
+                index = index.wrapping_add(1);
+                Binding::Index(n)
+            }
         };
 
         st.fields.push(member);
-        st.indexes.push(n);
-
-        index = index.wrapping_add(1);
+        st.bindings.push(access);
     }
 
     Ok(st)

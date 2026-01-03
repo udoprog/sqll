@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     stmt.bind_value(1, "Steven")?;
     stmt.bind_value(2, "John")?;
     stmt.bind_value(3, "Alex")?;
-    stmt.execute()?;
+    assert!(stmt.step()?.is_done());
 
     let mut stmt = conn.prepare_with("SELECT id, name FROM persons", Prepare::PERSISTENT)?;
 

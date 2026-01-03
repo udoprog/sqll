@@ -30,7 +30,6 @@ fn setup_db() -> Result<Database> {
         OpenOptions::new()
             .create()
             .read_write()
-            .extended_result_codes()
             .no_mutex()
             .open_in_memory()?
     };
@@ -41,6 +40,7 @@ fn setup_db() -> Result<Database> {
             name TEXT PRIMARY KEY NOT NULL,
             age INTEGER
         );
+
         INSERT INTO users VALUES ('Alice', 42);
         INSERT INTO users VALUES ('Bob', 69);
         INSERT INTO users VALUES ('Charlie', 21);

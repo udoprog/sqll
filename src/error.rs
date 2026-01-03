@@ -239,9 +239,9 @@ pub struct Error {
 }
 
 impl Error {
-    /// Construct a new error from the specified code.
+    /// Construct a new error from the specified code and message.
     #[inline]
-    pub(crate) fn new(code: Code, message: impl fmt::Display) -> Self {
+    pub fn new(code: Code, message: impl fmt::Display) -> Self {
         Self {
             code,
             message: format!("{message}"),

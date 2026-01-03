@@ -24,13 +24,157 @@
 //!
 //! <br>
 //!
-//! ## Examples
+//! #### Examples
 //!
 //! * [`examples/persons.rs`] - A simple table with users, a primary key,
 //!   inserting and querying.
 //! * [`examples/axum.rs`] - Create an in-memory database connection and serve
 //!   it using [`axum`]. This showcases how do properly handle external
 //!   synchronization for the best performance.
+//!
+//! <br>
+//!
+//! #### Connecting and querying
+//!
+//! Here is a simple example of setting up an in-memory connection, creating a
+//! table, insert and query some rows:
+//!
+//! ```
+//! use sqll::{Connection, Result};
+//!
+//! let c = Connection::open_in_memory()?;
+//!
+//! c.execute(r#"
+//!     CREATE TABLE users (name TEXT, age INTEGER);
+//!
+//!     INSERT INTO users VALUES ('Alice', 42);
+//!     INSERT INTO users VALUES ('Bob', 52);
+//! "#)?;
+//!
+//! let results = c.prepare("SELECT name, age FROM users ORDER BY age")?
+//!     .iter::<(String, u32)>()
+//!     .collect::<Result<Vec<_>>>()?;
+//!
+//! assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 52)]);
+//! # Ok::<_, sqll::Error>(())
+//! ```
+//!
+//! <br>
+//!
+//! #### The [`FromRow`] trait.
+//!
+//! The [`FromRow`] trait can be used to conveniently read rows from a statement
+//! using [`next`]. It can be conveniently implemented using the [`FromRow`
+//! derive].
+//!
+//! ```
+//! use sqll::{Connection, FromRow};
+//!
+//! #[derive(FromRow)]
+//! struct Person<'stmt> {
+//!     name: &'stmt str,
+//!     age: u32,
+//! }
+//!
+//! let mut c = Connection::open_in_memory()?;
+//!
+//! c.execute(r#"
+//!     CREATE TABLE users (name TEXT, age INTEGER);
+//!
+//!     INSERT INTO users VALUES ('Alice', 42);
+//!     INSERT INTO users VALUES ('Bob', 52);
+//! "#)?;
+//!
+//! let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
+//!
+//! while let Some(person) = results.next::<Person<'_>>()? {
+//!     println!("{} is {} years old", person.name, person.age);
+//! }
+//! # Ok::<_, sqll::Error>(())
+//! ```
+//!
+//! <br>
+//!
+//! #### The [`Bind`] trait.
+//!
+//! The [`Bind`] trait can be used to conveniently [`bind`] parameters to
+//! prepared statements, and it can conveniently be implemented for structs
+//! using the [`Bind` derive].
+//!
+//! ```
+//! use sqll::{Bind, Connection, FromRow};
+//!
+//! #[derive(Bind, FromRow, PartialEq, Debug)]
+//! #[sql(named)]
+//! struct Person<'stmt> {
+//!     name: &'stmt str,
+//!     age: u32,
+//! }
+//!
+//! let c = Connection::open_in_memory()?;
+//!
+//! c.execute(r#"
+//!    CREATE TABLE persons (name TEXT, age INTEGER);
+//! "#)?;
+//!
+//! let mut stmt = c.prepare("INSERT INTO persons (name, age) VALUES (:name, :age)")?;
+//! stmt.execute(Person { name: "Alice", age: 30 })?;
+//! stmt.execute(Person { name: "Bob", age: 40 })?;
+//!
+//! let mut query = c.prepare("SELECT name, age FROM persons ORDER BY age")?;
+//!
+//! let p = query.next::<Person<'_>>()?;
+//! assert_eq!(p, Some(Person { name: "Alice", age: 30 }));
+//!
+//! let p = query.next::<Person<'_>>()?;
+//! assert_eq!(p, Some(Person { name: "Bob", age: 40 }));
+//! # Ok::<_, sqll::Error>(())
+//! ```
+//!
+//! <br>
+//!
+//! #### Efficient use of prepared Statements
+//!
+//! Correct handling of prepared statements are crucial to get good performance
+//! out of sqlite. They contain all the state associated with a query and are
+//! expensive to construct so they should be re-used.
+//!
+//! Using a [`Prepare::PERSISTENT`] prepared statement to perform multiple
+//! queries:
+//!
+//! ```
+//! use sqll::{Connection, Prepare};
+//!
+//! let c = Connection::open_in_memory()?;
+//!
+//! c.execute(r#"
+//!     CREATE TABLE users (name TEXT, age INTEGER);
+//!
+//!     INSERT INTO users VALUES ('Alice', 42);
+//!     INSERT INTO users VALUES ('Bob', 52);
+//! "#)?;
+//!
+//! let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
+//!
+//! let mut rows = Vec::new();
+//!
+//! for age in [40, 50] {
+//!     stmt.bind(age)?;
+//!
+//!     while let Some(row) = stmt.next::<(String, i64)>()? {
+//!         rows.push(row);
+//!     }
+//! }
+//!
+//! let expected = vec![
+//!     (String::from("Alice"), 42),
+//!     (String::from("Bob"), 52),
+//!     (String::from("Bob"), 52),
+//! ];
+//!
+//! assert_eq!(rows, expected);
+//! # Ok::<_, sqll::Error>(())
+//! ```
 //!
 //! <br>
 //!
@@ -61,111 +205,6 @@
 //!
 //! <br>
 //!
-//! ## Example
-//!
-//! Open an in-memory connection, create a table, insert and query some rows:
-//!
-//! ```
-//! use sqll::{Connection, Result};
-//!
-//! let c = Connection::open_in_memory()?;
-//!
-//! c.execute(r#"
-//!     CREATE TABLE users (name TEXT, age INTEGER);
-//!
-//!     INSERT INTO users VALUES ('Alice', 42);
-//!     INSERT INTO users VALUES ('Bob', 72);
-//! "#)?;
-//!
-//! let results = c.prepare("SELECT name, age FROM users ORDER BY age")?
-//!     .iter::<(String, u32)>()
-//!     .collect::<Result<Vec<_>>>()?;
-//!
-//! assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 72)]);
-//! # Ok::<_, sqll::Error>(())
-//! ```
-//!
-//! <br>
-//!
-//! ## The [`FromRow`] helper trait.
-//!
-//! For the example below, we can define a `Person` struct that binds to the row
-//! conveniently using the [`FromRow` derive] macro.
-//!
-//! ```
-//! use sqll::{Connection, FromRow, Result};
-//!
-//! #[derive(FromRow)]
-//! struct Person<'stmt> {
-//!     name: &'stmt str,
-//!     age: u32,
-//! }
-//!
-//! let mut c = Connection::open_in_memory()?;
-//!
-//! c.execute(r#"
-//!     CREATE TABLE users (name TEXT, age INTEGER);
-//!
-//!     INSERT INTO users VALUES ('Alice', 42);
-//!     INSERT INTO users VALUES ('Bob', 72);
-//! "#)?;
-//!
-//! let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
-//!
-//! while let Some(person) = results.next::<Person<'_>>()? {
-//!     println!("{} is {} years old", person.name, person.age);
-//! }
-//! # Ok::<_, sqll::Error>(())
-//! ```
-//!
-//! <br>
-//!
-//! #### Prepared Statements
-//!
-//! Correct handling of prepared statements are crucial to get good performance
-//! out of sqlite. They contain all the state associated with a query and are
-//! expensive to construct so they should be re-used.
-//!
-//! Using a [`Prepare::PERSISTENT`] prepared statement to perform multiple
-//! queries:
-//!
-//! ```
-//! use sqll::{Connection, Prepare};
-//!
-//! let c = Connection::open_in_memory()?;
-//!
-//! c.execute(r#"
-//!     CREATE TABLE users (name TEXT, age INTEGER);
-//!
-//!     INSERT INTO users VALUES ('Alice', 42);
-//!     INSERT INTO users VALUES ('Bob', 72);
-//! "#)?;
-//!
-//! let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
-//!
-//! let mut results = Vec::new();
-//!
-//! for age in [40, 50] {
-//!     stmt.reset()?;
-//!     stmt.bind_value(1, age)?;
-//!
-//!     while let Some(row) = stmt.next::<(String, i64)>()? {
-//!         results.push(row);
-//!     }
-//! }
-//!
-//! let expected = vec![
-//!     (String::from("Alice"), 42),
-//!     (String::from("Bob"), 72),
-//!     (String::from("Bob"), 72),
-//! ];
-//!
-//! assert_eq!(results, expected);
-//! # Ok::<_, sqll::Error>(())
-//! ```
-//!
-//! <br>
-//!
 //! ## Why do we need another sqlite interface?
 //!
 //! For other low-level crates, it is difficult to set up and use prepared
@@ -176,17 +215,19 @@
 //! that the database remains alive for as long as objects associated with it
 //! are alive. This is implemented in the SQLite library itself.
 //!
-//! Prepared statements can be expensive to create and *should* be cached and
+//! Prepared statements can be expensive to create and *should* be stored and
 //! re-used to achieve the best performance. This is something that crates like
-//! `rusqlite` implements, but can easily be done manually by simply storing the
-//! [`Statement`] object directly. Statements can also benefit from using the
-//! [`Prepare::PERSISTENT`] option which this library supports through
-//! [`prepare_with`].
+//! `rusqlite` implements, but can easily be done manually, with no overhead, by
+//! simply storing the [`Statement`] object directly behind a mutex. Statements
+//! can also benefit from using the [`Prepare::PERSISTENT`] option which this
+//! library supports through [`prepare_with`].
 //!
 //! This library is designed to the extent possible to avoid intermediary
 //! allocations. For example [calling `execute`] doesn't allocate externally of
 //! the sqlite3 bindings or we require that c-strings are used when SQLite
-//! itself doesn't provide an API for using Rust strings directly.
+//! itself doesn't provide an API for using Rust strings directly. It's also
+//! implemented as a thing layer on top of SQLite with minimal added
+//! abstractions ensuring you get the best possible performance.
 //!
 //! <br>
 //!
@@ -196,12 +237,16 @@
 //! have been copied under the MIT license.
 //!
 //! [`axum`]: https://docs.rs/axum
+//! [`Bind` derive]: https://docs.rs/sqll/latest/sqll/derive.Bind.html
+//! [`bind`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.bind
+//! [`Bind`]: https://docs.rs/sqll/latest/sqll/trait.Bind.html
 //! [`Connection`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#thread-safety
 //! [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 //! [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 //! [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 //! [`FromRow` derive]: https://docs.rs/sqll/latest/sqll/derive.FromRow.html
 //! [`FromRow`]: https://docs.rs/sqll/latest/sqll/trait.FromRow.html
+//! [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 //! [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 //! [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with
 //! [`Prepare::PERSISTENT`]: https://docs.rs/sqll/latest/sqll/struct.Prepare.html#associatedconstant.PERSISTENT
@@ -310,12 +355,43 @@ pub use self::version::{lib_version, lib_version_number};
 /// }
 /// ```
 ///
+/// #### `#[sql(named)]`
+///
+/// This attribute enabled bindings to use field names instead of go by the
+/// default index.
+///
+/// When using `named`, the default binding names are the field names prefixed
+/// with a `:`. So a field named `name` will bind to `:name`.
+///
+/// ```
+/// use sqll::{Bind, Connection};
+///
+/// #[derive(Bind)]
+/// #[sql(named)]
+/// struct Person<'stmt> {
+///     name: &'stmt str,
+///     age: u32,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///    CREATE TABLE persons (name TEXT, age INTEGER);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("INSERT INTO persons (name, age) VALUES (:name, :age)")?;
+/// let person = Person { name: "Alice", age: 30 };
+/// stmt.bind(person)?;
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
 /// ## Field attribuets
 ///
-/// #### `#[sql(index = N)]`
+/// #### `#[sql(index = ..)]`
 ///
 /// This allows the index being used for a particular row to be overriden. Note
-/// that binding indexes are 1-based.
+/// that binding indexes are 1-based. Setting a particular index will cause
+/// subsequent indexes to continue from that index.
 ///
 /// ```
 /// use sqll::Bind;
@@ -327,6 +403,34 @@ pub use self::version::{lib_version, lib_version_number};
 ///     #[sql(index = 1)]
 ///     age: u32,
 /// }
+/// ```
+///
+/// #### `#[sql(name = "..")]`
+///
+/// This allows for specifying an explicit binding name to use, instead of the
+/// default which is to bind by integer.
+///
+/// ```
+/// use sqll::{Bind, Connection};
+///
+/// #[derive(Bind)]
+/// struct Person<'stmt> {
+///     #[sql(name = c":notname")]
+///     name: &'stmt str,
+///     #[sql(name = c":notage")]
+///     age: u32,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///    CREATE TABLE persons (name TEXT, age INTEGER);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("INSERT INTO persons (name, age) VALUES (:notname, :notage)")?;
+/// let person = Person { name: "Alice", age: 30 };
+/// stmt.bind(person)?;
+/// # Ok::<_, sqll::Error>(())
 /// ```
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]

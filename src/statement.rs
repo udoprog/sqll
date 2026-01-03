@@ -115,7 +115,7 @@ impl State {
 /// "#)?;
 ///
 /// let mut insert_stmt = c.prepare_with("INSERT INTO test (id) VALUES (?);", Prepare::PERSISTENT)?;
-/// let mut query_stmt = c.prepare_with("SELECT id FROM test;", Prepare::PERSISTENT)?;
+/// let mut query = c.prepare_with("SELECT id FROM test;", Prepare::PERSISTENT)?;
 ///
 /// drop(c);
 ///
@@ -125,9 +125,9 @@ impl State {
 /// insert_stmt.bind_value(1, 42)?;
 /// assert!(insert_stmt.step()?.is_done());
 ///
-/// query_stmt.reset()?;
+/// query.reset()?;
 ///
-/// while let Some(value) = query_stmt.next::<i64>()? {
+/// while let Some(value) = query.next::<i64>()? {
 ///     assert_eq!(value, 42);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -364,12 +364,22 @@ impl Statement {
         }
     }
 
-    /// Execute the statement without returning any rows until done.
+    /// In one call,  [`reset`] the statement, [`bind`] the specified values,
+    /// and [`step`] until the current statement reports [`State::is_done`].
+    ///
+    /// This is a convenience wrapper around the these three operations since
+    /// they are commonly used together.
+    ///
+    /// To not bind anything, use `()` as the argument.
+    ///
+    /// [`reset`]: Self::reset
+    /// [`bind`]: Self::bind
+    /// [`step`]: Self::step
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqll::Connection;
+    /// use sqll::{Connection, Result};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -381,22 +391,17 @@ impl Statement {
     /// "#)?;
     ///
     /// let mut stmt = c.prepare("UPDATE users SET age = age + 1")?;
-    /// stmt.execute()?;
-    /// stmt.reset()?;
-    /// stmt.execute()?;
+    /// stmt.execute(())?;
+    /// stmt.execute(())?;
     ///
-    /// let mut query_stmt = c.prepare("SELECT age FROM users ORDER BY name")?;
-    /// let mut results = Vec::new();
-    ///
-    /// while let Some(value) = query_stmt.next::<i64>()? {
-    ///     results.push(value);
-    /// }
-    ///
-    /// let expected = [44, 71];
-    /// assert_eq!(results, expected);
+    /// let mut query = c.prepare("SELECT age FROM users ORDER BY name")?;
+    /// let results = query.iter::<i64>().collect::<Result<Vec<_>>>()?;
+    /// assert_eq!(results, [44, 71]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn execute(&mut self) -> Result<()> {
+    pub fn execute(&mut self, bind: impl Bind) -> Result<()> {
+        self.reset()?;
+        self.bind(bind)?;
         while !self.step()?.is_done() {}
         Ok(())
     }
@@ -597,7 +602,7 @@ impl Statement {
         Ok(())
     }
 
-    /// Bind a values to one or more parameter indexes.
+    /// Reset the statement and bind values to parameters.
     ///
     /// This always binds to the first index, to specify a custom index use
     /// [`Statement::bind_value`] or configure the [`Bind` derive] with
@@ -638,6 +643,7 @@ impl Statement {
     /// ```
     #[inline]
     pub fn bind(&mut self, value: impl Bind) -> Result<()> {
+        self.reset()?;
         value.bind(self)
     }
 
