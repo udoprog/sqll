@@ -33,33 +33,33 @@ mod sealed {
 
 /// A type suitable for binding to a prepared statement.
 ///
-/// Use with [`Statement::bind`] or [`Statement::bind_by_name`].
-pub trait Bindable
+/// Use with [`Statement::bind_value`] or [`Statement::bind_value_by_name`].
+pub trait BindValue
 where
     Self: self::sealed::Sealed,
 {
     #[doc(hidden)]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()>;
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()>;
 }
 
-impl<T> Bindable for &T
+impl<T> BindValue for &T
 where
-    T: ?Sized + Bindable,
+    T: ?Sized + BindValue,
 {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        (**self).bind(stmt, index)
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        (**self).bind_value(stmt, index)
     }
 }
 
-/// [`Bindable`] implementation for [`Null`].
+/// [`BindValue`] implementation for [`Null`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::{Connection, Null};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -67,20 +67,20 @@ where
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
-/// stmt.bind(1, Null)?;
+/// stmt.bind_value(1, Null)?;
 ///
 /// let mut names = Vec::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     names.push(row.get::<String>(0)?);
+/// while let Some(name) = stmt.next::<String>()? {
+///     names.push(name);
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for Null {
+impl BindValue for Null {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
                 ffi::sqlite3_bind_null(stmt.as_ptr_mut(), index)
@@ -91,14 +91,14 @@ impl Bindable for Null {
     }
 }
 
-/// [`Bindable`] implementation for a dynamic [`Value`].
+/// [`BindValue`] implementation for a dynamic [`Value`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::{Connection, Value};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -107,38 +107,38 @@ impl Bindable for Null {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
-/// stmt.bind(1, Value::null())?;
+/// stmt.bind_value(1, Value::null())?;
 ///
 /// let mut names = Vec::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     names.push(row.get::<String>(0)?);
+/// while let Some(name) = stmt.next::<String>()? {
+///     names.push(name);
 /// }
 ///
 /// assert_eq!(names, vec![String::from("Alice")]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for Value {
+impl BindValue for Value {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         match &self.kind {
-            Kind::Blob(value) => value.as_slice().bind(stmt, index),
-            Kind::Float(value) => value.bind(stmt, index),
-            Kind::Integer(value) => value.bind(stmt, index),
-            Kind::Text(value) => value.as_str().bind(stmt, index),
-            Kind::Null => Null.bind(stmt, index),
+            Kind::Blob(value) => value.as_slice().bind_value(stmt, index),
+            Kind::Float(value) => value.bind_value(stmt, index),
+            Kind::Integer(value) => value.bind_value(stmt, index),
+            Kind::Text(value) => value.as_str().bind_value(stmt, index),
+            Kind::Null => Null.bind_value(stmt, index),
         }
     }
 }
 
-/// [`Bindable`] implementation for byte slices.
+/// [`BindValue`] implementation for byte slices.
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE files (id INTEGER, data BLOB);
@@ -148,16 +148,15 @@ impl Bindable for Value {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
-/// stmt.bind(1, &b"Hello"[..])?;
+/// stmt.bind_value(1, &b"Hello"[..])?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.get::<i64>(0)?, 1);
-/// }
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// assert_eq!(stmt.next::<i64>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for [u8] {
+impl BindValue for [u8] {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         let (ptr, len, dealloc) = bytes::alloc(self)?;
 
         unsafe {
@@ -176,14 +175,14 @@ impl Bindable for [u8] {
     }
 }
 
-/// [`Bindable`] implementation for byte arrays.
+/// [`BindValue`] implementation for byte arrays.
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE files (id INTEGER, data BLOB);
@@ -193,21 +192,20 @@ impl Bindable for [u8] {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
-/// stmt.bind(1, b"Hello")?;
+/// stmt.bind_value(1, b"Hello")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.get::<i64>(0)?, 1);
-/// }
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// assert_eq!(stmt.next::<i64>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<const N: usize> Bindable for [u8; N] {
+impl<const N: usize> BindValue for [u8; N] {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        self.as_slice().bind(stmt, index)
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        self.as_slice().bind_value(stmt, index)
     }
 }
 
-/// [`Bindable`] implementation for [`f64`].
+/// [`BindValue`] implementation for [`f64`].
 ///
 /// This corresponds to the internal SQLite [`FLOAT`] type.
 ///
@@ -218,7 +216,7 @@ impl<const N: usize> Bindable for [u8; N] {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE measurements (value REAL);
@@ -227,16 +225,15 @@ impl<const N: usize> Bindable for [u8; N] {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-/// stmt.bind(1, 2.0f64)?;
+/// stmt.bind_value(1, 2.0f64)?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.get::<i64>(0)?, 2);
-/// }
+/// assert_eq!(stmt.next::<i64>()?, Some(2));
+/// assert_eq!(stmt.next::<i64>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for f64 {
+impl BindValue for f64 {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
                 ffi::sqlite3_bind_double(
@@ -251,7 +248,7 @@ impl Bindable for f64 {
     }
 }
 
-/// [`Bindable`] implementation for [`f32`].
+/// [`BindValue`] implementation for [`f32`].
 ///
 /// Binding this type requires conversion and might be subject to precision
 /// loss. To avoid this, consider using [`f64`] instead.
@@ -261,7 +258,7 @@ impl Bindable for f64 {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE measurements (value REAL);
@@ -270,16 +267,15 @@ impl Bindable for f64 {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-/// stmt.bind(1, 2.0f32)?;
+/// stmt.bind_value(1, 2.0f32)?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.get::<i64>(0)?, 2);
-/// }
+/// assert_eq!(stmt.next::<i64>()?, Some(2));
+/// assert_eq!(stmt.next::<i64>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for f32 {
+impl BindValue for f32 {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
                 ffi::sqlite3_bind_double(
@@ -294,7 +290,7 @@ impl Bindable for f32 {
     }
 }
 
-/// [`Bindable`] implementation for [`i64`].
+/// [`BindValue`] implementation for [`i64`].
 ///
 /// This corresponds to the internal SQLite [`INTEGER`] type and can therefore
 /// represent any value.
@@ -306,7 +302,7 @@ impl Bindable for f32 {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE measurements (value INTEGER);
@@ -315,16 +311,15 @@ impl Bindable for f32 {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-/// stmt.bind(1, 2i64)?;
+/// stmt.bind_value(1, 2i64)?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.get::<i64>(0)?, 1);
-/// }
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// assert_eq!(stmt.next::<i64>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for i64 {
+impl BindValue for i64 {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
                 ffi::sqlite3_bind_int64(
@@ -341,14 +336,14 @@ impl Bindable for i64 {
 
 macro_rules! lossless {
     ($ty:ty) => {
-        #[doc = concat!(" [`Bindable`] implementation for `", stringify!($ty), "`.")]
+        #[doc = concat!("[`BindValue`] implementation for `", stringify!($ty), "`.")]
         ///
         /// # Examples
         ///
         /// ```
         /// use sqll::Connection;
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE measurements (value INTEGER);
@@ -357,17 +352,17 @@ macro_rules! lossless {
         /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-        #[doc = concat!(" stmt.bind(1, 2", stringify!($ty), ")?;")]
+        #[doc = concat!("stmt.bind_value(1, 2", stringify!($ty), ")?;")]
         ///
         /// assert!(stmt.step()?.is_row());
         /// assert_eq!(stmt.get::<i64>(0)?, 1);
         /// # Ok::<_, sqll::Error>(())
         /// ```
-        impl Bindable for $ty {
+        impl BindValue for $ty {
             #[inline]
-            fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+            fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
                 let value = *self as i64;
-                value.bind(stmt, index)
+                value.bind_value(stmt, index)
             }
         }
     };
@@ -375,7 +370,7 @@ macro_rules! lossless {
 
 macro_rules! lossy {
     ($ty:ty) => {
-        #[doc = concat!(" [`Bindable`] implementation for `", stringify!($ty), "`.")]
+        #[doc = concat!("[`BindValue`] implementation for `", stringify!($ty), "`.")]
         ///
         /// # Errors
         ///
@@ -385,7 +380,7 @@ macro_rules! lossy {
         /// ```
         /// use sqll::{Connection, Code};
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE measurements (value INTEGER);
@@ -394,7 +389,7 @@ macro_rules! lossy {
         /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-        #[doc = concat!(" let e = stmt.bind(1, ", stringify!($ty), "::MAX).unwrap_err();")]
+        #[doc = concat!("let e = stmt.bind_value(1, ", stringify!($ty), "::MAX).unwrap_err();")]
         /// assert_eq!(e.code(), sqll::Code::MISMATCH);
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -404,7 +399,7 @@ macro_rules! lossy {
         /// ```
         /// use sqll::Connection;
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE measurements (value INTEGER);
@@ -413,20 +408,20 @@ macro_rules! lossy {
         /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-        #[doc = concat!(" stmt.bind(1, 2", stringify!($ty), ")?;")]
+        #[doc = concat!("stmt.bind_value(1, 2", stringify!($ty), ")?;")]
         ///
         /// assert!(stmt.step()?.is_row());
         /// assert_eq!(stmt.get::<i64>(0)?, 1);
         /// # Ok::<_, sqll::Error>(())
         /// ```
-        impl Bindable for $ty {
+        impl BindValue for $ty {
             #[inline]
-            fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+            fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
                 let Ok(value) = i64::try_from(*self) else {
                     return Err(Error::new(Code::MISMATCH));
                 };
 
-                value.bind(stmt, index)
+                value.bind_value(stmt, index)
             }
         }
     };
@@ -442,14 +437,14 @@ lossless!(u32);
 lossy!(u64);
 lossy!(u128);
 
-/// [`Bindable`] implementation for [`str`] slices.
+/// [`BindValue`] implementation for [`str`] slices.
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -458,16 +453,15 @@ lossy!(u128);
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind(1, "Alice")?;
+/// stmt.bind_value(1, "Alice")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     assert_eq!(row.get::<i64>(0)?, 42);
-/// }
+/// assert_eq!(stmt.next::<i64>()?, Some(42));
+/// assert_eq!(stmt.next::<i64>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Bindable for str {
+impl BindValue for str {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         let (data, len, dealloc) = bytes::alloc(self.as_bytes())?;
 
         unsafe {
@@ -486,14 +480,14 @@ impl Bindable for str {
     }
 }
 
-/// [`Bindable`] implementation for [`Option`].
+/// [`BindValue`] implementation for [`Option`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -502,38 +496,31 @@ impl Bindable for str {
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
 /// stmt.reset()?;
-/// stmt.bind(1, "Alice")?;
-/// stmt.bind(2, None::<i64>)?;
+/// stmt.bind_value(1, "Alice")?;
+/// stmt.bind_value(2, None::<i64>)?;
 /// assert!(stmt.step()?.is_done());
 ///
 /// stmt.reset()?;
-/// stmt.bind(1, "Bob")?;
-/// stmt.bind(2, Some(30i64))?;
+/// stmt.bind_value(1, "Bob")?;
+/// stmt.bind_value(2, Some(30i64))?;
 /// assert!(stmt.step()?.is_done());
 ///
-/// let mut stmt = c.prepare("SELECT name, age FROM users")?;
+/// let mut it = c.prepare("SELECT name, age FROM users")?.into_iter::<(String, Option<i64>)>();
 ///
-/// let mut names_and_ages = Vec::new();
-///
-/// while let Some(row) = stmt.next()? {
-///     let name = row.get::<String>(0)?;
-///     let age = row.get::<Option<i64>>(1)?;
-///     names_and_ages.push((name, age));
-/// }
-///
-/// names_and_ages.sort();
-/// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
+/// assert_eq!(it.next(), Some(Ok((String::from("Alice"), None))));
+/// assert_eq!(it.next(), Some(Ok((String::from("Bob"), Some(30)))));
+/// assert_eq!(it.next(), None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<T> Bindable for Option<T>
+impl<T> BindValue for Option<T>
 where
-    T: Bindable,
+    T: BindValue,
 {
     #[inline]
-    fn bind(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         match self {
-            Some(inner) => inner.bind(stmt, index),
-            None => Null.bind(stmt, index),
+            Some(inner) => inner.bind_value(stmt, index),
+            None => Null.bind_value(stmt, index),
         }
     }
 }

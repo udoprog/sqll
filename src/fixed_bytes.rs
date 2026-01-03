@@ -43,7 +43,7 @@ impl<const N: usize> FixedBytes<N> {
     /// ```
     /// use sqll::{Connection, FixedBytes};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (id BLOB);
@@ -79,7 +79,7 @@ impl<const N: usize> FixedBytes<N> {
     /// ```
     /// use sqll::{Connection, FixedBytes};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (id BLOB);

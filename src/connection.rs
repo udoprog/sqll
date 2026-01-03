@@ -83,7 +83,7 @@ impl BitOr for Prepare {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///    CREATE TABLE users (name TEXT);
@@ -122,7 +122,7 @@ impl BitOr for Prepare {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE test (id INTEGER);
@@ -143,7 +143,7 @@ impl Connection {
     ///
     /// Note that it is possible to open an in-memory database by passing
     /// `":memory:"` here, this call might require allocating depending on the
-    /// platform, so it should be avoided in favor of using [`open_memory`]. To avoid
+    /// platform, so it should be avoided in favor of using [`open_in_memory`]. To avoid
     /// allocating for regular paths, you can use [`open_c_str`], however you
     /// are responsible for ensuring the c-string is a valid path.
     ///
@@ -162,7 +162,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
-    /// [`open_memory`]: Self::open_memory
+    /// [`open_in_memory`]: Self::open_in_memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
@@ -217,17 +217,17 @@ impl Connection {
     ///     .extended_result_codes()
     ///     .read_write()
     ///     .create()
-    ///     .open_memory()?;
+    ///     .open_in_memory()?;
     ///
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn open_memory() -> Result<Connection> {
+    pub fn open_in_memory() -> Result<Connection> {
         OpenOptions::new()
             .extended_result_codes()
             .read_write()
             .create()
-            .open_memory()
+            .open_in_memory()
     }
 
     /// Check if the database connection is read-only.
@@ -237,13 +237,13 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Code, OpenOptions, DatabaseNotFound};
     ///
-    /// let c = OpenOptions::new().read_write().open_memory()?;
+    /// let c = OpenOptions::new().read_write().open_in_memory()?;
     ///
     /// assert!(!c.database_read_only(c"main")?);
     /// let e = c.database_read_only(c"not a db").unwrap_err();
     /// assert!(matches!(e, DatabaseNotFound { .. }));
     ///
-    /// let c = OpenOptions::new().read_only().open_memory()?;
+    /// let c = OpenOptions::new().read_only().open_in_memory()?;
     ///
     /// assert!(c.database_read_only(c"main")?);
     /// let e = c.database_read_only(c"not a db").unwrap_err();
@@ -273,20 +273,20 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Result};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///
     ///     INSERT INTO users VALUES ('Alice', 42);
-    ///     INSERT INTO users VALUES ('Bob', 69);
+    ///     INSERT INTO users VALUES ('Bob', 72);
     /// "#)?;
     ///
     /// let results = c.prepare("SELECT name, age FROM users")?
     ///     .iter::<(String, u32)>()
     ///     .collect::<Result<Vec<_>>>()?;
     ///
-    /// assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 69)]);
+    /// assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 72)]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -343,7 +343,7 @@ impl Connection {
     /// ```
     /// use sqll::{OpenOptions, Code};
     ///
-    /// let mut c = OpenOptions::new().create().read_write().open_memory()?;
+    /// let mut c = OpenOptions::new().create().read_write().open_in_memory()?;
     ///
     /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
@@ -387,7 +387,7 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Code};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// let e = c.execute("
     ///     CREATE TABLE users (name TEXT);
@@ -423,7 +423,7 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Code};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// let e = c.prepare("CREATE TABLE test (id INTEGER) /* test */; INSERT INTO test (id) VALUES (1);").unwrap_err();
     ///
@@ -438,7 +438,7 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Prepare};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE test (id INTEGER);
@@ -450,13 +450,12 @@ impl Connection {
     /// drop(c);
     ///
     /// insert_stmt.reset()?;
-    /// insert_stmt.bind(1, 42)?;
+    /// insert_stmt.bind_value(1, 42)?;
     /// assert!(insert_stmt.step()?.is_done());
     ///
     /// query_stmt.reset()?;
     ///
-    /// while let Some(row) = query_stmt.next()? {
-    ///     let id = row.get::<i64>(0)?;
+    /// while let Some(id) = query_stmt.next::<i64>()? {
     ///     assert_eq!(id, 42);
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -482,7 +481,7 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Code, Prepare};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// let e = c.prepare_with("CREATE TABLE test (id INTEGER); INSERT INTO test (id) VALUES (1);", Prepare::PERSISTENT).unwrap_err();
     /// assert_eq!(e.code(), Code::ERROR);
@@ -496,7 +495,7 @@ impl Connection {
     /// ```
     /// use sqll::{Connection, Prepare};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE test (id INTEGER);
@@ -510,13 +509,12 @@ impl Connection {
     /// /* .. */
     ///
     /// insert_stmt.reset()?;
-    /// insert_stmt.bind(1, 42)?;
+    /// insert_stmt.bind_value(1, 42)?;
     /// assert!(insert_stmt.step()?.is_done());
     ///
     /// query_stmt.reset()?;
     ///
-    /// while let Some(row) = query_stmt.next()? {
-    ///     let id = row.get::<i64>(0)?;
+    /// while let Some(id) = query_stmt.next::<i64>()? {
     ///     assert_eq!(id, 42);
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -563,13 +561,13 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///
     ///     INSERT INTO users VALUES ('Alice', 42);
-    ///     INSERT INTO users VALUES ('Bob', 69);
+    ///     INSERT INTO users VALUES ('Bob', 72);
     /// "#)?;
     ///
     /// assert_eq!(c.changes(), 1);
@@ -588,13 +586,13 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
     ///
     ///     INSERT INTO users VALUES ('Alice', 42);
-    ///     INSERT INTO users VALUES ('Bob', 69);
+    ///     INSERT INTO users VALUES ('Bob', 72);
     /// "#)?;
     ///
     /// assert_eq!(c.total_changes(), 2);
@@ -616,7 +614,7 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT);
@@ -632,7 +630,7 @@ impl Connection {
     /// assert_eq!(c.last_insert_rowid(), 3);
     ///
     /// let mut stmt = c.prepare("INSERT INTO users VALUES (?)")?;
-    /// stmt.bind(1, "Dave")?;
+    /// stmt.bind_value(1, "Dave")?;
     /// stmt.execute()?;
     ///
     /// assert_eq!(c.last_insert_rowid(), 4);
@@ -644,7 +642,7 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
@@ -665,10 +663,9 @@ impl Connection {
     /// assert_eq!(c.last_insert_rowid(), 4);
     ///
     /// let mut select = c.prepare("SELECT id FROM users WHERE name = ?")?;
-    /// select.bind(1, "Dave")?;
+    /// select.bind_value(1, "Dave")?;
     ///
-    /// while let Some(row) = select.next()? {
-    ///     let id = row.get::<i64>(0)?;
+    /// while let Some(id) = select.next::<i64>()? {
     ///     assert_eq!(id, 4);
     /// }
     ///
@@ -683,10 +680,9 @@ impl Connection {
     /// assert_eq!(c.last_insert_rowid(), 5);
     ///
     /// select.reset()?;
-    /// select.bind(1, "Charlie")?;
+    /// select.bind_value(1, "Charlie")?;
     ///
-    /// while let Some(row) = select.next()? {
-    ///     let id = row.get::<i64>(0)?;
+    /// while let Some(id) = select.next::<i64>()? {
     ///     assert_eq!(id, 5);
     /// }
     /// # Ok::<_, sqll::Error>(())
@@ -711,7 +707,7 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let mut c = Connection::open_memory()?;
+    /// let mut c = Connection::open_in_memory()?;
     ///
     /// c.busy_handler(|attempts| {
     ///     println!("busy attempt: {attempts}");
@@ -761,7 +757,7 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let mut c = Connection::open_memory()?;
+    /// let mut c = Connection::open_in_memory()?;
     ///
     /// c.busy_handler(|attempts| {
     ///     println!("busy attempt: {attempts}");
@@ -795,7 +791,7 @@ impl Connection {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let mut c = Connection::open_memory()?;
+    /// let mut c = Connection::open_in_memory()?;
     ///
     /// c.busy_timeout(5000)?;
     /// # Ok::<_, sqll::Error>(())
@@ -894,7 +890,7 @@ impl OpenOptions {
     /// use sqll::OpenOptions;
     ///
     /// let c = unsafe {
-    ///     OpenOptions::empty().read_write().create().open_memory()?
+    ///     OpenOptions::empty().read_write().create().open_in_memory()?
     /// };
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -911,7 +907,7 @@ impl OpenOptions {
     /// ```
     /// use sqll::OpenOptions;
     ///
-    /// let c = OpenOptions::new().read_write().create().open_memory()?;
+    /// let c = OpenOptions::new().read_write().create().open_in_memory()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -929,7 +925,7 @@ impl OpenOptions {
     /// ```
     /// use sqll::OpenOptions;
     ///
-    /// let c = OpenOptions::new().read_only().open_memory()?;
+    /// let c = OpenOptions::new().read_only().open_in_memory()?;
     ///
     /// assert!(c.database_read_only(c"main")?);
     /// # Ok::<_, Box<dyn std::error::Error>>(())
@@ -954,7 +950,7 @@ impl OpenOptions {
     /// ```
     /// use sqll::OpenOptions;
     ///
-    /// let c = OpenOptions::new().read_write().open_memory()?;
+    /// let c = OpenOptions::new().read_write().open_in_memory()?;
     ///
     /// assert!(!c.database_read_only(c"main")?);
     /// # Ok::<_, Box<dyn std::error::Error>>(())
@@ -979,11 +975,11 @@ impl OpenOptions {
     /// let mut opts = OpenOptions::new();
     /// opts.create();
     ///
-    /// let e = opts.open_memory().unwrap_err();
+    /// let e = opts.open_in_memory().unwrap_err();
     /// assert_eq!(e.code(), Code::MISUSE);
     ///
     /// opts.read_write();
-    /// let c = opts.open_memory()?;
+    /// let c = opts.open_in_memory()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -994,7 +990,7 @@ impl OpenOptions {
     /// ```
     /// use sqll::OpenOptions;
     ///
-    /// let c = OpenOptions::new().read_write().create().open_memory()?;
+    /// let c = OpenOptions::new().read_write().create().open_in_memory()?;
     ///
     /// assert!(!c.database_read_only(c"main")?);
     /// # Ok::<_, Box<dyn std::error::Error>>(())
@@ -1063,7 +1059,7 @@ impl OpenOptions {
     ///         .no_mutex()
     ///         .read_write()
     ///         .create()
-    ///         .open_memory()?
+    ///         .open_in_memory()?
     /// };
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -1085,7 +1081,7 @@ impl OpenOptions {
     /// ```
     /// use sqll::OpenOptions;
     ///
-    /// let c = OpenOptions::new().full_mutex().read_write().create().open_memory()?;
+    /// let c = OpenOptions::new().full_mutex().read_write().create().open_in_memory()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -1135,7 +1131,7 @@ impl OpenOptions {
     ///         .extended_result_codes()
     ///         .create()
     ///         .read_write()
-    ///         .open_memory()?
+    ///         .open_in_memory()?
     /// };
     ///
     /// let e = c.execute("
@@ -1165,11 +1161,11 @@ impl OpenOptions {
     ///
     /// Note that it is possible to open an in-memory database by passing
     /// `":memory:"` here, this call might require allocating depending on the
-    /// platform, so it should be avoided in favor of using [`open_memory`]. To avoid
+    /// platform, so it should be avoided in favor of using [`open_in_memory`]. To avoid
     /// allocating for regular paths, you can use [`open_c_str`], however you
     /// are responsible for ensuring the c-string is a valid path.
     ///
-    /// [`open_memory`]: Self::open_memory
+    /// [`open_in_memory`]: Self::open_in_memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
@@ -1188,7 +1184,7 @@ impl OpenOptions {
     }
 
     /// Open an in-memory database.
-    pub fn open_memory(&self) -> Result<Connection> {
+    pub fn open_in_memory(&self) -> Result<Connection> {
         self._open(c":memory:")
     }
 

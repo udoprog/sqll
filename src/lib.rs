@@ -68,20 +68,20 @@
 //! ```
 //! use sqll::{Connection, Result};
 //!
-//! let c = Connection::open_memory()?;
+//! let c = Connection::open_in_memory()?;
 //!
 //! c.execute(r#"
 //!     CREATE TABLE users (name TEXT, age INTEGER);
 //!
 //!     INSERT INTO users VALUES ('Alice', 42);
-//!     INSERT INTO users VALUES ('Bob', 69);
+//!     INSERT INTO users VALUES ('Bob', 72);
 //! "#)?;
 //!
 //! let results = c.prepare("SELECT name, age FROM users ORDER BY age")?
 //!     .iter::<(String, u32)>()
 //!     .collect::<Result<Vec<_>>>()?;
 //!
-//! assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 69)]);
+//! assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 72)]);
 //! # Ok::<_, sqll::Error>(())
 //! ```
 //!
@@ -101,18 +101,18 @@
 //!     age: u32,
 //! }
 //!
-//! let mut c = Connection::open_memory()?;
+//! let mut c = Connection::open_in_memory()?;
 //!
 //! c.execute(r#"
 //!     CREATE TABLE users (name TEXT, age INTEGER);
 //!
 //!     INSERT INTO users VALUES ('Alice', 42);
-//!     INSERT INTO users VALUES ('Bob', 69);
+//!     INSERT INTO users VALUES ('Bob', 72);
 //! "#)?;
 //!
 //! let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
 //!
-//! while let Some(person) = results.next_row::<Person<'_>>()? {
+//! while let Some(person) = results.next::<Person<'_>>()? {
 //!     println!("{} is {} years old", person.name, person.age);
 //! }
 //! # Ok::<_, sqll::Error>(())
@@ -132,13 +132,13 @@
 //! ```
 //! use sqll::{Connection, Prepare};
 //!
-//! let c = Connection::open_memory()?;
+//! let c = Connection::open_in_memory()?;
 //!
 //! c.execute(r#"
 //!     CREATE TABLE users (name TEXT, age INTEGER);
 //!
 //!     INSERT INTO users VALUES ('Alice', 42);
-//!     INSERT INTO users VALUES ('Bob', 69);
+//!     INSERT INTO users VALUES ('Bob', 72);
 //! "#)?;
 //!
 //! let mut stmt = c.prepare_with("SELECT * FROM users WHERE age > ?", Prepare::PERSISTENT)?;
@@ -147,17 +147,17 @@
 //!
 //! for age in [40, 50] {
 //!     stmt.reset()?;
-//!     stmt.bind(1, age)?;
+//!     stmt.bind_value(1, age)?;
 //!
-//!     while let Some(row) = stmt.next()? {
-//!         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
+//!     while let Some(row) = stmt.next::<(String, i64)>()? {
+//!         results.push(row);
 //!     }
 //! }
 //!
 //! let expected = vec![
 //!     (String::from("Alice"), 42),
-//!     (String::from("Bob"), 69),
-//!     (String::from("Bob"), 69),
+//!     (String::from("Bob"), 72),
+//!     (String::from("Bob"), 72),
 //! ];
 //!
 //! assert_eq!(results, expected);
@@ -229,28 +229,30 @@ extern crate alloc;
 #[cfg(not(feature = "alloc"))]
 compile_error!("The `alloc` feature must be enabled to use this crate.");
 
-mod bindable;
-mod borrowable;
+#[cfg(test)]
+mod tests;
+
+mod bind;
+mod bind_value;
 mod bytes;
 mod connection;
 mod error;
 mod ffi;
 mod fixed_bytes;
+mod from_column;
 mod from_row;
-mod gettable;
+mod from_unsized_column;
 mod owned;
 mod sink;
 mod statement;
-#[cfg(test)]
-mod tests;
 mod utils;
 mod value;
 mod version;
 
 #[doc(inline)]
-pub use self::bindable::Bindable;
+pub use self::bind::Bind;
 #[doc(inline)]
-pub use self::borrowable::Borrowable;
+pub use self::bind_value::BindValue;
 #[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]
@@ -258,22 +260,82 @@ pub use self::error::{Code, DatabaseNotFound, Error, Result};
 #[doc(inline)]
 pub use self::fixed_bytes::FixedBytes;
 #[doc(inline)]
+pub use self::from_column::FromColumn;
+#[doc(inline)]
 pub use self::from_row::FromRow;
 #[doc(inline)]
-pub use self::gettable::Gettable;
+pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
 pub use self::sink::Sink;
 #[doc(inline)]
-pub use self::statement::{Null, Row, State, Statement};
+pub use self::statement::{Null, State, Statement};
 #[doc(inline)]
 pub use self::value::{Type, Value};
 #[doc(inline)]
 pub use self::version::{lib_version, lib_version_number};
 
+/// Derive macro for [`Bind`].
+///
+/// This can be used on a struct, and allows the struct to be constructed from
+/// a. [`BindValue`], each field in the struct is one-by-one mapped into a
+/// corresponding index in the SQLite row.
+///
+/// ```
+/// use sqll::Bind;
+///
+/// #[derive(Bind)]
+/// struct Person<'stmt> {
+///     name: &'stmt str,
+///     age: u32,
+/// }
+/// ```
+///
+/// ## Container attributes
+///
+/// #### `#[sql(crate = ..)]`
+///
+/// This attributes allows specifying an alternative path to the `sqll` crate.
+///
+/// This is useful when the crate is renamed from the default `::sqll`.
+///
+/// ```
+/// # extern crate sqll as my_sqll;
+/// use my_sqll::Bind;
+///
+/// #[derive(Bind)]
+/// #[sql(crate = ::my_sqll)]
+/// struct Person<'stmt> {
+///     name: &'stmt str,
+///     age: u32,
+/// }
+/// ```
+///
+/// ## Field attribuets
+///
+/// #### `#[sql(index = N)]`
+///
+/// This allows the index being used for a particular row to be overriden. Note
+/// that binding indexes are 1-based.
+///
+/// ```
+/// use sqll::Bind;
+///
+/// #[derive(Bind)]
+/// struct Person<'stmt> {
+///     #[sql(index = 2)]
+///     name: &'stmt str,
+///     #[sql(index = 1)]
+///     age: u32,
+/// }
+/// ```
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use sqll_macros::Bind;
+
 /// Derive macro for [`FromRow`].
 ///
 /// This can be used on a struct, and allows the struct to be constructed from
-/// a. [`Row`], each field in the struct is one-by-one mapped into a
+/// a. [`FromColumn`], each field in the struct is one-by-one mapped into a
 /// corresponding index in the SQLite row.
 ///
 /// ```
@@ -288,7 +350,7 @@ pub use self::version::{lib_version, lib_version_number};
 ///
 /// ## Container attributes
 ///
-/// #### `#[row(crate = ..)]`
+/// #### `#[sql(crate = ..)]`
 ///
 /// This attributes allows specifying an alternative path to the `sqll` crate.
 ///
@@ -299,7 +361,7 @@ pub use self::version::{lib_version, lib_version_number};
 /// use my_sqll::FromRow;
 ///
 /// #[derive(FromRow)]
-/// #[row(crate = ::my_sqll)]
+/// #[sql(crate = ::my_sqll)]
 /// struct Person<'stmt> {
 ///     name: &'stmt str,
 ///     age: u32,
@@ -308,7 +370,7 @@ pub use self::version::{lib_version, lib_version_number};
 ///
 /// ## Field attribuets
 ///
-/// #### `#[row(index = N)]`
+/// #### `#[sql(index = N)]`
 ///
 /// This allows the index being used for a particular row to be overriden.
 ///
@@ -317,9 +379,9 @@ pub use self::version::{lib_version, lib_version_number};
 ///
 /// #[derive(FromRow)]
 /// struct Person<'stmt> {
-///     #[row(index = 1)]
+///     #[sql(index = 1)]
 ///     name: &'stmt str,
-///     #[row(index = 0)]
+///     #[sql(index = 0)]
 ///     age: u32,
 /// }
 /// ```

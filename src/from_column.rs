@@ -1,13 +1,13 @@
 use core::ffi::c_int;
-use core::mem;
 use core::ptr;
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::utils::repeat;
-use crate::{Borrowable, Code, Error, FixedBytes, Null, Result, Sink, Statement, Type, Value};
+use crate::{
+    Code, Error, FixedBytes, FromUnsizedColumn, Null, Result, Sink, Statement, Type, Value,
+};
 
 mod sealed {
     use alloc::string::String;
@@ -38,25 +38,25 @@ mod sealed {
     impl Sealed<'_> for Value {}
 }
 
-/// A type suitable for reading from a prepared statement.
+/// A type suitable for reading a single value from a prepared statement.
 ///
 /// Use with [`Statement::get`].
-pub trait Gettable<'stmt>
+pub trait FromColumn<'stmt>
 where
     Self: self::sealed::Sealed<'stmt> + Sized,
 {
     #[doc(hidden)]
-    fn get(stmt: &'stmt Statement, index: c_int) -> Result<Self>;
+    fn from_column(stmt: &'stmt Statement, index: c_int) -> Result<Self>;
 }
 
-/// [`Gettable`] implementation for [`Null`].
+/// [`FromColumn`] implementation for [`Null`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::{Connection, Null};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -65,34 +65,34 @@ where
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind(1, "Alice")?;
+/// stmt.bind_value(1, "Alice")?;
 ///
 /// let mut names = Vec::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     names.push(stmt.get::<Null>(0)?);
+/// while let Some(value) = stmt.next::<Null>()? {
+///     names.push(value);
 /// }
 ///
 /// assert_eq!(names, vec![Null]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Gettable<'_> for Null {
+impl FromColumn<'_> for Null {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         type_check(stmt, index, Type::NULL)?;
         Ok(Null)
     }
 }
 
-/// [`Gettable`] implementation for [`Value`].
-impl Gettable<'_> for Value {
+/// [`FromColumn`] implementation for [`Value`].
+impl FromColumn<'_> for Value {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         let value = match stmt.column_type(index) {
-            Type::BLOB => Value::blob(<_>::get(stmt, index)?),
-            Type::TEXT => Value::text(<_>::get(stmt, index)?),
-            Type::FLOAT => Value::float(<_>::get(stmt, index)?),
-            Type::INTEGER => Value::integer(<_>::get(stmt, index)?),
+            Type::BLOB => Value::blob(<_>::from_column(stmt, index)?),
+            Type::TEXT => Value::text(<_>::from_column(stmt, index)?),
+            Type::FLOAT => Value::float(<_>::from_column(stmt, index)?),
+            Type::INTEGER => Value::integer(<_>::from_column(stmt, index)?),
             Type::NULL => Value::null(),
             _ => return Err(Error::new(Code::MISMATCH)),
         };
@@ -101,14 +101,14 @@ impl Gettable<'_> for Value {
     }
 }
 
-/// [`Gettable`] implementation for [`f64`].
+/// [`FromColumn`] implementation for [`f64`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE numbers (value REAL);
@@ -118,8 +118,7 @@ impl Gettable<'_> for Value {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let value = row.get::<f64>(0)?;
+/// while let Some(value) = stmt.next::<f64>()? {
 ///     assert!(matches!(value, 3.14 | 2.71));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -130,7 +129,7 @@ impl Gettable<'_> for Value {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE numbers (value REAL);
@@ -140,15 +139,15 @@ impl Gettable<'_> for Value {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<i64>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<i64>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Gettable<'_> for f64 {
+impl FromColumn<'_> for f64 {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         Ok(unsafe {
             type_check(stmt, index, Type::FLOAT)?;
             ffi::sqlite3_column_double(stmt.as_ptr(), index)
@@ -156,7 +155,7 @@ impl Gettable<'_> for f64 {
     }
 }
 
-/// [`Gettable`] implementation for [`f32`].
+/// [`FromColumn`] implementation for [`f32`].
 ///
 /// Getting this type requires conversion and might be subject to precision
 /// loss. To avoid this, consider using [`f64`] instead.
@@ -166,7 +165,7 @@ impl Gettable<'_> for f64 {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE numbers (value REAL);
@@ -176,8 +175,7 @@ impl Gettable<'_> for f64 {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let value = row.get::<f32>(0)?;
+/// while let Some(value) = stmt.next::<f32>()? {
 ///     assert!(matches!(value, 3.14 | 2.71));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -188,7 +186,7 @@ impl Gettable<'_> for f64 {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE numbers (value REAL);
@@ -198,27 +196,27 @@ impl Gettable<'_> for f64 {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<i32>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<i32>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Gettable<'_> for f32 {
+impl FromColumn<'_> for f32 {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
-        Ok(f64::get(stmt, index)? as f32)
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
+        Ok(f64::from_column(stmt, index)? as f32)
     }
 }
 
-/// [`Gettable`] implementation for `i64`.
+/// [`FromColumn`] implementation for `i64`.
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE numbers (value INTEGER);
@@ -228,8 +226,7 @@ impl Gettable<'_> for f32 {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let value = row.get::<i64>(0)?;
+/// while let Some(value) = stmt.next::<i64>()? {
 ///     assert!(matches!(value, 3 | 2));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -240,7 +237,7 @@ impl Gettable<'_> for f32 {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE numbers (value INTEGER);
@@ -250,15 +247,15 @@ impl Gettable<'_> for f32 {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<f64>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<f64>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Gettable<'_> for i64 {
+impl FromColumn<'_> for i64 {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         type_check(stmt, index, Type::INTEGER)?;
         Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), index) })
     }
@@ -266,14 +263,14 @@ impl Gettable<'_> for i64 {
 
 macro_rules! lossless {
     ($ty:ty) => {
-        #[doc = concat!(" [`Gettable`] implementation for `", stringify!($ty), "`.")]
+        #[doc = concat!("[`FromColumn`] implementation for `", stringify!($ty), "`.")]
         ///
         /// # Examples
         ///
         /// ```
         /// use sqll::Connection;
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE numbers (value INTEGER);
@@ -283,8 +280,7 @@ macro_rules! lossless {
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
-        /// while let Some(row) = stmt.next()? {
-        #[doc = concat!("     let value = row.get::<", stringify!($ty), ">(0)?;")]
+        #[doc = concat!("while let Some(value) = stmt.next::<", stringify!($ty), ">()? {")]
         ///     assert!(matches!(value, 3 | 2));
         /// }
         /// # Ok::<_, sqll::Error>(())
@@ -295,7 +291,7 @@ macro_rules! lossless {
         /// ```
         /// use sqll::{Connection, Code};
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE numbers (value INTEGER);
@@ -305,17 +301,17 @@ macro_rules! lossless {
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
-        /// while let Some(row) = stmt.next()? {
-        ///     let e = row.get::<f64>(0).unwrap_err();
+        /// while stmt.step()?.is_row() {
+        ///     let e = stmt.get::<f64>(0).unwrap_err();
         ///     assert_eq!(e.code(), Code::MISMATCH);
         /// }
         /// # Ok::<_, sqll::Error>(())
         /// ```
-        impl Gettable<'_> for $ty {
+        impl FromColumn<'_> for $ty {
             #[inline]
             #[allow(irrefutable_let_patterns)]
-            fn get(stmt: &Statement, index: c_int) -> Result<Self> {
-                let value = i64::get(stmt, index)?;
+            fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
+                let value = i64::from_column(stmt, index)?;
                 Ok(value as $ty)
             }
         }
@@ -324,7 +320,7 @@ macro_rules! lossless {
 
 macro_rules! lossy {
     ($ty:ty) => {
-        #[doc = concat!(" [`Gettable`] implementation for `", stringify!($ty), "`.")]
+        #[doc = concat!("[`FromColumn`] implementation for `", stringify!($ty), "`.")]
         ///
         /// # Errors
         ///
@@ -334,7 +330,7 @@ macro_rules! lossy {
         /// ```
         /// use sqll::{Connection, Code};
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE numbers (value INTEGER);
@@ -345,7 +341,7 @@ macro_rules! lossy {
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
         /// assert!(stmt.step()?.is_row());
-        #[doc = concat!(" let e = stmt.get::<", stringify!($ty), ">(0).unwrap_err();")]
+        #[doc = concat!("let e = stmt.get::<", stringify!($ty), ">(0).unwrap_err();")]
         /// assert_eq!(e.code(), Code::MISMATCH);
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -355,7 +351,7 @@ macro_rules! lossy {
         /// ```
         /// use sqll::Connection;
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE numbers (value INTEGER);
@@ -365,8 +361,7 @@ macro_rules! lossy {
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
-        /// while let Some(row) = stmt.next()? {
-        #[doc = concat!("     let value = row.get::<", stringify!($ty), ">(0)?;")]
+        #[doc = concat!("while let Some(value) = stmt.next::<", stringify!($ty), ">()? {")]
         ///     assert!(matches!(value, 3 | 2));
         /// }
         /// # Ok::<_, sqll::Error>(())
@@ -377,7 +372,7 @@ macro_rules! lossy {
         /// ```
         /// use sqll::{Connection, Code};
         ///
-        /// let c = Connection::open_memory()?;
+        /// let c = Connection::open_in_memory()?;
         ///
         /// c.execute(r#"
         ///     CREATE TABLE numbers (value INTEGER);
@@ -387,16 +382,16 @@ macro_rules! lossy {
         ///
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
-        /// while let Some(row) = stmt.next()? {
-        ///     let e = row.get::<f64>(0).unwrap_err();
+        /// while stmt.step()?.is_row() {
+        ///     let e = stmt.get::<f64>(0).unwrap_err();
         ///     assert_eq!(e.code(), Code::MISMATCH);
         /// }
         /// # Ok::<_, sqll::Error>(())
         /// ```
-        impl Gettable<'_> for $ty {
+        impl FromColumn<'_> for $ty {
             #[inline]
-            fn get(stmt: &Statement, index: c_int) -> Result<Self> {
-                let value = i64::get(stmt, index)?;
+            fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
+                let value = i64::from_column(stmt, index)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
                     return Err(Error::new(Code::MISMATCH));
@@ -418,14 +413,14 @@ lossy!(u64);
 lossy!(u128);
 lossless!(i128);
 
-/// [`Gettable`] implementation which returns a borrowed [`str`].
+/// [`FromColumn`] implementation which returns a borrowed [`str`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT);
@@ -435,8 +430,7 @@ lossless!(i128);
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let name = stmt.get::<String>(0)?;
+/// while let Some(name) = stmt.next::<String>()? {
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -447,7 +441,7 @@ lossless!(i128);
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -457,20 +451,20 @@ lossless!(i128);
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<&str>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<&str>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<'stmt> Gettable<'stmt> for &'stmt str {
+impl<'stmt> FromColumn<'stmt> for &'stmt str {
     #[inline]
-    fn get(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
-        Borrowable::borrow(stmt, index)
+    fn from_column(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
+        FromUnsizedColumn::from_unsized_column(stmt, index)
     }
 }
 
-/// [`Gettable`] implementation which returns a newly allocated [`String`].
+/// [`FromColumn`] implementation which returns a newly allocated [`String`].
 ///
 /// For a more memory-efficient way of reading bytes, consider using its
 /// [`Sink`] implementation instead.
@@ -480,7 +474,7 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT);
@@ -490,8 +484,7 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let name = stmt.get::<String>(0)?;
+/// while let Some(name) = stmt.next::<String>()? {
 ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -502,7 +495,7 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -512,22 +505,22 @@ impl<'stmt> Gettable<'stmt> for &'stmt str {
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<String>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<String>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Gettable<'_> for String {
+impl FromColumn<'_> for String {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         let mut s = String::new();
         s.write(stmt, index)?;
         Ok(s)
     }
 }
 
-/// [`Gettable`] implementation which returns a newly allocated [`Vec`].
+/// [`FromColumn`] implementation which returns a newly allocated [`Vec`].
 ///
 /// For a more memory-efficient way of reading bytes, consider using its
 /// [`Sink`] implementation instead.
@@ -537,7 +530,7 @@ impl Gettable<'_> for String {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (blob BLOB);
@@ -547,9 +540,8 @@ impl Gettable<'_> for String {
 ///
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let blob = row.get::<Vec<u8>>(0)?;
-///     assert!(matches!(blob.as_slice(), b"\xaa\xbb" | b"\xbb\xcc"));
+/// while let Some(value) = stmt.next::<Vec<u8>>()? {
+///     assert!(matches!(value.as_slice(), b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -559,7 +551,7 @@ impl Gettable<'_> for String {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -569,29 +561,29 @@ impl Gettable<'_> for String {
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<Vec::<u8>>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<Vec::<u8>>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Gettable<'_> for Vec<u8> {
+impl FromColumn<'_> for Vec<u8> {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         let mut buf = Vec::new();
         buf.write(stmt, index)?;
         Ok(buf)
     }
 }
 
-/// [`Gettable`] implementation which returns a borrowed `[u8]`.
+/// [`FromColumn`] implementation which returns a borrowed `[u8]`.
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (blob BLOB);
@@ -601,8 +593,7 @@ impl Gettable<'_> for Vec<u8> {
 ///
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let blob = stmt.get::<&[u8]>(0)?;
+/// while let Some(blob) = stmt.next::<&[u8]>()? {
 ///     assert!(matches!(blob, b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -613,7 +604,7 @@ impl Gettable<'_> for Vec<u8> {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -623,20 +614,20 @@ impl Gettable<'_> for Vec<u8> {
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.get::<&[u8]>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get::<&[u8]>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<'stmt> Gettable<'stmt> for &'stmt [u8] {
+impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
     #[inline]
-    fn get(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
-        Borrowable::borrow(stmt, index)
+    fn from_column(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
+        FromUnsizedColumn::from_unsized_column(stmt, index)
     }
 }
 
-/// [`Gettable`] implementation for [`FixedBytes`] which reads at most `N`
+/// [`FromColumn`] implementation for [`FixedBytes`] which reads at most `N`
 /// bytes.
 ///
 /// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
@@ -647,7 +638,7 @@ impl<'stmt> Gettable<'stmt> for &'stmt [u8] {
 /// ```
 /// use sqll::{Connection, FixedBytes, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id BLOB);
@@ -669,9 +660,9 @@ impl<'stmt> Gettable<'stmt> for &'stmt [u8] {
 /// assert_eq!(bytes.as_bytes(), &[5, 6, 7, 8, 9]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<const N: usize> Gettable<'_> for FixedBytes<N> {
+impl<const N: usize> FromColumn<'_> for FixedBytes<N> {
     #[inline]
-    fn get(stmt: &Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
         let mut bytes = FixedBytes::new();
 
         unsafe {
@@ -697,14 +688,14 @@ impl<const N: usize> Gettable<'_> for FixedBytes<N> {
     }
 }
 
-/// [`Gettable`] implementation for [`Option`].
+/// [`FromColumn`] implementation for [`Option`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -713,22 +704,20 @@ impl<const N: usize> Gettable<'_> for FixedBytes<N> {
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
 /// stmt.reset()?;
-/// stmt.bind(1, "Alice")?;
-/// stmt.bind(2, None::<i64>)?;
+/// stmt.bind_value(1, "Alice")?;
+/// stmt.bind_value(2, None::<i64>)?;
 /// assert!(stmt.step()?.is_done());
 ///
 /// stmt.reset()?;
-/// stmt.bind(1, "Bob")?;
-/// stmt.bind(2, Some(30i64))?;
+/// stmt.bind_value(1, "Bob")?;
+/// stmt.bind_value(2, Some(30i64))?;
 /// assert!(stmt.step()?.is_done());
 ///
 /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
 ///
 /// let mut names_and_ages = Vec::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     let name = row.get::<String>(0)?;
-///     let age = row.get::<Option<i64>>(1)?;
+/// while let Some((name, age)) = stmt.next::<(String, Option<i64>)>()? {
 ///     names_and_ages.push((name, age));
 /// }
 ///
@@ -736,83 +725,18 @@ impl<const N: usize> Gettable<'_> for FixedBytes<N> {
 /// assert_eq!(names_and_ages, vec![(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<'stmt, T> Gettable<'stmt> for Option<T>
+impl<'stmt, T> FromColumn<'stmt> for Option<T>
 where
-    T: Gettable<'stmt>,
+    T: FromColumn<'stmt>,
 {
     #[inline]
-    fn get(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
+    fn from_column(stmt: &'stmt Statement, index: c_int) -> Result<Self> {
         if stmt.column_type(index) == Type::NULL {
             return Ok(None);
         }
 
-        Ok(Some(T::get(stmt, index)?))
+        Ok(Some(T::from_column(stmt, index)?))
     }
-}
-
-macro_rules! ignore {
-    ($var:ident) => {
-        ""
-    };
-}
-
-macro_rules! implement_tuple {
-    ($ty0:ident $var0:ident $value0:expr $(, $ty:ident $var:ident $value:expr)* $(,)? ) => {
-        impl<'stmt, $ty0 $(, $ty)*> self::sealed::Sealed<'stmt> for ($ty0, $($ty,)*)
-        where
-            $ty0: self::sealed::Sealed<'stmt>,
-            $($ty: self::sealed::Sealed<'stmt>,)*
-        {}
-
-        /// [`Gettable`] implementation for a tuple.
-        ///
-        /// A tuple reads elements one after another, starting at the index
-        /// specified in the call to [`Statement::get`].
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use sqll::Connection;
-        ///
-        /// let c = Connection::open_memory()?;
-        #[doc = concat!(" c.execute(\"CREATE TABLE users (", stringify!($var0) $(, ", ", stringify!($var), " INTEGER")*, ")\")?;")]
-        #[doc = concat!(" c.execute(\"INSERT INTO users VALUES (", stringify!($value0) $(, ", ", stringify!($value))*, ")\")?;")]
-        ///
-        /// let mut stmt = c.prepare("SELECT * FROM users")?;
-        ///
-        /// while let Some(row) = stmt.next()? {
-        #[doc = concat!("     let (", stringify!($var0), "," $(, " ", stringify!($var), ",")*, ") = row.get::<(", ignore!($var0), "i64," $(, " ", ignore!($var), "i64,")*, ")>(0)?;")]
-        #[doc = concat!("     assert_eq!(", stringify!($var0), ", ", stringify!($value0), ");")]
-        $(
-            #[doc = concat!("     assert_eq!(", stringify!($var), ", ", stringify!($value), ");")]
-        )*
-        /// }
-        /// # Ok::<_, sqll::Error>(())
-        /// ```
-        impl<'stmt, $ty0, $($ty,)*> Gettable<'stmt> for ($ty0, $($ty,)*)
-        where
-            $ty0: Gettable<'stmt>,
-            $($ty: Gettable<'stmt>,)*
-        {
-            #[inline]
-            fn get(stmt: &'stmt Statement, mut index: c_int) -> Result<Self> {
-                let $var0 = Gettable::get(stmt, advance(&mut index))?;
-
-                $(
-                    let $var = Gettable::get(stmt, advance(&mut index))?;
-                )*
-
-                Ok(($var0, $($var,)*))
-            }
-        }
-    };
-}
-
-repeat!(implement_tuple);
-
-fn advance(index: &mut c_int) -> c_int {
-    let n = index.wrapping_add(1);
-    mem::replace(index, n)
 }
 
 // NB: We have to perform strict type checking to avoid auto-conversion, if we

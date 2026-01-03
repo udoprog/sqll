@@ -22,8 +22,8 @@ fn read_statement(bencher: &mut Criterion) {
     bencher.bench_function("read_statement", |b| {
         b.iter(|| {
             stmt.reset().unwrap();
-            stmt.bind(1, 42).unwrap();
-            stmt.bind(2, 42.0).unwrap();
+            stmt.bind_value(1, 42).unwrap();
+            stmt.bind_value(2, 42.0).unwrap();
 
             while stmt.step().unwrap().is_row() {
                 assert!(stmt.get::<i64>(0).unwrap() > 42);
@@ -46,10 +46,10 @@ fn write_statement(bencher: &mut Criterion) {
     bencher.bench_function("write_statement", |b| {
         b.iter(|| {
             stmt.reset().unwrap();
-            stmt.bind(1, 42).unwrap();
-            stmt.bind(2, 42.0).unwrap();
-            stmt.bind(3, 42.0).unwrap();
-            stmt.bind(4, 42.0).unwrap();
+            stmt.bind_value(1, 42).unwrap();
+            stmt.bind_value(2, 42.0).unwrap();
+            stmt.bind_value(3, 42.0).unwrap();
+            stmt.bind_value(4, 42.0).unwrap();
             assert!(stmt.step().unwrap().is_done());
         });
     });
@@ -69,10 +69,10 @@ fn populate(c: &Connection, count: usize) {
 
     for i in 0..count {
         statement.reset().unwrap();
-        statement.bind(1, i as i64).unwrap();
-        statement.bind(2, i as f64).unwrap();
-        statement.bind(3, i as f64).unwrap();
-        statement.bind(4, i as f64).unwrap();
+        statement.bind_value(1, i as i64).unwrap();
+        statement.bind_value(2, i as f64).unwrap();
+        statement.bind_value(3, i as f64).unwrap();
+        statement.bind_value(4, i as f64).unwrap();
         assert!(statement.step().unwrap().is_done());
     }
 }

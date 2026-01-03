@@ -7,7 +7,7 @@ struct Person<'stmt> {
 }
 
 fn main() -> Result<()> {
-    let conn = Connection::open_memory()?;
+    let conn = Connection::open_in_memory()?;
 
     conn.execute(
         r#"
@@ -19,9 +19,9 @@ fn main() -> Result<()> {
     )?;
 
     let mut stmt = conn.prepare("INSERT INTO persons (name) VALUES (?1), (?2), (?3)")?;
-    stmt.bind(1, "Steven")?;
-    stmt.bind(2, "John")?;
-    stmt.bind(3, "Alex")?;
+    stmt.bind_value(1, "Steven")?;
+    stmt.bind_value(2, "John")?;
+    stmt.bind_value(3, "Alex")?;
     stmt.execute()?;
 
     let mut stmt = conn.prepare_with("SELECT id, name FROM persons", Prepare::PERSISTENT)?;
@@ -31,8 +31,7 @@ fn main() -> Result<()> {
 
         println!("Found persons:");
 
-        while let Some(row) = stmt.next()? {
-            let p = row.as_row::<Person<'_>>()?;
+        while let Some(p) = stmt.next::<Person<'_>>()? {
             println!("ID: {}, Name: {}", p.id, p.name);
         }
     }

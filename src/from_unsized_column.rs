@@ -1,7 +1,7 @@
 use core::ffi::c_int;
 use core::slice;
 
-use crate::gettable::type_check;
+use crate::from_column::type_check;
 use crate::{Code, Error, Result, Statement};
 use crate::{Type, ffi};
 
@@ -13,23 +13,23 @@ mod sealed {
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
-/// Use with [`Statement::borrow`].
-pub trait Borrowable
+/// Use with [`Statement::get_unsized`].
+pub trait FromUnsizedColumn
 where
     Self: self::sealed::Sealed,
 {
     #[doc(hidden)]
-    fn borrow(stmt: &Statement, index: c_int) -> Result<&Self>;
+    fn from_unsized_column(stmt: &Statement, index: c_int) -> Result<&Self>;
 }
 
-/// [`Borrowable`] implementation for [`str`].
+/// [`FromUnsizedColumn`] implementation for [`str`].
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT);
@@ -39,8 +39,8 @@ where
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let Some(row) = stmt.next()? {
-///     let name = row.borrow::<str>(0)?;
+/// while stmt.step()?.is_row() {
+///     let name = stmt.get_unsized::<str>(0)?;
 ///     assert!(matches!(name, "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -51,7 +51,7 @@ where
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -62,15 +62,15 @@ where
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = String::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     let e = row.borrow::<str>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get_unsized::<str>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Borrowable for str {
+impl FromUnsizedColumn for str {
     #[inline]
-    fn borrow(stmt: &Statement, index: c_int) -> Result<&Self> {
+    fn from_unsized_column(stmt: &Statement, index: c_int) -> Result<&Self> {
         unsafe {
             type_check(stmt, index, Type::TEXT)?;
 
@@ -98,14 +98,14 @@ impl Borrowable for str {
     }
 }
 
-/// [`Borrowable`] implementation for `[u8]`.
+/// [`FromUnsizedColumn`] implementation for `[u8]`.
 ///
 /// # Examples
 ///
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name BLOB);
@@ -114,11 +114,9 @@ impl Borrowable for str {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
-/// let mut name = Vec::<u8>::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     name.clear();
-///     let name = row.borrow::<[u8]>(0)?;
+/// while stmt.step()?.is_row() {
+///     let name = stmt.get_unsized::<[u8]>(0)?;
 ///     assert!(matches!(name, b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -129,7 +127,7 @@ impl Borrowable for str {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -138,18 +136,16 @@ impl Borrowable for str {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
-/// let mut name = Vec::<u8>::new();
 ///
-/// while let Some(row) = stmt.next()? {
-///     name.clear();
-///     let e = row.borrow::<[u8]>(0).unwrap_err();
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get_unsized::<[u8]>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl Borrowable for [u8] {
+impl FromUnsizedColumn for [u8] {
     #[inline]
-    fn borrow(stmt: &Statement, index: c_int) -> Result<&Self> {
+    fn from_unsized_column(stmt: &Statement, index: c_int) -> Result<&Self> {
         unsafe {
             type_check(stmt, index, Type::BLOB)?;
 

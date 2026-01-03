@@ -71,7 +71,7 @@ Open an in-memory connection, create a table, insert and query some rows:
 ```rust
 use sqll::{Connection, Result};
 
-let c = Connection::open_memory()?;
+let c = Connection::open_in_memory()?;
 
 c.execute(r#"
     CREATE TABLE users (name TEXT, age INTEGER);
@@ -103,7 +103,7 @@ struct Person<'stmt> {
     age: u32,
 }
 
-let mut c = Connection::open_memory()?;
+let mut c = Connection::open_in_memory()?;
 
 c.execute(r#"
     CREATE TABLE users (name TEXT, age INTEGER);
@@ -133,7 +133,7 @@ queries:
 ```rust
 use sqll::{Connection, Prepare};
 
-let c = Connection::open_memory()?;
+let c = Connection::open_in_memory()?;
 
 c.execute(r#"
     CREATE TABLE users (name TEXT, age INTEGER);
@@ -148,7 +148,7 @@ let mut results = Vec::new();
 
 for age in [40, 50] {
     stmt.reset()?;
-    stmt.bind(1, age)?;
+    stmt.bind_value(1, age)?;
 
     while let Some(row) = stmt.next()? {
         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));

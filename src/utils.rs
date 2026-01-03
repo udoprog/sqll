@@ -15,21 +15,21 @@ pub(crate) use __sqlite3_try as sqlite3_try;
 
 macro_rules! __repeat {
     ($macro:path) => {
-        $macro!(A a 0);
-        $macro!(A a 0, B b 1);
-        $macro!(A a 0, B b 1, C c 2);
-        $macro!(A a 0, B b 1, C c 2, D d 3);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12, N n 13);
-        $macro!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11, M m 12, N n 13, O o 14);
+        $macro!(A a 0 1);
+        $macro!(A a 0 1, B b 1 2);
+        $macro!(A a 0 1, B b 1 2, C c 2 3);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9, J j 9 10);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9, J j 9 10, K k 10 11);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9, J j 9 10, K k 10 11, L l 11 12);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9, J j 9 10, K k 10 11, L l 11 12, M m 12 13);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9, J j 9 10, K k 10 11, L l 11 12, M m 12 13, N n 13 14);
+        $macro!(A a 0 1, B b 1 2, C c 2 3, D d 3 4, E e 4 5, F f 5 6, G g 6 7, H h 7 8, I i 8 9, J j 9 10, K k 10 11, L l 11 12, M m 12 13, N n 13 14, O o 14 15);
     };
 }
 

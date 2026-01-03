@@ -5,15 +5,17 @@ use core::ops::Range;
 use core::ptr;
 use core::slice;
 
+use crate::ffi;
 use crate::utils::c_to_str;
-use crate::{Bindable, Borrowable, Code, Error, Gettable, Result, Sink, Type};
-use crate::{FromRow, ffi};
+use crate::{
+    Bind, BindValue, Code, Error, FromColumn, FromRow, FromUnsizedColumn, Result, Sink, Type,
+};
 
 /// A marker type representing a NULL value.
 ///
-/// This can be used both as [`Bindable`] and [`Gettable`].
+/// This can be used both as [`BindValue`] and [`FromColumn`].
 ///
-/// See [`Statement::bind`] and [`Statement::get`].
+/// See [`Statement::bind_value`] and [`Statement::get`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Null;
 
@@ -37,7 +39,7 @@ impl State {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE test (id INTEGER);
@@ -59,7 +61,7 @@ impl State {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE test (id INTEGER);
@@ -106,7 +108,7 @@ impl State {
 /// ```
 /// use sqll::{Connection, Prepare};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE test (id INTEGER);
@@ -120,14 +122,13 @@ impl State {
 /// /* .. */
 ///
 /// insert_stmt.reset()?;
-/// insert_stmt.bind(1, 42)?;
+/// insert_stmt.bind_value(1, 42)?;
 /// assert!(insert_stmt.step()?.is_done());
 ///
 /// query_stmt.reset()?;
 ///
-/// while let Some(mut row) = query_stmt.next()? {
-///     let id = row.get::<i64>(0)?;
-///     assert_eq!(id, 42);
+/// while let Some(value) = query_stmt.next::<i64>()? {
+///     assert_eq!(value, 42);
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -166,63 +167,6 @@ impl Statement {
         self.raw.as_ptr()
     }
 
-    /// Get the next row from the statement.
-    ///
-    /// Returns `None` when there are no more rows.
-    ///
-    /// This is a higher level API than `step` and is less prone to misuse. Note
-    /// however that misuse never leads to corrupted data or undefined behavior,
-    /// only surprising behavior such as NULL values being auto-converted (see
-    /// [`Statement::step`]).
-    ///
-    /// Note that since this borrows from a mutable reference, it is *not*
-    /// possible to decode multiple rows simultaneously. This is intentional
-    /// since the state of the [`Row`] is stored in the [`Statement`] from which
-    /// it is returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let c = Connection::open_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
-    ///
-    /// let mut results = Vec::new();
-    ///
-    /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
-    ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
-    ///     }
-    /// }
-    ///
-    /// let expected = [
-    ///     (String::from("Alice"), 72),
-    ///     (String::from("Bob"), 40),
-    ///     (String::from("Alice"), 72),
-    /// ];
-    ///
-    /// assert_eq!(results, expected);
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    pub fn next(&mut self) -> Result<Option<Row<'_>>> {
-        match self.step()? {
-            State::Row => Ok(Some(Row { stmt: self })),
-            State::Done => Ok(None),
-        }
-    }
-
     /// Get and read the next row from the statement using the [`FromRow`]
     /// trait.
     ///
@@ -238,8 +182,8 @@ impl Statement {
     ///
     /// Note that since this borrows from a mutable reference, it is *not*
     /// possible to decode multiple rows that borrow from the statement
-    /// simultaneously. This is intentional since the state of the [`Row`] is
-    /// stored in the [`Statement`] from which it is returned.
+    /// simultaneously. This is intentional since the state of the row is stored
+    /// in the [`Statement`] from which it is returned.
     ///
     /// ```compile_fail
     /// use sqll::{Connection, FromRow};
@@ -250,7 +194,7 @@ impl Statement {
     ///     age: i64,
     /// }
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -261,8 +205,8 @@ impl Statement {
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users")?;
     ///
-    /// let a = stmt.next_row::<Person<'_>>()?;
-    /// let b = stmt.next_row::<Person<'_>>()?;
+    /// let a = stmt.next::<Person<'_>>()?;
+    /// let b = stmt.next::<Person<'_>>()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -279,7 +223,7 @@ impl Statement {
     ///     age: i64,
     /// }
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -294,9 +238,9 @@ impl Statement {
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
-    ///     while let Some(person) = stmt.next_row::<Person>()? {
+    ///     while let Some(person) = stmt.next::<Person>()? {
     ///         results.push((person.name, person.age));
     ///     }
     /// }
@@ -310,12 +254,12 @@ impl Statement {
     /// assert_eq!(results, expected);
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn next_row<'stmt, T>(&'stmt mut self) -> Result<Option<T>>
+    pub fn next<'stmt, T>(&'stmt mut self) -> Result<Option<T>>
     where
         T: FromRow<'stmt>,
     {
         match self.step()? {
-            State::Row => Ok(Some(T::from_row(&Row { stmt: self })?)),
+            State::Row => Ok(Some(T::from_row(self)?)),
             State::Done => Ok(None),
         }
     }
@@ -339,7 +283,7 @@ impl Statement {
     /// ```
     /// use sqll::{Connection, Code};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (id INTEGER, name TEXT);
@@ -353,11 +297,11 @@ impl Statement {
     ///
     /// assert!(stmt.step()?.is_row());
     /// assert_eq!(stmt.get::<i64>(0)?, 0);
-    /// assert_eq!(stmt.borrow::<str>(1)?, "Alice");
+    /// assert_eq!(stmt.get_unsized::<str>(1)?, "Alice");
     ///
     /// assert!(stmt.step()?.is_row());
     /// assert_eq!(stmt.get::<i64>(0)?, 1);
-    /// assert_eq!(stmt.borrow::<str>(1)?, "Bob");
+    /// assert_eq!(stmt.get_unsized::<str>(1)?, "Bob");
     ///
     /// assert!(stmt.step()?.is_done());
     /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
@@ -370,7 +314,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -385,7 +329,7 @@ impl Statement {
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
     ///     while stmt.step()?.is_row() {
     ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
@@ -419,7 +363,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -436,8 +380,8 @@ impl Statement {
     /// let mut query_stmt = c.prepare("SELECT age FROM users ORDER BY name")?;
     /// let mut results = Vec::new();
     ///
-    /// while let Some(row) = query_stmt.next()? {
-    ///     results.push(row.get::<i64>(0)?);
+    /// while let Some(value) = query_stmt.next::<i64>()? {
+    ///     results.push(value);
     /// }
     ///
     /// let expected = [44, 71];
@@ -449,8 +393,8 @@ impl Statement {
         Ok(())
     }
 
-    /// Construct a typed iterator over the rows produced by this statement
-    /// through the [`FromRow`] trait.
+    /// Coerce a statement into a typed iterator over the rows produced by this
+    /// statement through the [`FromRow`] trait.
     ///
     /// This does not support borrowing from the statement, because a statement
     /// stores the state for each row.
@@ -466,7 +410,7 @@ impl Statement {
     ///     age: i64,
     /// }
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -498,20 +442,70 @@ impl Statement {
         }
     }
 
+    /// Coerce a statement into an owned typed iterator over the rows produced
+    /// by this statement through the [`FromRow`] trait.
+    ///
+    /// This does not support borrowing from the statement, because a statement
+    /// stores the state for each row.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, FromRow, Result};
+    ///
+    /// #[derive(FromRow, Debug, PartialEq)]
+    /// struct Person {
+    ///     name: String,
+    ///     age: i64,
+    /// }
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > 40")?;
+    ///
+    /// let results = c.prepare("SELECT * FROM users WHERE age > 40")?
+    ///     .into_iter::<(String, i64)>().collect::<Result<Vec<_>>>()?;
+    /// let expected = [(String::from("Alice"), 72)];
+    /// assert_eq!(results, expected);
+    ///
+    /// let results = c.prepare("SELECT * FROM users WHERE age > 40")?
+    ///     .into_iter::<Person>().collect::<Result<Vec<_>>>()?;
+    /// let expected = [Person { name: String::from("Alice"), age: 72 }];
+    /// assert_eq!(results, expected);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn into_iter<T>(self) -> IntoIter<T>
+    where
+        for<'stmt> T: FromRow<'stmt>,
+    {
+        IntoIter {
+            stmt: self,
+            _marker: PhantomData,
+        }
+    }
+
     /// Reset the statement allowing it to be re-executed.
     ///
     /// The next call to [`Statement::step`] will start over from the first
     /// resulting row again.
     ///
     /// Note that resetting a statement doesn't unset bindings set by
-    /// [`Statement::bind`]. To do this, use [`Statement::clear_bindings`].
+    /// [`Statement::bind_value`]. To do this, use
+    /// [`Statement::clear_bindings`].
     ///
     /// # Examples
     ///
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -526,10 +520,10 @@ impl Statement {
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next::<(String, i64)>()? {
+    ///         results.push(row);
     ///     }
     /// }
     ///
@@ -558,7 +552,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -573,10 +567,10 @@ impl Statement {
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next::<(String, i64)>()? {
+    ///         results.push(row);
     ///     }
     /// }
     ///
@@ -595,6 +589,50 @@ impl Statement {
         Ok(())
     }
 
+    /// Bind a values to one or more parameter indexes.
+    ///
+    /// This always binds to the first index, to specify a custom index use
+    /// [`Statement::bind_value`] or configure the [`Bind` derive] with
+    /// `#[sqll(index = ..)]`.
+    ///
+    /// If a statement is stepped without a parameter being bound, the parameter
+    /// is bound by sqlite to `NULL` by default.
+    ///
+    /// [`Bind` derive]: derive@crate::Bind
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, Bind};
+    ///
+    /// #[derive(Bind)]
+    /// struct Binding<'a> {
+    ///     name: &'a str,
+    ///     age: u32,
+    ///     order_by: &'a str,
+    /// }
+    ///
+    /// let mut c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 42);
+    ///     INSERT INTO users VALUES ('Bob', 72);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT name, age FROM users WHERE name = ? AND age = ? ORDER BY ?")?;
+    /// stmt.bind(Binding { name: "Bob", age: 72, order_by: "age" })?;
+    ///
+    /// assert_eq!(stmt.next::<(String, u32)>()?, Some(("Bob".to_string(), 72)));
+    /// assert_eq!(stmt.next::<(String, u32)>()?, None);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn bind(&mut self, value: impl Bind) -> Result<()> {
+        value.bind(self)
+    }
+
     /// Bind a value to a parameter by index.
     ///
     /// If a statement is stepped without a parameter being bound, the parameter
@@ -606,16 +644,16 @@ impl Statement {
     /// an error.
     ///
     /// ```
-    /// use sqll::{Connection, Code, Null};
+    /// use sqll::{Connection, Code};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name STRING)
     /// "#);
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
-    /// let e = stmt.bind(0, "Bob").unwrap_err();
+    /// let e = stmt.bind_value(0, "Bob").unwrap_err();
     /// assert_eq!(e.code(), Code::RANGE);
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -623,23 +661,23 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, Code, Null};
+    /// use sqll::{Connection, Code};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name STRING)
     /// "#);
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE name = ?")?;
-    /// stmt.bind(1, "Bob")?;
+    /// stmt.bind_value(1, "Bob")?;
     ///
     /// assert!(stmt.step()?.is_done());
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn bind(&mut self, index: c_int, value: impl Bindable) -> Result<()> {
-        value.bind(self, index)
+    pub fn bind_value(&mut self, index: c_int, value: impl BindValue) -> Result<()> {
+        value.bind_value(self, index)
     }
 
     /// Bind a value to a parameter by name.
@@ -649,18 +687,22 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name STRING)
     /// "#);
     /// let mut statement = c.prepare("SELECT * FROM users WHERE name = :name")?;
-    /// statement.bind_by_name(c":name", "Bob")?;
+    /// statement.bind_value_by_name(c":name", "Bob")?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn bind_by_name(&mut self, name: impl AsRef<CStr>, value: impl Bindable) -> Result<()> {
+    pub fn bind_value_by_name(
+        &mut self,
+        name: impl AsRef<CStr>,
+        value: impl BindValue,
+    ) -> Result<()> {
         if let Some(index) = self.bind_parameter_index(name) {
-            self.bind(index, value)?;
+            self.bind_value(index, value)?;
             Ok(())
         } else {
             Err(Error::new(Code::MISMATCH))
@@ -689,7 +731,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -708,7 +750,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -759,7 +801,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -797,7 +839,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER, occupation TEXT);
@@ -839,7 +881,7 @@ impl Statement {
     /// ```
     /// use sqll::{Connection, Type};
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age REAL, photo BLOB);
@@ -880,7 +922,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name STRING)
@@ -924,16 +966,17 @@ impl Statement {
         unsafe { c_to_str(ffi::sqlite3_bind_parameter_name(self.raw.as_ptr(), index)) }
     }
 
-    /// Read a value from a column into a [`Gettable`].
+    /// Get a single value from a column through [`FromColumn`].
     ///
     /// The first column has index 0. The same column can be read multiple
     /// times.
+    ///
     /// # Examples
     ///
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -948,10 +991,10 @@ impl Statement {
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next::<(String, i64)>()? {
+    ///         results.push(row);
     ///     }
     /// }
     ///
@@ -967,12 +1010,12 @@ impl Statement {
     #[inline]
     pub fn get<'stmt, T>(&'stmt self, index: c_int) -> Result<T>
     where
-        T: Gettable<'stmt>,
+        T: FromColumn<'stmt>,
     {
-        Gettable::get(self, index)
+        FromColumn::from_column(self, index)
     }
 
-    /// Borrow a value from a column.
+    /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
     ///
     /// The first column has index 0. The same column can be read multiple
     /// times.
@@ -982,7 +1025,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -995,20 +1038,54 @@ impl Statement {
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
     ///     while stmt.step()?.is_row() {
-    ///         assert!(matches!(stmt.borrow::<str>(0)?, "Alice" | "Bob"));
+    ///         assert!(matches!(stmt.get_unsized::<str>(0)?, "Alice" | "Bob"));
     ///     }
     /// }
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn borrow<T>(&self, index: c_int) -> Result<&T>
+    pub fn get_unsized<T>(&self, index: c_int) -> Result<&T>
     where
-        T: ?Sized + Borrowable,
+        T: ?Sized + FromUnsizedColumn,
     {
-        Borrowable::borrow(self, index)
+        FromUnsizedColumn::from_unsized_column(self, index)
+    }
+
+    /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
+    ///
+    /// The first column has index 0. The same column can be read multiple
+    /// times.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
+    ///
+    /// while stmt.step()?.is_row() {
+    ///     assert!(matches!(stmt.get_row::<(&str, i64)>()?, ("Alice", 72) | ("Bob", 40)));
+    /// }
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn get_row<'stmt, T>(&'stmt self) -> Result<T>
+    where
+        T: FromRow<'stmt>,
+    {
+        FromRow::from_row(self)
     }
 
     /// Read a value from a column into the provided [`Sink`].
@@ -1024,7 +1101,7 @@ impl Statement {
     /// ```
     /// use sqll::Connection;
     ///
-    /// let c = Connection::open_memory()?;
+    /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name TEXT, age INTEGER);
@@ -1036,25 +1113,23 @@ impl Statement {
     /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
     ///
     /// let mut results = Vec::new();
-    /// let mut name_buffer = String::new();
+    /// let mut name = String::new();
     ///
     /// for age in [30, 50] {
     ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
+    ///     stmt.bind_value(1, age)?;
     ///
     ///     while stmt.step()?.is_row() {
-    ///         name_buffer.clear();
-    ///         stmt.read(0, &mut name_buffer)?;
+    ///         name.clear();
+    ///         stmt.read(0, &mut name)?;
     ///
-    ///         if name_buffer == "Bob" {
+    ///         if name == "Bob" {
     ///             results.push(stmt.get::<i64>(1)?);
     ///         }
     ///     }
     /// }
     ///
-    /// let expected = [40];
-    ///
-    /// assert_eq!(results, expected);
+    /// assert_eq!(results, [40]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -1088,11 +1163,31 @@ where
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.stmt.step() {
-            Ok(State::Row) => {
-                let row = Row { stmt: self.stmt };
+            Ok(State::Row) => Some(T::from_row(self.stmt)),
+            Ok(State::Done) => None,
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
 
-                Some(row.as_row())
-            }
+/// An owned typed iterator over the rows produced by a statement.
+///
+/// See [`Statement::into_iter`].
+pub struct IntoIter<T> {
+    stmt: Statement,
+    _marker: PhantomData<T>,
+}
+
+impl<T> Iterator for IntoIter<T>
+where
+    for<'stmt> T: FromRow<'stmt>,
+{
+    type Item = Result<T>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.stmt.step() {
+            Ok(State::Row) => Some(T::from_row(&self.stmt)),
             Ok(State::Done) => None,
             Err(e) => Some(Err(e)),
         }
@@ -1180,214 +1275,5 @@ impl DoubleEndedIterator for Columns {
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         self.range.nth_back(n)
-    }
-}
-
-/// A row produced by a statement.
-///
-/// See [`Statement::next`].
-pub struct Row<'stmt> {
-    stmt: &'stmt Statement,
-}
-
-impl<'stmt> Row<'stmt> {
-    /// Convert the entire row into a type implementing [`FromRow`].
-    ///
-    /// The [`FromRow`] trait is a convenience trait which is usually
-    /// implemented using the [`FromRow` derive].
-    ///
-    /// [`FromRow` derive]: derive@crate::FromRow
-    ///
-    /// # Examples
-    ////
-    /// ```
-    /// use sqll::{Connection, FromRow};
-    ///
-    /// #[derive(FromRow)]
-    /// struct Person {
-    ///     name: String,
-    ///     age: i64,
-    /// }
-    ///
-    /// let c = Connection::open_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
-    ///
-    /// let mut results = Vec::new();
-    ///
-    /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
-    ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         let (_, age) = row.as_row::<(&str, i64)>()?;
-    ///         results.push(age);
-    ///
-    ///         let person = row.as_row::<Person>()?;
-    ///         results.push(person.age);
-    ///     }
-    /// }
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    pub fn as_row<T>(&self) -> Result<T>
-    where
-        T: FromRow<'stmt>,
-    {
-        FromRow::from_row(self)
-    }
-
-    /// Read a value from a column into a [`Gettable`].
-    ///
-    /// The first column has index 0. The same column can be read multiple
-    /// times.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let c = Connection::open_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
-    ///
-    /// let mut results = Vec::new();
-    ///
-    /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
-    ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         results.push((row.get::<String>(0)?, row.get::<i64>(1)?));
-    ///     }
-    /// }
-    ///
-    /// let expected = [
-    ///     (String::from("Alice"), 72),
-    ///     (String::from("Bob"), 40),
-    ///     (String::from("Alice"), 72),
-    /// ];
-    ///
-    /// assert_eq!(results, expected);
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn get<T>(&self, index: c_int) -> Result<T>
-    where
-        T: Gettable<'stmt>,
-    {
-        Gettable::get(self.stmt, index)
-    }
-
-    /// Borrow a value from a column.
-    ///
-    /// The first column has index 0. The same column can be read multiple
-    /// times.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let c = Connection::open_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT name FROM users WHERE age > ?")?;
-    ///
-    /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
-    ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         assert!(matches!(row.borrow::<str>(0)?, "Alice" | "Bob"));
-    ///     }
-    /// }
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn borrow<T>(&self, index: c_int) -> Result<&T>
-    where
-        T: ?Sized + Borrowable,
-    {
-        Borrowable::borrow(self.stmt, index)
-    }
-
-    /// Read a value from a column into the provided [`Sink`].
-    ///
-    /// The first column has index 0. The same column can be read multiple
-    /// times.
-    ///
-    /// This can be much more efficient than calling `read` since you can
-    /// provide your own buffers.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let c = Connection::open_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
-    ///
-    /// let mut results = Vec::new();
-    /// let mut name_buffer = String::new();
-    ///
-    /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind(1, age)?;
-    ///
-    ///     while let Some(row) = stmt.next()? {
-    ///         name_buffer.clear();
-    ///         row.read(0, &mut name_buffer)?;
-    ///
-    ///         if name_buffer == "Bob" {
-    ///             results.push(row.get::<i64>(1)?);
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// let expected = [40];
-    ///
-    /// assert_eq!(results, expected);
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn read(&self, index: c_int, mut out: impl Sink) -> Result<()> {
-        out.write(self.stmt, index)?;
-        Ok(())
-    }
-
-    /// Access the borrowed underlying statement for this row.
-    ///
-    /// This is primarily useful for advanced use-cases where you are
-    /// implementing [`FromRow`].
-    pub fn as_stmt(&self) -> &'stmt Statement {
-        self.stmt
     }
 }

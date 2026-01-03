@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::gettable::type_check;
+use crate::from_column::type_check;
 use crate::{Code, Error, Result, Statement, Type};
 
 mod sealed {
@@ -48,7 +48,7 @@ where
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT);
@@ -72,7 +72,7 @@ where
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -83,9 +83,9 @@ where
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = String::new();
 ///
-/// while let Some(row) = stmt.next()? {
+/// while stmt.step()?.is_row() {
 ///     name.clear();
-///     let e = row.read(0, &mut name).unwrap_err();
+///     let e = stmt.read(0, &mut name).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -131,7 +131,7 @@ impl Sink for String {
 /// ```
 /// use sqll::Connection;
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (blob BLOB);
@@ -142,9 +142,9 @@ impl Sink for String {
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 /// let mut blob = Vec::<u8>::new();
 ///
-/// while let Some(row) = stmt.next()? {
+/// while stmt.step()?.is_row() {
 ///     blob.clear();
-///     row.read(0, &mut blob)?;
+///     stmt.read(0, &mut blob)?;
 ///     assert!(matches!(blob.as_slice(), b"\xaa\xbb" | b"\xbb\xcc"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -155,7 +155,7 @@ impl Sink for String {
 /// ```
 /// use sqll::{Connection, Code};
 ///
-/// let c = Connection::open_memory()?;
+/// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (id INTEGER);
@@ -166,7 +166,7 @@ impl Sink for String {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 /// let mut name = Vec::<u8>::new();
 ///
-/// while let Some(row) = stmt.next()? {
+/// while stmt.step()?.is_row() {
 ///     name.clear();
 ///     let e = stmt.read(0, &mut name).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);

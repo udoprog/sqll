@@ -74,11 +74,11 @@ fn connection_busy_handler() -> Result<()> {
             let mut c = Connection::open(path)?;
             c.busy_handler(|_| true)?;
             let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
-            stmt.bind(1, 2i64)?;
-            stmt.bind(2, "Bob")?;
-            stmt.bind(3, 69.42)?;
-            stmt.bind(4, &[0x69u8, 0x42u8][..])?;
-            stmt.bind(5, Null)?;
+            stmt.bind_value(1, 2i64)?;
+            stmt.bind_value(2, "Bob")?;
+            stmt.bind_value(3, 69.42)?;
+            stmt.bind_value(4, &[0x69u8, 0x42u8][..])?;
+            stmt.bind_value(5, Null)?;
             assert!(stmt.step()?.is_done());
             Ok(true)
         }));
@@ -96,11 +96,11 @@ fn statement_bind() -> Result<()> {
     let c = setup_users(":memory:")?;
     let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
 
-    stmt.bind(1, 2i64)?;
-    stmt.bind(2, "Bob")?;
-    stmt.bind(3, 69.42)?;
-    stmt.bind(4, &[0x69u8, 0x42u8][..])?;
-    stmt.bind(5, Null)?;
+    stmt.bind_value(1, 2i64)?;
+    stmt.bind_value(2, "Bob")?;
+    stmt.bind_value(3, 69.42)?;
+    stmt.bind_value(4, &[0x69u8, 0x42u8][..])?;
+    stmt.bind_value(5, Null)?;
 
     assert!(stmt.step()?.is_done());
     Ok(())
@@ -111,21 +111,21 @@ fn statement_bind_with_nullable() -> Result<()> {
     let c = setup_users(":memory:")?;
     let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
 
-    stmt.bind(1, None::<i64>)?;
-    stmt.bind(2, None::<&str>)?;
-    stmt.bind(3, None::<f64>)?;
-    stmt.bind(4, None::<&[u8]>)?;
-    stmt.bind(5, None::<&str>)?;
+    stmt.bind_value(1, None::<i64>)?;
+    stmt.bind_value(2, None::<&str>)?;
+    stmt.bind_value(3, None::<f64>)?;
+    stmt.bind_value(4, None::<&[u8]>)?;
+    stmt.bind_value(5, None::<&str>)?;
 
     assert!(stmt.step()?.is_done());
 
     let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
 
-    stmt.bind(1, Some(2i64))?;
-    stmt.bind(2, Some("Bob"))?;
-    stmt.bind(3, Some(69.42))?;
-    stmt.bind(4, Some(&[0x69u8, 0x42u8][..]))?;
-    stmt.bind(5, None::<&str>)?;
+    stmt.bind_value(1, Some(2i64))?;
+    stmt.bind_value(2, Some("Bob"))?;
+    stmt.bind_value(3, Some(69.42))?;
+    stmt.bind_value(4, Some(&[0x69u8, 0x42u8][..]))?;
+    stmt.bind_value(5, None::<&str>)?;
     assert!(stmt.step()?.is_done());
     Ok(())
 }
@@ -135,12 +135,12 @@ fn statement_bind_by_name() -> Result<()> {
     let c = setup_users(":memory:")?;
     let mut stmt = c.prepare("INSERT INTO users VALUES (:id, :name, :age, :photo, :email)")?;
 
-    stmt.bind_by_name(c":id", 2i64)?;
-    stmt.bind_by_name(c":name", "Bob")?;
-    stmt.bind_by_name(c":age", 69.42)?;
-    stmt.bind_by_name(c":photo", &[0x69u8, 0x42u8][..])?;
-    stmt.bind_by_name(c":email", Null)?;
-    assert!(stmt.bind_by_name(c":missing", 404).is_err());
+    stmt.bind_value_by_name(c":id", 2i64)?;
+    stmt.bind_value_by_name(c":name", "Bob")?;
+    stmt.bind_value_by_name(c":age", 69.42)?;
+    stmt.bind_value_by_name(c":photo", &[0x69u8, 0x42u8][..])?;
+    stmt.bind_value_by_name(c":email", Null)?;
+    assert!(stmt.bind_value_by_name(c":missing", 404).is_err());
     assert!(stmt.step()?.is_done());
     Ok(())
 }
@@ -171,14 +171,14 @@ fn statement_parameter_index() -> Result<()> {
     let statement = "INSERT INTO users VALUES (:id, :name, :age, :photo, :email)";
     let mut stmt = c.prepare(statement)?;
 
-    stmt.bind(stmt.bind_parameter_index(c":id").unwrap(), 2)?;
-    stmt.bind(stmt.bind_parameter_index(c":name").unwrap(), "Bob")?;
-    stmt.bind(stmt.bind_parameter_index(c":age").unwrap(), 69.42)?;
-    stmt.bind(
+    stmt.bind_value(stmt.bind_parameter_index(c":id").unwrap(), 2)?;
+    stmt.bind_value(stmt.bind_parameter_index(c":name").unwrap(), "Bob")?;
+    stmt.bind_value(stmt.bind_parameter_index(c":age").unwrap(), 69.42)?;
+    stmt.bind_value(
         stmt.bind_parameter_index(c":photo").unwrap(),
         &[0x69u8, 0x42u8][..],
     )?;
-    stmt.bind(stmt.bind_parameter_index(c":email").unwrap(), Null)?;
+    stmt.bind_value(stmt.bind_parameter_index(c":email").unwrap(), Null)?;
     assert_eq!(stmt.bind_parameter_index(c":missing"), None);
     assert!(stmt.step()?.is_done());
     Ok(())
@@ -234,7 +234,7 @@ fn statement_wildcard_with_binding() -> Result<()> {
     let c = setup_english(":memory:")?;
     let mut stmt = c.prepare("SELECT value FROM english WHERE value LIKE ?")?;
 
-    stmt.bind(1, "%type")?;
+    stmt.bind_value(1, "%type")?;
 
     let mut count = 0;
 

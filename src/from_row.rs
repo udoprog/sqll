@@ -1,7 +1,9 @@
 use crate::utils::repeat;
-use crate::{Error, Gettable, Row};
+use crate::{Error, FromColumn, Statement};
 
-/// A helper trait to convert a row into a user-defined type.
+/// A type suitable for reading an entire row from a prepared statement.
+///
+/// Use with [`Statement::next`] or [`Statement::iter`].
 ///
 /// # Examples
 ///
@@ -17,24 +19,24 @@ use crate::{Error, Gettable, Row};
 /// #[derive(FromRow)]
 /// struct PersonTuple<'stmt>(&'stmt str, u32);
 ///
-/// let mut c = Connection::open_memory()?;
+/// let mut c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
 ///
 ///     INSERT INTO users VALUES ('Alice', 42);
-///     INSERT INTO users VALUES ('Bob', 69);
+///     INSERT INTO users VALUES ('Bob', 72);
 /// "#)?;
 ///
 /// let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
 ///
-/// while let Some(person) = results.next_row::<Person<'_>>()? {
+/// while let Some(person) = results.next::<Person<'_>>()? {
 ///     println!("{} is {} years old", person.name, person.age);
 /// }
 ///
 /// results.reset()?;
 ///
-/// while let Some(PersonTuple(name, age)) = results.next_row::<PersonTuple<'_>>()? {
+/// while let Some(PersonTuple(name, age)) = results.next::<PersonTuple<'_>>()? {
 ///     println!("{name} is {age} years old");
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -54,22 +56,22 @@ use crate::{Error, Gettable, Row};
 /// #[derive(FromRow)]
 /// struct PersonTuple(String, u32);
 ///
-/// let mut c = Connection::open_memory()?;
+/// let mut c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
 ///
 ///     INSERT INTO users VALUES ('Alice', 42);
-///     INSERT INTO users VALUES ('Bob', 69);
+///     INSERT INTO users VALUES ('Bob', 72);
 /// "#)?;
 ///
-/// let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
+/// let mut stmt = c.prepare("SELECT name, age FROM users ORDER BY age")?;
 ///
-/// while let Some(row) = results.next()? {
-///     let person = row.as_row::<Person>()?;
+/// while stmt.step()?.is_row() {
+///     let person = stmt.get_row::<Person>()?;
 ///     println!("{} is {} years old", person.name, person.age);
 ///
-///     let PersonTuple(name, age) = row.as_row::<PersonTuple>()?;
+///     let PersonTuple(name, age) = stmt.get_row::<PersonTuple>()?;
 ///     println!("{name} is {age} years old");
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -79,7 +81,17 @@ where
     Self: Sized,
 {
     /// Constructs an instance of `Self` from the given row.
-    fn from_row(row: &Row<'stmt>) -> Result<Self, Error>;
+    fn from_row(stmt: &'stmt Statement) -> Result<Self, Error>;
+}
+
+impl<'stmt, T> FromRow<'stmt> for T
+where
+    T: FromColumn<'stmt>,
+{
+    #[inline]
+    fn from_row(stmt: &'stmt Statement) -> Result<Self, Error> {
+        FromColumn::from_column(stmt, 0)
+    }
 }
 
 macro_rules! ignore {
@@ -89,11 +101,11 @@ macro_rules! ignore {
 }
 
 macro_rules! implement_tuple {
-    ($ty0:ident $var0:ident $value0:expr $(, $ty:ident $var:ident $value:expr)* $(,)? ) => {
+    ($ty0:ident $var0:ident $value0:literal $value1:literal $(, $ty:ident $var:ident $value0n:literal $value1n:literal)* $(,)? ) => {
         /// [`FromRow`] implementation for a tuple.
         ///
-        /// A tuple reads elements one after another, starting at the index
-        /// specified in the call to [`Statement::get`].
+        /// A tuple reads elements one after another, starting at the first
+        /// index.
         ///
         /// [`Statement::get`]: crate::statement::Statement::get
         ///
@@ -102,32 +114,31 @@ macro_rules! implement_tuple {
         /// ```
         /// use sqll::Connection;
         ///
-        /// let c = Connection::open_memory()?;
-        #[doc = concat!(" c.execute(\"CREATE TABLE users (", stringify!($var0) $(, ", ", stringify!($var), " INTEGER")*, ")\")?;")]
-        #[doc = concat!(" c.execute(\"INSERT INTO users VALUES (", stringify!($value0) $(, ", ", stringify!($value))*, ")\")?;")]
+        /// let c = Connection::open_in_memory()?;
+        #[doc = concat!("c.execute(\"CREATE TABLE users (", stringify!($var0), " INTEGER" $(, ", ", stringify!($var), " INTEGER")*, ")\")?;")]
+        #[doc = concat!("c.execute(\"INSERT INTO users VALUES (", stringify!($value0) $(, ", ", stringify!($value0n))*, ")\")?;")]
         ///
         /// let mut stmt = c.prepare("SELECT * FROM users")?;
         ///
-        /// while let Some(row) = stmt.next()? {
-        #[doc = concat!("     let (", stringify!($var0), "," $(, " ", stringify!($var), ",")*, ") = row.get::<(", ignore!($var0), "i64," $(, " ", ignore!($var), "i64,")*, ")>(0)?;")]
-        #[doc = concat!("     assert_eq!(", stringify!($var0), ", ", stringify!($value0), ");")]
+        #[doc = concat!("while let Some((", stringify!($var0), "," $(, " ", stringify!($var), ",")*, ")) = stmt.next::<(", ignore!($var0), "i64," $(, " ", ignore!($var), "i64,")*, ")>()? {")]
+        #[doc = concat!("    assert_eq!(", stringify!($var0), ", ", stringify!($value0), ");")]
         $(
-            #[doc = concat!("     assert_eq!(", stringify!($var), ", ", stringify!($value), ");")]
+            #[doc = concat!("    assert_eq!(", stringify!($var), ", ", stringify!($value0n), ");")]
         )*
         /// }
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl<'stmt, $ty0, $($ty,)*> FromRow<'stmt> for ($ty0, $($ty,)*)
         where
-            $ty0: Gettable<'stmt>,
-            $($ty: Gettable<'stmt>,)*
+            $ty0: FromColumn<'stmt>,
+            $($ty: FromColumn<'stmt>,)*
         {
             #[inline]
-            fn from_row(row: &Row<'stmt>) -> Result<Self, Error> {
-                let $var0 = Gettable::get(row.as_stmt(), $value0)?;
+            fn from_row(stmt: &'stmt Statement) -> Result<Self, Error> {
+                let $var0 = FromColumn::from_column(stmt, $value0)?;
 
                 $(
-                    let $var = Gettable::get(row.as_stmt(), $value)?;
+                    let $var = FromColumn::from_column(stmt, $value0n)?;
                 )*
 
                 Ok(($var0, $($var,)*))

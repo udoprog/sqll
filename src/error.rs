@@ -41,10 +41,12 @@ impl Code {
 
 macro_rules! define_codes {
     ($(
+        $(#[doc = $doc:literal])*
         $vis:vis const $name:ident = $value:expr;
     )*) => {
         impl Code {
             $(
+                $(#[doc = $doc])*
                 $vis const $name: Code = Code::new($value);
             )*
         }
@@ -75,36 +77,71 @@ macro_rules! define_codes {
 // constants was too much work and they would be based on outdated sqlite3
 // versions since bindgen uses the headers.
 define_codes! {
+    /// Successful result.
     pub const OK = 0;
-    pub const ERROR = 1;
-    pub const INTERNAL = 2;
-    pub const PERM = 3;
-    pub const ABORT = 4;
-    pub const BUSY = 5;
-    pub const LOCKED = 6;
-    pub const NOMEM = 7;
-    pub const READONLY = 8;
-    pub const INTERRUPT = 9;
+    /// Generic error.
+    pub const ERROR =  1;
+    /// Internal logic error in SQLite.
+    pub const INTERNAL =  2;
+    /// Access permission denied.
+    pub const PERM =  3;
+    /// Callback routine requested an abort.
+    pub const ABORT =  4;
+    /// The database file is locked.
+    pub const BUSY =  5;
+    /// A table in the database is locked.
+    pub const LOCKED =  6;
+    /// A malloc() failed.
+    pub const NOMEM =  7;
+    /// Attempt to write a readonly database.
+    pub const READONLY =  8;
+    /// Operation terminated by sqlite3_interrupt(.
+    pub const INTERRUPT =  9;
+    /// Some kind of disk I/O error occurred.
     pub const IOERR = 10;
+    /// The database disk image is malformed.
     pub const CORRUPT = 11;
+    /// Unknown opcode in sqlite3_file_control().
     pub const NOTFOUND = 12;
+    /// Insertion failed because database is full.
     pub const FULL = 13;
+    /// Unable to open the database file.
     pub const CANTOPEN = 14;
+    /// Database lock protocol error.
     pub const PROTOCOL = 15;
+    /// Internal use only.
     pub const EMPTY = 16;
+    /// The database schema changed.
     pub const SCHEMA = 17;
+    /// String or BLOB exceeds size limit.
     pub const TOOBIG = 18;
+    /// Abort due to constraint violation.
     pub const CONSTRAINT = 19;
+    /// Data type mismatch.
     pub const MISMATCH = 20;
+    /// Library used incorrectly.
     pub const MISUSE = 21;
+    /// Uses OS features not supported on host.
     pub const NOLFS = 22;
+    /// Authorization denied.
     pub const AUTH = 23;
+    /// Not used.
     pub const FORMAT = 24;
+    /// 2nd parameter to sqlite3_bind out of range.
     pub const RANGE = 25;
+    /// File opened that is not a database file.
     pub const NOTADB = 26;
+    /// Notifications from SQLite log.
     pub const NOTICE = 27;
+    /// Warnings from SQLite log.
     pub const WARNING = 28;
+    /// [`Statement::step`] has another row ready.
+    ///
+    /// [`Statement::step`]: crate::Statement::step
     pub const ROW = 100;
+    /// [`Statement::step`] has finished executing.
+    ///
+    /// [`Statement::step`]: crate::Statement::step
     pub const DONE = 101;
     pub const ERROR_MISSING_COLLSEQ = Self::ERROR.raw | (1 << 8);
     pub const ERROR_RETRY = Self::ERROR.raw | (2 << 8);
@@ -205,6 +242,7 @@ impl Code {
 }
 
 /// An error.
+#[derive(PartialEq, Eq)]
 pub struct Error {
     /// Error code.
     code: Code,
