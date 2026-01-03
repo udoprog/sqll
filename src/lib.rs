@@ -403,7 +403,7 @@ pub use self::version::{lib_version, lib_version_number};
 ///
 /// <br>
 ///
-/// ## Field attribuets
+/// ## Field attributes
 ///
 /// <br>
 ///
@@ -427,10 +427,15 @@ pub use self::version::{lib_version, lib_version_number};
 ///
 /// <br>
 ///
-/// #### `#[sql(name = "..")]`
+/// #### `#[sql(name = c"..")]`
 ///
 /// This allows for specifying an explicit binding name to use, instead of the
-/// default which is to bind by integer.
+/// default which is to bind by index or a field derived name if `#[sql(named)]`
+/// is set.
+///
+/// Note that the name are literal references to what is expected by the SQLite
+/// API, so must be prefixed with `:`. If a string literal is used, it will be
+/// checked so that it doesn't contain any null bytes.
 ///
 /// ```
 /// use sqll::{Bind, Connection};
@@ -450,8 +455,7 @@ pub use self::version::{lib_version, lib_version_number};
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("INSERT INTO persons (name, age) VALUES (:notname, :notage)")?;
-/// let person = Person { name: "Alice", age: 30 };
-/// stmt.bind(person)?;
+/// stmt.execute(Person { name: "Alice", age: 30 })?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
 #[cfg(feature = "derive")]
@@ -526,7 +530,7 @@ pub use sqll_macros::Bind;
 ///
 /// <br>
 ///
-/// ## Field attribuets
+/// ## Field attributes
 ///
 /// <br>
 ///
@@ -545,6 +549,18 @@ pub use sqll_macros::Bind;
 ///     age: u32,
 /// }
 /// ```
+///
+/// <br>
+///
+/// #### Missing `#[sql(name)]`?
+///
+/// Unlike the `Bind` derive, there is no `#[sql(name = ..)]` attribute for the
+/// `Row` derive. This is due to the underlying API not efficiently supporting
+/// this, and implementing it in `sqll` would either require additional
+/// allocations or inefficient per-row lookups.
+///
+/// Note that it's also not uncommon for column names to simply *not* have a
+/// name, such as when computing expressions like `COUNT(*)` or `column + 1`.
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use sqll_macros::Row;
