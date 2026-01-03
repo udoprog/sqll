@@ -175,7 +175,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn sqlite3_column_int64(arg1: *mut sqlite3_stmt, iCol: ::core::ffi::c_int)
-        -> sqlite3_int64;
+    -> sqlite3_int64;
 }
 unsafe extern "C" {
     pub fn sqlite3_column_text(
