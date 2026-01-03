@@ -409,10 +409,11 @@ impl Statement {
     ///
     /// Unlike [`next`], this does not support borrowing from the columns
     /// because a statement stores the state for each row. You have to used
-    /// owned values such as [`String`] or [`FixedBytes`].
+    /// owned values such as [`String`] or [`FixedBlob`].
     ///
+    /// [`next`]: Self::next
     /// [`String`]: alloc::string::String
-    /// [`FixedBytes`]: crate::FixedBytes
+    /// [`FixedBlob`]: crate::FixedBlob
     ///
     /// # Examples
     ///

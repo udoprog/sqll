@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::ffi;
 use crate::{
-    Code, Error, FixedBytes, FixedString, FromUnsizedColumn, Null, Result, Sink, Statement, Type,
+    Code, Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Sink, Statement, Type,
     Value,
 };
 
@@ -13,7 +13,7 @@ mod sealed {
     use alloc::string::String;
     use alloc::vec::Vec;
 
-    use crate::{FixedBytes, FixedString, Null, Value};
+    use crate::{FixedBlob, FixedText, Null, Value};
 
     pub trait Sealed<'stmt> {}
     impl Sealed<'_> for i8 {}
@@ -34,8 +34,8 @@ mod sealed {
     impl<'stmt> Sealed<'stmt> for &'stmt [u8] {}
     impl Sealed<'_> for Vec<u8> {}
     impl<'stmt, T> Sealed<'stmt> for Option<T> where T: Sealed<'stmt> {}
-    impl<const N: usize> Sealed<'_> for FixedBytes<N> {}
-    impl<const N: usize> Sealed<'_> for FixedString<N> {}
+    impl<const N: usize> Sealed<'_> for FixedBlob<N> {}
+    impl<const N: usize> Sealed<'_> for FixedText<N> {}
     impl Sealed<'_> for Value {}
 }
 
@@ -633,7 +633,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
     }
 }
 
-/// [`FromColumn`] implementation for [`FixedBytes`] which reads at most `N`
+/// [`FromColumn`] implementation for [`FixedBlob`] which reads at most `N`
 /// bytes.
 ///
 /// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
@@ -642,7 +642,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, FixedBytes, Code};
+/// use sqll::{Connection, FixedBlob, Code};
 ///
 /// let c = Connection::open_in_memory()?;
 ///
@@ -655,28 +655,28 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// assert!(stmt.step()?.is_row());
-/// let bytes = stmt.get::<FixedBytes<4>>(0)?;
+/// let bytes = stmt.get::<FixedBlob<4>>(0)?;
 /// assert_eq!(bytes.as_slice(), &[1, 2, 3, 4]);
 ///
 /// assert!(stmt.step()?.is_row());
-/// let e = stmt.get::<FixedBytes<4>>(0).unwrap_err();
+/// let e = stmt.get::<FixedBlob<4>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
-/// let bytes = stmt.get::<FixedBytes<5>>(0)?;
+/// let bytes = stmt.get::<FixedBlob<5>>(0)?;
 /// assert_eq!(bytes.as_slice(), &[5, 6, 7, 8, 9]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<const N: usize> FromColumn<'_> for FixedBytes<N> {
+impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
     #[inline]
     fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
-        match FixedBytes::try_from(<[u8]>::from_unsized_column(stmt, index)?) {
+        match FixedBlob::try_from(<[u8]>::from_unsized_column(stmt, index)?) {
             Ok(bytes) => Ok(bytes),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
         }
     }
 }
 
-/// [`FromColumn`] implementation for [`FixedBytes`] which reads at most `N`
+/// [`FromColumn`] implementation for [`FixedBlob`] which reads at most `N`
 /// bytes.
 ///
 /// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
@@ -685,7 +685,7 @@ impl<const N: usize> FromColumn<'_> for FixedBytes<N> {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, FixedString, Code};
+/// use sqll::{Connection, FixedText, Code};
 ///
 /// let c = Connection::open_in_memory()?;
 ///
@@ -698,21 +698,21 @@ impl<const N: usize> FromColumn<'_> for FixedBytes<N> {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// assert!(stmt.step()?.is_row());
-/// let bytes = stmt.get::<FixedString<5>>(0)?;
+/// let bytes = stmt.get::<FixedText<5>>(0)?;
 /// assert_eq!(bytes.as_str(), "Alice");
 ///
 /// assert!(stmt.step()?.is_row());
-/// let e = stmt.get::<FixedString<2>>(0).unwrap_err();
+/// let e = stmt.get::<FixedText<2>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
-/// let bytes = stmt.get::<FixedString<5>>(0)?;
+/// let bytes = stmt.get::<FixedText<5>>(0)?;
 /// assert_eq!(bytes.as_str(), "Bob");
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<const N: usize> FromColumn<'_> for FixedString<N> {
+impl<const N: usize> FromColumn<'_> for FixedText<N> {
     #[inline]
     fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
-        match FixedString::try_from(str::from_unsized_column(stmt, index)?) {
+        match FixedText::try_from(str::from_unsized_column(stmt, index)?) {
             Ok(s) => Ok(s),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
         }

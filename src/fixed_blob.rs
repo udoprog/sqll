@@ -8,29 +8,52 @@ use core::slice;
 
 /// A helper to read at most a fixed number of `N` bytes from a column. This
 /// allocates the storage for the bytes read on the stack.
-pub struct FixedBytes<const N: usize> {
+pub struct FixedBlob<const N: usize> {
     /// Storage to read to.
     data: [MaybeUninit<u8>; N],
     /// Number of bytes initialized.
     init: usize,
 }
 
-impl<const N: usize> FixedBytes<N> {
-    /// Construct a new empty [`FixedBytes`].
+impl<const N: usize> FixedBlob<N> {
+    /// Construct a new empty [`FixedBlob`].
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqll::FixedBytes;
+    /// use sqll::FixedBlob;
     ///
-    /// let s = FixedBytes::<5>::new();
-    /// assert_eq!(s.as_slice(), &[]);
+    /// let blob = FixedBlob::<5>::new();
+    /// assert_eq!(blob.len(), 0);
+    /// assert!(blob.is_empty());
+    /// assert_eq!(blob.as_slice(), &[]);
     /// ```
     pub const fn new() -> Self {
         Self {
             // SAFETY: this is safe as per `MaybeUninit::uninit_array`, which isn't stable (yet).
             data: unsafe { MaybeUninit::<[MaybeUninit<u8>; N]>::uninit().assume_init() },
             init: 0,
+        }
+    }
+
+    /// Construct a new [`FixedBlob`] from an array of bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::FixedBlob;
+    ///
+    /// let blob = FixedBlob::from(*b"abcde");
+    /// assert_eq!(blob.len(), 5);
+    /// assert!(!blob.is_empty());
+    /// assert_eq!(blob.as_slice(), b"abcde");
+    /// ```
+    pub const fn from_array(data: [u8; N]) -> Self {
+        // SAFETY: Transmuting from [u8; N] to [MaybeUninit<u8>; N] is safe
+        // since their layouts are identical.
+        Self {
+            data: unsafe { ptr::read(data.as_ptr().cast()) },
+            init: N,
         }
     }
 
@@ -54,35 +77,35 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, FixedBytes};
+    /// use sqll::{Connection, FixedBlob};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
     /// c.execute(r#"
     ///     CREATE TABLE users (id BLOB);
     ///
-    ///     INSERT INTO users (id) VALUES (X'01020304'), (X'05060708');
+    ///     INSERT INTO users (id) VALUES (X'01020304'), (X'050607');
     /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
-    /// while stmt.step()?.is_row() {
-    ///     let bytes = stmt.get::<FixedBytes<4>>(0)?;
-    ///     assert!(matches!(bytes.into_bytes(), Some([1, 2, 3, 4] | [5, 6, 7, 8])));
+    /// for id in stmt.iter::<FixedBlob<4>>() {
+    ///     let id = id?;
+    ///     assert!(matches!(id.into_bytes(), Some([1, 2, 3, 4]) | None));
     /// }
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn into_bytes(self) -> Option<[u8; N]> {
-        if self.init == N {
-            // SAFETY: All of the bytes in the sequence have been initialized
-            // and can be safety transmuted.
-            //
-            // Method of transmuting comes from the implementation of
-            // `MaybeUninit::array_assume_init` which is not yet stable.
-            unsafe { Some((&self.data as *const _ as *const [u8; N]).read()) }
-        } else {
-            None
+        if self.init != N {
+            return None;
         }
+
+        // SAFETY: All of the bytes in the sequence have been initialized and
+        // can be safety transmuted.
+        //
+        // Method of transmuting comes from the implementation of
+        // `MaybeUninit::array_assume_init` which is not yet stable.
+        unsafe { Some((&self.data as *const _ as *const [u8; N]).read()) }
     }
 
     /// Coerce into the slice of initialized memory which is present.
@@ -90,7 +113,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, FixedBytes};
+    /// use sqll::{Connection, FixedBlob};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -102,9 +125,9 @@ impl<const N: usize> FixedBytes<N> {
     ///
     /// let mut stmt = c.prepare("SELECT id FROM users")?;
     ///
-    /// while stmt.step()?.is_row() {
-    ///     let bytes = stmt.get::<FixedBytes<10>>(0)?;
-    ///     assert!(matches!(bytes.as_slice(), &[1, 2, 3, 4] | &[5, 6, 7, 8, 9]));
+    /// for id in stmt.iter::<FixedBlob<10>>() {
+    ///     let id = id?;
+    ///     assert!(matches!(id.as_slice(), &[1, 2, 3, 4] | &[5, 6, 7, 8, 9]));
     /// }
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -119,7 +142,7 @@ impl<const N: usize> FixedBytes<N> {
     }
 }
 
-impl<const N: usize> Deref for FixedBytes<N> {
+impl<const N: usize> Deref for FixedBlob<N> {
     type Target = [u8];
 
     #[inline]
@@ -128,44 +151,44 @@ impl<const N: usize> Deref for FixedBytes<N> {
     }
 }
 
-impl<const N: usize> fmt::Debug for FixedBytes<N> {
+impl<const N: usize> fmt::Debug for FixedBlob<N> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
 
-impl<const N: usize> AsRef<[u8]> for FixedBytes<N> {
+impl<const N: usize> AsRef<[u8]> for FixedBlob<N> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<const N: usize> PartialEq for FixedBytes<N> {
+impl<const N: usize> PartialEq for FixedBlob<N> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.as_slice() == other.as_slice()
     }
 }
 
-impl<const N: usize> Eq for FixedBytes<N> {}
+impl<const N: usize> Eq for FixedBlob<N> {}
 
-impl<const N: usize> PartialOrd for FixedBytes<N> {
+impl<const N: usize> PartialOrd for FixedBlob<N> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<const N: usize> Ord for FixedBytes<N> {
+impl<const N: usize> Ord for FixedBlob<N> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.as_slice().cmp(other.as_slice())
     }
 }
 
-impl<const N: usize> Hash for FixedBytes<N> {
+impl<const N: usize> Hash for FixedBlob<N> {
     #[inline]
     fn hash<H>(&self, state: &mut H)
     where
@@ -175,7 +198,7 @@ impl<const N: usize> Hash for FixedBytes<N> {
     }
 }
 
-impl<const N: usize> Clone for FixedBytes<N> {
+impl<const N: usize> Clone for FixedBlob<N> {
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -185,14 +208,14 @@ impl<const N: usize> Clone for FixedBytes<N> {
     }
 }
 
-/// Error raised when failing to convert a string into a `FixedBytes`.
+/// Error raised when failing to convert a string into a `FixedBlob`.
 ///
 /// # Examples
 ///
 /// ```
-/// use sqll::FixedBytes;
+/// use sqll::FixedBlob;
 ///
-/// let e = FixedBytes::<3>::try_from(&b"abcd"[..]).unwrap_err();
+/// let e = FixedBlob::<3>::try_from(&b"abcd"[..]).unwrap_err();
 /// assert_eq!(e.to_string(), "size 4 exceeds fixed buffer size 3");
 /// ```
 pub struct CapacityError {
@@ -224,23 +247,58 @@ enum CapacityErrorKind {
     Capacity { len: usize, max: usize },
 }
 
-/// Attempt to convert a byte slice into a `FixedBytes<N>`.
+/// Convert an array into a `FixedBlob<N>`.
 ///
 /// # Examples
 ///
 /// ```
-/// use sqll::FixedBytes;
-/// let s = FixedBytes::<5>::try_from(&b"abcd"[..])?;
-/// assert_eq!(s.as_slice(), b"abcd");
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::from(*b"abcde");
+/// assert_eq!(blob.as_slice(), b"abcde");
+/// ```
+impl<const N: usize> From<[u8; N]> for FixedBlob<N> {
+    #[inline]
+    fn from(value: [u8; N]) -> Self {
+        Self::from_array(value)
+    }
+}
+
+/// Convert an array reference into a `FixedBlob<N>`.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::from(b"abcde");
+/// assert_eq!(blob.as_slice(), b"abcde");
+/// ```
+impl<const N: usize> From<&[u8; N]> for FixedBlob<N> {
+    #[inline]
+    fn from(value: &[u8; N]) -> Self {
+        Self::from_array(*value)
+    }
+}
+
+/// Attempt to convert a byte slice into a `FixedBlob<N>`.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::<5>::try_from(&b"abcd"[..])?;
+/// assert_eq!(blob.as_slice(), b"abcd");
 /// # Ok::<_, sqll::CapacityError>(())
 /// ```
-impl<const N: usize> TryFrom<&[u8]> for FixedBytes<N> {
+impl<const N: usize> TryFrom<&[u8]> for FixedBlob<N> {
     type Error = CapacityError;
 
     #[inline]
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         unsafe {
-            let mut string = FixedBytes::<N>::new();
+            let mut string = FixedBlob::<N>::new();
 
             if value.len() > N {
                 return Err(CapacityError {

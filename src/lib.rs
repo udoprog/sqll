@@ -283,8 +283,8 @@ mod bytes;
 mod connection;
 mod error;
 mod ffi;
-mod fixed_bytes;
-mod fixed_string;
+mod fixed_blob;
+mod fixed_text;
 mod from_column;
 mod from_unsized_column;
 mod owned;
@@ -304,9 +304,9 @@ pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]
 pub use self::error::{Code, DatabaseNotFound, Error, Result};
 #[doc(inline)]
-pub use self::fixed_bytes::{CapacityError, FixedBytes};
+pub use self::fixed_blob::{CapacityError, FixedBlob};
 #[doc(inline)]
-pub use self::fixed_string::FixedString;
+pub use self::fixed_text::FixedText;
 #[doc(inline)]
 pub use self::from_column::FromColumn;
 #[doc(inline)]

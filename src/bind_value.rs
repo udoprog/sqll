@@ -4,15 +4,17 @@ use crate::bytes;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
-use crate::{Code, Error, Null, Result, Statement, Value};
+use crate::{Code, Error, FixedBlob, FixedText, Null, Result, Statement, Value};
 
 mod sealed {
-    use crate::{Null, Value};
+    use crate::{FixedBlob, FixedText, Null, Value};
 
     pub trait Sealed {}
     impl Sealed for str {}
+    impl<const N: usize> Sealed for FixedText<N> {}
     impl Sealed for [u8] {}
     impl<const N: usize> Sealed for [u8; N] {}
+    impl<const N: usize> Sealed for FixedBlob<N> {}
     impl Sealed for f32 {}
     impl Sealed for f64 {}
     impl Sealed for i8 {}
@@ -173,6 +175,38 @@ impl BindValue for [u8] {
         }
 
         Ok(())
+    }
+}
+
+/// [`BindValue`] implementation for [`FixedBlob`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FixedBlob};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE files (id INTEGER, data BLOB);
+///
+///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
+///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
+///
+/// let data = FixedBlob::from(b"Hello");
+/// stmt.bind_value(1, data)?;
+///
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// assert_eq!(stmt.next::<i64>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl<const N: usize> BindValue for FixedBlob<N> {
+    #[inline]
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        self.as_slice().bind_value(stmt, index)
     }
 }
 
@@ -482,6 +516,37 @@ impl BindValue for str {
         }
 
         Ok(())
+    }
+}
+
+/// [`BindValue`] implementation for [`FixedText`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FixedText};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
+///
+/// let name = FixedText::<5>::try_from("Alice")?;
+/// stmt.bind_value(1, name)?;
+///
+/// assert_eq!(stmt.next::<i64>()?, Some(42));
+/// assert_eq!(stmt.next::<i64>()?, None);
+/// # Ok::<_, Box<dyn std::error::Error>>(())
+/// ```
+impl<const N: usize> BindValue for FixedText<N> {
+    #[inline]
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        self.as_str().bind_value(stmt, index)
     }
 }
 

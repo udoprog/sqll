@@ -3,27 +3,28 @@ use core::hash::{Hash, Hasher};
 use core::ops::Deref;
 use core::str;
 
-use crate::{CapacityError, FixedBytes};
+use crate::{CapacityError, FixedBlob};
 
 /// A helper to read at most a fixed number of `N` bytes from a column. This
 /// allocates the storage for the bytes read on the stack.
-pub struct FixedString<const N: usize> {
-    inner: FixedBytes<N>,
+pub struct FixedText<const N: usize> {
+    inner: FixedBlob<N>,
 }
 
-impl<const N: usize> FixedString<N> {
-    /// Construct a new empty [`FixedString`].
+impl<const N: usize> FixedText<N> {
+    /// Construct a new empty [`FixedText`].
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqll::FixedString;
-    /// let s = FixedString::<5>::new();
+    /// use sqll::FixedText;
+    ///
+    /// let s = FixedText::<5>::new();
     /// assert_eq!(s.as_str(), "");
     /// ```
     pub const fn new() -> Self {
         Self {
-            inner: FixedBytes::new(),
+            inner: FixedBlob::new(),
         }
     }
 
@@ -40,14 +41,14 @@ impl<const N: usize> FixedString<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{FixedBytes, FixedString};
+    /// use sqll::{FixedBlob, FixedText};
     ///
-    /// let bytes = FixedBytes::<16>::try_from(&b"Hello World"[..])?;
-    /// let s = unsafe { FixedString::from_utf8_unchecked(bytes) };
+    /// let bytes = FixedBlob::<16>::try_from(&b"Hello World"[..])?;
+    /// let s = unsafe { FixedText::from_utf8_unchecked(bytes) };
     /// assert_eq!(s.as_str(), "Hello World");
     /// # Ok::<_, sqll::CapacityError>(())
     /// ```
-    pub const unsafe fn from_utf8_unchecked(inner: FixedBytes<N>) -> Self {
+    pub const unsafe fn from_utf8_unchecked(inner: FixedBlob<N>) -> Self {
         Self { inner }
     }
 
@@ -56,7 +57,7 @@ impl<const N: usize> FixedString<N> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, FixedString};
+    /// use sqll::{Connection, FixedText};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -68,7 +69,7 @@ impl<const N: usize> FixedString<N> {
     ///
     /// let mut stmt = c.prepare("SELECT name FROM users")?;
     ///
-    /// for name in stmt.iter::<FixedString<6>>() {
+    /// for name in stmt.iter::<FixedText<6>>() {
     ///     let name = name?;
     ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
     /// }
@@ -79,7 +80,7 @@ impl<const N: usize> FixedString<N> {
     }
 }
 
-impl<const N: usize> Deref for FixedString<N> {
+impl<const N: usize> Deref for FixedText<N> {
     type Target = str;
 
     #[inline]
@@ -88,51 +89,51 @@ impl<const N: usize> Deref for FixedString<N> {
     }
 }
 
-impl<const N: usize> fmt::Debug for FixedString<N> {
+impl<const N: usize> fmt::Debug for FixedText<N> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
-impl<const N: usize> fmt::Display for FixedString<N> {
+impl<const N: usize> fmt::Display for FixedText<N> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
-impl<const N: usize> AsRef<str> for FixedString<N> {
+impl<const N: usize> AsRef<str> for FixedText<N> {
     #[inline]
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl<const N: usize> PartialEq for FixedString<N> {
+impl<const N: usize> PartialEq for FixedText<N> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
 }
 
-impl<const N: usize> Eq for FixedString<N> {}
+impl<const N: usize> Eq for FixedText<N> {}
 
-impl<const N: usize> PartialOrd for FixedString<N> {
+impl<const N: usize> PartialOrd for FixedText<N> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<const N: usize> Ord for FixedString<N> {
+impl<const N: usize> Ord for FixedText<N> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.as_str().cmp(other.as_str())
     }
 }
 
-impl<const N: usize> Hash for FixedString<N> {
+impl<const N: usize> Hash for FixedText<N> {
     #[inline]
     fn hash<H>(&self, state: &mut H)
     where
@@ -142,7 +143,7 @@ impl<const N: usize> Hash for FixedString<N> {
     }
 }
 
-impl<const N: usize> Clone for FixedString<N> {
+impl<const N: usize> Clone for FixedText<N> {
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -151,23 +152,23 @@ impl<const N: usize> Clone for FixedString<N> {
     }
 }
 
-/// Attempt to convert a string slice into a `FixedString<N>`.
+/// Attempt to convert a string slice into a `FixedText<N>`.
 ///
 /// # Examples
 ///
 /// ```
-/// use sqll::FixedString;
-/// let s = FixedString::<5>::try_from("Hello")?;
+/// use sqll::FixedText;
+/// let s = FixedText::<5>::try_from("Hello")?;
 /// assert_eq!(s.as_str(), "Hello");
 /// # Ok::<_, sqll::CapacityError>(())
 /// ```
-impl<const N: usize> TryFrom<&str> for FixedString<N> {
+impl<const N: usize> TryFrom<&str> for FixedText<N> {
     type Error = CapacityError;
 
     #[inline]
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         unsafe {
-            Ok(Self::from_utf8_unchecked(FixedBytes::try_from(
+            Ok(Self::from_utf8_unchecked(FixedBlob::try_from(
                 value.as_bytes(),
             )?))
         }
