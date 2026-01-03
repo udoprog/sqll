@@ -63,16 +63,16 @@ assert_eq!(results, [("Alice".to_string(), 42), ("Bob".to_string(), 52)]);
 
 <br>
 
-#### The [`FromRow`] trait.
+#### The [`Row`] trait.
 
-The [`FromRow`] trait can be used to conveniently read rows from a statement
-using [`next`]. It can be conveniently implemented using the [`FromRow`
+The [`Row`] trait can be used to conveniently read rows from a statement
+using [`next`]. It can be conveniently implemented using the [`Row`
 derive].
 
 ```rust
-use sqll::{Connection, FromRow};
+use sqll::{Connection, Row};
 
-#[derive(FromRow)]
+#[derive(Row)]
 struct Person<'stmt> {
     name: &'stmt str,
     age: u32,
@@ -103,9 +103,9 @@ prepared statements, and it can conveniently be implemented for structs
 using the [`Bind` derive].
 
 ```rust
-use sqll::{Bind, Connection, FromRow};
+use sqll::{Bind, Connection, Row};
 
-#[derive(Bind, FromRow, PartialEq, Debug)]
+#[derive(Bind, Row, PartialEq, Debug)]
 #[sql(named)]
 struct Person<'stmt> {
     name: &'stmt str,
@@ -183,7 +183,7 @@ assert_eq!(rows, expected);
 * `alloc` - Enable usage of the Rust alloc library. This is required and is
   enabled by default. Disabling this option will currently cause a compile
   error.
-* `derive` - Add a dependency to and re-export of the [`FromRow` derive]
+* `derive` - Add a dependency to and re-export of the [`Row` derive]
   macro.
 * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
   [`sqll-sys`] crate and the sqlite version used is part of the build
@@ -243,8 +243,8 @@ have been copied under the MIT license.
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
-[`FromRow` derive]: https://docs.rs/sqll/latest/sqll/derive.FromRow.html
-[`FromRow`]: https://docs.rs/sqll/latest/sqll/trait.FromRow.html
+[`Row` derive]: https://docs.rs/sqll/latest/sqll/derive.Row.html
+[`Row`]: https://docs.rs/sqll/latest/sqll/trait.Row.html
 [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with

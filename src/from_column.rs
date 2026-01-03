@@ -1,19 +1,19 @@
 use core::ffi::c_int;
-use core::ptr;
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
 use crate::{
-    Code, Error, FixedBytes, FromUnsizedColumn, Null, Result, Sink, Statement, Type, Value,
+    Code, Error, FixedBytes, FixedString, FromUnsizedColumn, Null, Result, Sink, Statement, Type,
+    Value,
 };
 
 mod sealed {
     use alloc::string::String;
     use alloc::vec::Vec;
 
-    use crate::{FixedBytes, Null, Value};
+    use crate::{FixedBytes, FixedString, Null, Value};
 
     pub trait Sealed<'stmt> {}
     impl Sealed<'_> for i8 {}
@@ -35,6 +35,7 @@ mod sealed {
     impl Sealed<'_> for Vec<u8> {}
     impl<'stmt, T> Sealed<'stmt> for Option<T> where T: Sealed<'stmt> {}
     impl<const N: usize> Sealed<'_> for FixedBytes<N> {}
+    impl<const N: usize> Sealed<'_> for FixedString<N> {}
     impl Sealed<'_> for Value {}
 }
 
@@ -655,46 +656,65 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 ///
 /// assert!(stmt.step()?.is_row());
 /// let bytes = stmt.get::<FixedBytes<4>>(0)?;
-/// assert_eq!(bytes.as_bytes(), &[1, 2, 3, 4]);
+/// assert_eq!(bytes.as_slice(), &[1, 2, 3, 4]);
 ///
 /// assert!(stmt.step()?.is_row());
 /// let e = stmt.get::<FixedBytes<4>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
 /// let bytes = stmt.get::<FixedBytes<5>>(0)?;
-/// assert_eq!(bytes.as_bytes(), &[5, 6, 7, 8, 9]);
+/// assert_eq!(bytes.as_slice(), &[5, 6, 7, 8, 9]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedBytes<N> {
     #[inline]
     fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
-        let mut bytes = FixedBytes::new();
+        match FixedBytes::try_from(<[u8]>::from_unsized_column(stmt, index)?) {
+            Ok(bytes) => Ok(bytes),
+            Err(err) => Err(Error::new(Code::MISMATCH, err)),
+        }
+    }
+}
 
-        unsafe {
-            let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index);
-
-            if ptr.is_null() {
-                return Ok(bytes);
-            }
-
-            let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), index)) else {
-                return Err(Error::new(
-                    Code::MISMATCH,
-                    "column size exceeds addressable memory",
-                ));
-            };
-
-            if len > N {
-                return Err(Error::new(
-                    Code::MISMATCH,
-                    "column size exceeds fixed buffer size",
-                ));
-            }
-
-            ptr::copy_nonoverlapping(ptr.cast::<u8>(), bytes.as_mut_ptr(), len);
-
-            bytes.set_len(len);
-            Ok(bytes)
+/// [`FromColumn`] implementation for [`FixedBytes`] which reads at most `N`
+/// bytes.
+///
+/// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
+/// returned.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FixedString, Code};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+///
+/// assert!(stmt.step()?.is_row());
+/// let bytes = stmt.get::<FixedString<5>>(0)?;
+/// assert_eq!(bytes.as_str(), "Alice");
+///
+/// assert!(stmt.step()?.is_row());
+/// let e = stmt.get::<FixedString<2>>(0).unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
+///
+/// let bytes = stmt.get::<FixedString<5>>(0)?;
+/// assert_eq!(bytes.as_str(), "Bob");
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl<const N: usize> FromColumn<'_> for FixedString<N> {
+    #[inline]
+    fn from_column(stmt: &Statement, index: c_int) -> Result<Self> {
+        match FixedString::try_from(str::from_unsized_column(stmt, index)?) {
+            Ok(s) => Ok(s),
+            Err(err) => Err(Error::new(Code::MISMATCH, err)),
         }
     }
 }

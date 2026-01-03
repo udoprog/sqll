@@ -14,14 +14,14 @@ use syn::{
 #[derive(Clone, Copy)]
 pub(super) enum What {
     Bind,
-    FromRow,
+    Row,
 }
 
 impl What {
     fn start_index(&self) -> usize {
         match self {
             What::Bind => 1,
-            What::FromRow => 0,
+            What::Row => 0,
         }
     }
 }
@@ -72,7 +72,7 @@ impl<'a> Tokens<'a> {
             error: TypePath::new(crate_path, ["Error"]),
             code: TypePath::new(crate_path, ["Code"]),
             from_column_t: TypePath::new(crate_path, ["FromColumn"]),
-            from_row_t: TypePath::new(crate_path, ["FromRow"]),
+            from_row_t: TypePath::new(crate_path, ["Row"]),
             result: TypePath::new(core_path, ["result", "Result"]),
             statement: TypePath::new(crate_path, ["Statement"]),
         }
@@ -162,7 +162,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
 
             Err(Error::new_spanned(
                 meta.path,
-                "unknown attribute for `FromRow` derive",
+                "unknown attribute for `Row` derive",
             ))
         });
 
@@ -230,7 +230,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
 
             Ok(expanded)
         }
-        What::FromRow => {
+        What::Row => {
             let mut impl_generics;
 
             let (lt, impl_generics) = match input.generics.lifetimes().next() {
@@ -253,7 +253,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
 
             for binding in &bindings {
                 if let Binding::Name(name) = binding {
-                    cx.spanned(name, "cannot use named bindings when deriving FromRow");
+                    cx.spanned(name, "cannot use named bindings when deriving Row");
                 }
             }
 
@@ -326,7 +326,7 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Res
 
                 Err(Error::new_spanned(
                     meta.path,
-                    "unknown attribute for `FromRow` derive",
+                    "unknown attribute for `Row` derive",
                 ))
             });
 

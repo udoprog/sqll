@@ -1,6 +1,6 @@
-use sqll::{Connection, FromRow, Prepare, Result};
+use sqll::{Connection, Prepare, Result, Row};
 
-#[derive(FromRow)]
+#[derive(Row)]
 struct Person<'stmt> {
     id: i32,
     name: &'stmt str,

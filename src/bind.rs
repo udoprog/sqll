@@ -1,7 +1,13 @@
 use crate::utils::repeat;
 use crate::{BindValue, Error, Statement};
 
-/// A type suitable for binding a collection of parameters.
+/// This allows a type to be used for structured binding of multiple parameters
+/// into a [`Statement`] using [`bind`].
+///
+/// This is typically implemented through the [`Bind` derive].
+///
+/// [`bind`]: Statement::bind
+/// [`Bind` derive]: derive@crate::Bind
 ///
 /// # Examples
 ///

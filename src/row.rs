@@ -1,22 +1,27 @@
 use crate::utils::repeat;
 use crate::{Error, FromColumn, Statement};
 
-/// A type suitable for reading an entire row from a prepared statement.
+/// This allows a type to be constructed from a [`Statement`] using [`next`] or
+/// [`iter`].
 ///
-/// Use with [`Statement::next`] or [`Statement::iter`].
+/// This is typically implemented with the [`Row` derive].
+///
+/// [`iter`]: Statement::iter
+/// [`next`]: Statement::next
+/// [`Row` derive]: derive@crate::Row
 ///
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, FromRow};
+/// use sqll::{Connection, Row};
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// struct Person<'stmt> {
 ///     name: &'stmt str,
 ///     age: u32,
 /// }
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// struct PersonTuple<'stmt>(&'stmt str, u32);
 ///
 /// let mut c = Connection::open_in_memory()?;
@@ -45,15 +50,15 @@ use crate::{Error, FromColumn, Statement};
 /// Convert into an owned type:
 ///
 /// ```
-/// use sqll::{Connection, FromRow};
+/// use sqll::{Connection, Row};
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// struct Person {
 ///     name: String,
 ///     age: u32,
 /// }
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// struct PersonTuple(String, u32);
 ///
 /// let mut c = Connection::open_in_memory()?;
@@ -76,7 +81,7 @@ use crate::{Error, FromColumn, Statement};
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-pub trait FromRow<'stmt>
+pub trait Row<'stmt>
 where
     Self: Sized,
 {
@@ -84,7 +89,7 @@ where
     fn from_row(stmt: &'stmt Statement) -> Result<Self, Error>;
 }
 
-impl<'stmt, T> FromRow<'stmt> for T
+impl<'stmt, T> Row<'stmt> for T
 where
     T: FromColumn<'stmt>,
 {
@@ -102,7 +107,7 @@ macro_rules! ignore {
 
 macro_rules! implement_tuple {
     ($ty0:ident $var0:ident $value0:literal $value1:literal $(, $ty:ident $var:ident $value0n:literal $value1n:literal)* $(,)? ) => {
-        /// [`FromRow`] implementation for a tuple.
+        /// [`Row`] implementation for a tuple.
         ///
         /// A tuple reads elements one after another, starting at the first
         /// index.
@@ -128,7 +133,7 @@ macro_rules! implement_tuple {
         /// }
         /// # Ok::<_, sqll::Error>(())
         /// ```
-        impl<'stmt, $ty0, $($ty,)*> FromRow<'stmt> for ($ty0, $($ty,)*)
+        impl<'stmt, $ty0, $($ty,)*> Row<'stmt> for ($ty0, $($ty,)*)
         where
             $ty0: FromColumn<'stmt>,
             $($ty: FromColumn<'stmt>,)*

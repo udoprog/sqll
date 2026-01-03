@@ -61,16 +61,16 @@
 //!
 //! <br>
 //!
-//! #### The [`FromRow`] trait.
+//! #### The [`Row`] trait.
 //!
-//! The [`FromRow`] trait can be used to conveniently read rows from a statement
-//! using [`next`]. It can be conveniently implemented using the [`FromRow`
+//! The [`Row`] trait can be used to conveniently read rows from a statement
+//! using [`next`]. It can be conveniently implemented using the [`Row`
 //! derive].
 //!
 //! ```
-//! use sqll::{Connection, FromRow};
+//! use sqll::{Connection, Row};
 //!
-//! #[derive(FromRow)]
+//! #[derive(Row)]
 //! struct Person<'stmt> {
 //!     name: &'stmt str,
 //!     age: u32,
@@ -102,9 +102,9 @@
 //! using the [`Bind` derive].
 //!
 //! ```
-//! use sqll::{Bind, Connection, FromRow};
+//! use sqll::{Bind, Connection, Row};
 //!
-//! #[derive(Bind, FromRow, PartialEq, Debug)]
+//! #[derive(Bind, Row, PartialEq, Debug)]
 //! #[sql(named)]
 //! struct Person<'stmt> {
 //!     name: &'stmt str,
@@ -184,7 +184,7 @@
 //! * `alloc` - Enable usage of the Rust alloc library. This is required and is
 //!   enabled by default. Disabling this option will currently cause a compile
 //!   error.
-//! * `derive` - Add a dependency to and re-export of the [`FromRow` derive]
+//! * `derive` - Add a dependency to and re-export of the [`Row` derive]
 //!   macro.
 //! * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
 //!   [`sqll-sys`] crate and the sqlite version used is part of the build
@@ -244,8 +244,8 @@
 //! [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 //! [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 //! [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
-//! [`FromRow` derive]: https://docs.rs/sqll/latest/sqll/derive.FromRow.html
-//! [`FromRow`]: https://docs.rs/sqll/latest/sqll/trait.FromRow.html
+//! [`Row` derive]: https://docs.rs/sqll/latest/sqll/derive.Row.html
+//! [`Row`]: https://docs.rs/sqll/latest/sqll/trait.Row.html
 //! [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 //! [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 //! [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with
@@ -284,10 +284,11 @@ mod connection;
 mod error;
 mod ffi;
 mod fixed_bytes;
+mod fixed_string;
 mod from_column;
-mod from_row;
 mod from_unsized_column;
 mod owned;
+mod row;
 mod sink;
 mod statement;
 mod utils;
@@ -303,13 +304,15 @@ pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]
 pub use self::error::{Code, DatabaseNotFound, Error, Result};
 #[doc(inline)]
-pub use self::fixed_bytes::FixedBytes;
+pub use self::fixed_bytes::{CapacityError, FixedBytes};
+#[doc(inline)]
+pub use self::fixed_string::FixedString;
 #[doc(inline)]
 pub use self::from_column::FromColumn;
 #[doc(inline)]
-pub use self::from_row::FromRow;
-#[doc(inline)]
 pub use self::from_unsized_column::FromUnsizedColumn;
+#[doc(inline)]
+pub use self::row::Row;
 #[doc(inline)]
 pub use self::sink::Sink;
 #[doc(inline)]
@@ -321,9 +324,14 @@ pub use self::version::{lib_version, lib_version_number};
 
 /// Derive macro for [`Bind`].
 ///
-/// This can be used on a struct, and allows the struct to be constructed from
-/// a. [`BindValue`], each field in the struct is one-by-one mapped into a
-/// corresponding index in the SQLite row.
+/// This can be used to automatically implement [`Bind`] for a struct and allows
+/// the struct to be used for structured binding of multiple parameters into a
+/// [`Statement`] using [`bind`].
+///
+/// This relies on [`BindValue`] being called for each field in the struct. By
+/// default the `#[sql(index)]` used starts at 1 and is incremented for each
+/// field. This behavior can be modified with attributes. Notably this also
+/// supports convenient use of named parameters through `[sql(named)]`.
 ///
 /// ```
 /// use sqll::Bind;
@@ -335,7 +343,13 @@ pub use self::version::{lib_version, lib_version_number};
 /// }
 /// ```
 ///
+/// [`bind`]: Statement::bind
+///
+/// <br>
+///
 /// ## Container attributes
+///
+/// <br>
 ///
 /// #### `#[sql(crate = ..)]`
 ///
@@ -354,6 +368,8 @@ pub use self::version::{lib_version, lib_version_number};
 ///     age: u32,
 /// }
 /// ```
+///
+/// <br>
 ///
 /// #### `#[sql(named)]`
 ///
@@ -385,7 +401,11 @@ pub use self::version::{lib_version, lib_version_number};
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
+/// <br>
+///
 /// ## Field attribuets
+///
+/// <br>
 ///
 /// #### `#[sql(index = ..)]`
 ///
@@ -404,6 +424,8 @@ pub use self::version::{lib_version, lib_version_number};
 ///     age: u32,
 /// }
 /// ```
+///
+/// <br>
 ///
 /// #### `#[sql(name = "..")]`
 ///
@@ -436,23 +458,53 @@ pub use self::version::{lib_version, lib_version_number};
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use sqll_macros::Bind;
 
-/// Derive macro for [`FromRow`].
+/// Derive macro for [`Row`].
 ///
-/// This can be used on a struct, and allows the struct to be constructed from
-/// a. [`FromColumn`], each field in the struct is one-by-one mapped into a
-/// corresponding index in the SQLite row.
+/// This can be used to automatically implement [`Row`] for a struct and allows
+/// the struct to be constructed from a [`Statement`] using [`next`] or
+/// [`iter`].
+///
+/// This relies on [`FromColumn`] being called to construct each field in the
+/// struct. By default the `#[sql(index)]` used starts at `0` and is incremented
+/// for each field. This behavior can be modified with attributes.
 ///
 /// ```
-/// use sqll::FromRow;
+/// use sqll::{Connection, Row};
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// struct Person<'stmt> {
 ///     name: &'stmt str,
 ///     age: u32,
 /// }
+///
+/// #[derive(Row)]
+/// struct PersonTuple<'stmt>(&'stmt str, u32);
+///
+/// let mut c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users VALUES ('Alice', 42);
+///     INSERT INTO users VALUES ('Bob', 72);
+/// "#)?;
+///
+/// let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
+///
+/// while let Some(person) = results.next::<Person<'_>>()? {
+///     println!("{} is {} years old", person.name, person.age);
+/// }
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
+/// [`iter`]: Statement::iter
+/// [`next`]: Statement::next
+///
+/// <br>
+///
 /// ## Container attributes
+///
+/// <br>
 ///
 /// #### `#[sql(crate = ..)]`
 ///
@@ -462,9 +514,9 @@ pub use sqll_macros::Bind;
 ///
 /// ```
 /// # extern crate sqll as my_sqll;
-/// use my_sqll::FromRow;
+/// use my_sqll::Row;
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// #[sql(crate = ::my_sqll)]
 /// struct Person<'stmt> {
 ///     name: &'stmt str,
@@ -472,16 +524,20 @@ pub use sqll_macros::Bind;
 /// }
 /// ```
 ///
+/// <br>
+///
 /// ## Field attribuets
 ///
-/// #### `#[sql(index = N)]`
+/// <br>
+///
+/// #### `#[sql(index = ..)]`
 ///
 /// This allows the index being used for a particular row to be overriden.
 ///
 /// ```
-/// use sqll::FromRow;
+/// use sqll::Row;
 ///
-/// #[derive(FromRow)]
+/// #[derive(Row)]
 /// struct Person<'stmt> {
 ///     #[sql(index = 1)]
 ///     name: &'stmt str,
@@ -491,4 +547,4 @@ pub use sqll_macros::Bind;
 /// ```
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
-pub use sqll_macros::FromRow;
+pub use sqll_macros::Row;

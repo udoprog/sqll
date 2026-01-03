@@ -7,9 +7,7 @@ use core::slice;
 
 use crate::ffi;
 use crate::utils::{c_to_errstr, c_to_str};
-use crate::{
-    Bind, BindValue, Code, Error, FromColumn, FromRow, FromUnsizedColumn, Result, Sink, Type,
-};
+use crate::{Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Sink, Type};
 
 /// A marker type representing a NULL value.
 ///
@@ -175,11 +173,11 @@ impl Statement {
         }
     }
 
-    /// Get and read the next row from the statement using the [`FromRow`]
+    /// Get and read the next row from the statement using the [`Row`]
     /// trait.
     ///
-    /// The [`FromRow`] trait is a convenience trait which is usually
-    /// implemented using the [`FromRow` derive].
+    /// The [`Row`] trait is a convenience trait which is usually
+    /// implemented using the [`Row` derive].
     ///
     /// Returns `None` when there are no more rows.
     ///
@@ -194,9 +192,9 @@ impl Statement {
     /// in the [`Statement`] from which it is returned.
     ///
     /// ```compile_fail
-    /// use sqll::{Connection, FromRow};
+    /// use sqll::{Connection, Row};
     ///
-    /// #[derive(FromRow)]
+    /// #[derive(Row)]
     /// struct Person {
     ///     name: String,
     ///     age: i64,
@@ -218,14 +216,14 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
-    /// [`FromRow` derive]: derive@crate::FromRow
+    /// [`Row` derive]: derive@crate::Row
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, FromRow};
+    /// use sqll::{Connection, Row};
     ///
-    /// #[derive(FromRow)]
+    /// #[derive(Row)]
     /// struct Person {
     ///     name: String,
     ///     age: i64,
@@ -264,7 +262,7 @@ impl Statement {
     /// ```
     pub fn next<'stmt, T>(&'stmt mut self) -> Result<Option<T>>
     where
-        T: FromRow<'stmt>,
+        T: Row<'stmt>,
     {
         match self.step()? {
             State::Row => Ok(Some(T::from_row(self)?)),
@@ -407,17 +405,21 @@ impl Statement {
     }
 
     /// Coerce a statement into a typed iterator over the rows produced by this
-    /// statement through the [`FromRow`] trait.
+    /// statement through the [`Row`] trait.
     ///
-    /// This does not support borrowing from the statement, because a statement
-    /// stores the state for each row.
+    /// Unlike [`next`], this does not support borrowing from the columns
+    /// because a statement stores the state for each row. You have to used
+    /// owned values such as [`String`] or [`FixedBytes`].
+    ///
+    /// [`String`]: alloc::string::String
+    /// [`FixedBytes`]: crate::FixedBytes
     ///
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, FromRow, Result};
+    /// use sqll::{Connection, Row, Result};
     ///
-    /// #[derive(FromRow, Debug, PartialEq)]
+    /// #[derive(Row, Debug, PartialEq)]
     /// struct Person {
     ///     name: String,
     ///     age: i64,
@@ -447,7 +449,7 @@ impl Statement {
     /// ```
     pub fn iter<T>(&mut self) -> Iter<'_, T>
     where
-        for<'stmt> T: FromRow<'stmt>,
+        for<'stmt> T: Row<'stmt>,
     {
         Iter {
             stmt: self,
@@ -456,7 +458,7 @@ impl Statement {
     }
 
     /// Coerce a statement into an owned typed iterator over the rows produced
-    /// by this statement through the [`FromRow`] trait.
+    /// by this statement through the [`Row`] trait.
     ///
     /// This does not support borrowing from the statement, because a statement
     /// stores the state for each row.
@@ -464,9 +466,9 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, FromRow, Result};
+    /// use sqll::{Connection, Row, Result};
     ///
-    /// #[derive(FromRow, Debug, PartialEq)]
+    /// #[derive(Row, Debug, PartialEq)]
     /// struct Person {
     ///     name: String,
     ///     age: i64,
@@ -496,7 +498,7 @@ impl Statement {
     /// ```
     pub fn into_iter<T>(self) -> IntoIter<T>
     where
-        for<'stmt> T: FromRow<'stmt>,
+        for<'stmt> T: Row<'stmt>,
     {
         IntoIter {
             stmt: self,
@@ -1097,9 +1099,9 @@ impl Statement {
     #[inline]
     pub fn get_row<'stmt, T>(&'stmt self) -> Result<T>
     where
-        T: FromRow<'stmt>,
+        T: Row<'stmt>,
     {
-        FromRow::from_row(self)
+        Row::from_row(self)
     }
 
     /// Read a value from a column into the provided [`Sink`].
@@ -1170,7 +1172,7 @@ pub struct Iter<'stmt, T> {
 
 impl<T> Iterator for Iter<'_, T>
 where
-    for<'stmt> T: FromRow<'stmt>,
+    for<'stmt> T: Row<'stmt>,
 {
     type Item = Result<T>;
 
@@ -1194,7 +1196,7 @@ pub struct IntoIter<T> {
 
 impl<T> Iterator for IntoIter<T>
 where
-    for<'stmt> T: FromRow<'stmt>,
+    for<'stmt> T: Row<'stmt>,
 {
     type Item = Result<T>;
 
