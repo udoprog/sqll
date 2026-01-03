@@ -8,7 +8,7 @@ use quote::{ToTokens, quote};
 use syn::punctuated::Punctuated;
 use syn::{
     Data, DataStruct, DeriveInput, Error, Ident, Index, Lifetime, LifetimeParam, LitCStr, LitInt,
-    Member, Path, PathArguments, PathSegment,
+    LitStr, Member, Path, PathArguments, PathSegment,
 };
 
 #[derive(Clone, Copy)]
@@ -18,7 +18,7 @@ pub(super) enum What {
 }
 
 impl What {
-    fn start_index(&self) -> usize {
+    fn offset_index(&self) -> isize {
         match self {
             What::Bind => 1,
             What::Row => 0,
@@ -300,13 +300,29 @@ struct Struct {
     bindings: Vec<Binding>,
 }
 
+enum Name {
+    None,
+    LitStr(LitStr),
+    LitCStr(LitCStr),
+}
+
+impl Name {
+    fn existing(&self) -> Option<Span> {
+        match self {
+            Name::None => None,
+            Name::LitStr(s) => Some(s.span()),
+            Name::LitCStr(s) => Some(s.span()),
+        }
+    }
+}
+
 fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Result<Struct, ()> {
     let mut st = Struct::default();
 
-    let mut index = what.start_index();
+    let mut index = 0;
 
     for field in data.fields.iter() {
-        let mut name: Option<LitCStr> = None;
+        let mut name = Name::None;
 
         for attr in &field.attrs {
             if !attr.path().is_ident("sql") {
@@ -320,7 +336,18 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Res
                 }
 
                 if meta.path.is_ident("name") {
-                    name = Some(meta.value()?.parse::<LitCStr>()?);
+                    let value = meta.value()?;
+
+                    if let Some(span) = name.existing() {
+                        return Err(Error::new(span, "duplicate `name` attribute for field"));
+                    }
+
+                    if let Some(s) = value.parse()? {
+                        name = Name::LitStr(s);
+                    } else {
+                        name = Name::LitCStr(value.parse()?);
+                    }
+
                     return Ok(());
                 }
 
@@ -337,8 +364,22 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Res
         }
 
         let name = match (what, name, &field.ident) {
-            (What::Bind, Some(name), _) => Some(name),
-            (What::Bind, None, Some(ident)) if attrs.named => {
+            (What::Bind, Name::LitCStr(name), _) => Some(name),
+            (What::Bind, Name::LitStr(name), _) => {
+                let Ok(c_str) = CString::new(name.value()) else {
+                    cx.spanned(
+                        &name,
+                        format_args!(
+                            "custom field name {:?} contains interior null byte",
+                            name.value()
+                        ),
+                    );
+                    continue;
+                };
+
+                Some(LitCStr::new(&c_str, name.span()))
+            }
+            (What::Bind, Name::None, Some(ident)) if attrs.named => {
                 let name = format!(":{ident}");
 
                 let Ok(c_str) = CString::new(name.clone()) else {
@@ -351,7 +392,7 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Res
 
                 Some(LitCStr::new(&c_str, ident.span()))
             }
-            (What::Bind, None, None) if attrs.named => {
+            (What::Bind, Name::None, None) if attrs.named => {
                 cx.spanned(&field.ty, "named fields require field names derive");
                 continue;
             }
@@ -366,10 +407,15 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Res
         let access = match name {
             Some(name) => Binding::Name(name),
             None => {
-                let Ok(n) = c_int::try_from(index) else {
+                let Some(n) = index.checked_add_signed(what.offset_index()) else {
+                    cx.spanned(field, "index is out of bounds for the derived type");
+                    continue;
+                };
+
+                let Ok(n) = c_int::try_from(n) else {
                     cx.spanned(
                         field,
-                        format_args!("The index {index} is too large for a c_int"),
+                        format_args!("underlying index {n} is too large for a c_int"),
                     );
                     continue;
                 };

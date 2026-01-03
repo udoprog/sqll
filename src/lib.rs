@@ -329,9 +329,11 @@ pub use self::version::{lib_version, lib_version_number};
 /// [`Statement`] using [`bind`].
 ///
 /// This relies on [`BindValue`] being called for each field in the struct. By
-/// default the `#[sql(index)]` used starts at 1 and is incremented for each
-/// field. This behavior can be modified with attributes. Notably this also
-/// supports convenient use of named parameters through `[sql(named)]`.
+/// default the `#[sql(index)]` used starts at 0 and is incremented for each
+/// field. This behavior can be modified with attributes.
+///
+/// This also derive also supports convenient use of named parameters through
+/// `[sql(named)]` or a per-field `[sql(name = ..)]`.
 ///
 /// ```
 /// use sqll::Bind;
@@ -410,19 +412,30 @@ pub use self::version::{lib_version, lib_version_number};
 /// #### `#[sql(index = ..)]`
 ///
 /// This allows the index being used for a particular row to be overriden. Note
-/// that binding indexes are 1-based. Setting a particular index will cause
-/// subsequent indexes to continue from that index.
+/// that the underlying binding indexes are 1-based, so this is translated to
+/// that by adding 1 to the specified index in order to be compatible with other
+/// derives.
 ///
 /// ```
-/// use sqll::Bind;
+/// use sqll::{Bind, Connection};
 ///
 /// #[derive(Bind)]
 /// struct Person<'stmt> {
-///     #[sql(index = 2)]
-///     name: &'stmt str,
 ///     #[sql(index = 1)]
+///     name: &'stmt str,
+///     #[sql(index = 0)]
 ///     age: u32,
 /// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///    CREATE TABLE persons (name TEXT, age INTEGER);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("INSERT INTO persons (age, name) VALUES (?, ?)")?;
+/// stmt.execute(Person { name: "Alice", age: 30 })?;
+/// # Ok::<_, sqll::Error>(())
 /// ```
 ///
 /// <br>
@@ -447,6 +460,13 @@ pub use self::version::{lib_version, lib_version_number};
 ///     #[sql(name = c":notage")]
 ///     age: u32,
 /// }
+/// # #[derive(Bind)]
+/// # struct PersonStr<'stmt> {
+/// #     #[sql(name = ":notname")]
+/// #     name: &'stmt str,
+/// #     #[sql(name = ":notage")]
+/// #     age: u32,
+/// # }
 ///
 /// let c = Connection::open_in_memory()?;
 ///
@@ -456,6 +476,7 @@ pub use self::version::{lib_version, lib_version_number};
 ///
 /// let mut stmt = c.prepare("INSERT INTO persons (name, age) VALUES (:notname, :notage)")?;
 /// stmt.execute(Person { name: "Alice", age: 30 })?;
+/// # stmt.execute(PersonStr { name: "Alice", age: 30 })?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
 #[cfg(feature = "derive")]
