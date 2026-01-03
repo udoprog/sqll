@@ -94,7 +94,12 @@ impl FromColumn<'_> for Value {
             Type::FLOAT => Value::float(<_>::from_column(stmt, index)?),
             Type::INTEGER => Value::integer(<_>::from_column(stmt, index)?),
             Type::NULL => Value::null(),
-            _ => return Err(Error::new(Code::MISMATCH)),
+            ty => {
+                return Err(Error::new(
+                    Code::MISMATCH,
+                    format_args!("dynamic value has unsupported column type {ty}"),
+                ));
+            }
         };
 
         Ok(value)
@@ -319,7 +324,7 @@ macro_rules! lossless {
 }
 
 macro_rules! lossy {
-    ($ty:ty) => {
+    ($ty:ty, $conversion:literal) => {
         #[doc = concat!("[`FromColumn`] implementation for `", stringify!($ty), "`.")]
         ///
         /// # Errors
@@ -394,7 +399,7 @@ macro_rules! lossy {
                 let value = i64::from_column(stmt, index)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
-                    return Err(Error::new(Code::MISMATCH));
+                    return Err(Error::new(Code::MISMATCH, format_args!($conversion, value)));
                 };
 
                 Ok(value)
@@ -403,14 +408,14 @@ macro_rules! lossy {
     };
 }
 
-lossy!(i8);
-lossy!(i16);
-lossy!(i32);
-lossy!(u8);
-lossy!(u16);
-lossy!(u32);
-lossy!(u64);
-lossy!(u128);
+lossy!(i8, "integer {} cannot be converted to i8");
+lossy!(i16, "integer {} cannot be converted to i16");
+lossy!(i32, "integer {} cannot be converted to i32");
+lossy!(u8, "integer {} cannot be converted to u8");
+lossy!(u16, "integer {} cannot be converted to u16");
+lossy!(u32, "integer {} cannot be converted to u32");
+lossy!(u64, "integer {} cannot be converted to u64");
+lossy!(u128, "integer {} cannot be converted to u128");
 lossless!(i128);
 
 /// [`FromColumn`] implementation which returns a borrowed [`str`].
@@ -673,11 +678,17 @@ impl<const N: usize> FromColumn<'_> for FixedBytes<N> {
             }
 
             let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), index)) else {
-                return Err(Error::new(Code::MISMATCH));
+                return Err(Error::new(
+                    Code::MISMATCH,
+                    "column size exceeds addressable memory",
+                ));
             };
 
             if len > N {
-                return Err(Error::new(Code::MISMATCH));
+                return Err(Error::new(
+                    Code::MISMATCH,
+                    "column size exceeds fixed buffer size",
+                ));
             }
 
             ptr::copy_nonoverlapping(ptr.cast::<u8>(), bytes.as_mut_ptr(), len);
@@ -747,7 +758,13 @@ where
 #[inline(always)]
 pub(crate) fn type_check(stmt: &Statement, index: c_int, expected: Type) -> Result<()> {
     if stmt.column_type(index) != expected {
-        return Err(Error::new(Code::MISMATCH));
+        return Err(Error::new(
+            Code::MISMATCH,
+            format_args!(
+                "expected column type {expected} but found found {}",
+                stmt.column_type(index)
+            ),
+        ));
     }
 
     Ok(())

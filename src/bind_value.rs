@@ -83,7 +83,7 @@ impl BindValue for Null {
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
-                ffi::sqlite3_bind_null(stmt.as_ptr_mut(), index)
+                stmt, ffi::sqlite3_bind_null(stmt.as_ptr_mut(), index)
             };
         }
 
@@ -161,6 +161,7 @@ impl BindValue for [u8] {
 
         unsafe {
             sqlite3_try! {
+                stmt,
                 ffi::sqlite3_bind_blob(
                     stmt.as_ptr_mut(),
                     index,
@@ -236,6 +237,7 @@ impl BindValue for f64 {
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
+                stmt,
                 ffi::sqlite3_bind_double(
                     stmt.as_ptr_mut(),
                     index,
@@ -278,6 +280,7 @@ impl BindValue for f32 {
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
+                stmt,
                 ffi::sqlite3_bind_double(
                     stmt.as_ptr_mut(),
                     index,
@@ -322,6 +325,7 @@ impl BindValue for i64 {
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
+                stmt,
                 ffi::sqlite3_bind_int64(
                     stmt.as_ptr_mut(),
                     index,
@@ -369,7 +373,7 @@ macro_rules! lossless {
 }
 
 macro_rules! lossy {
-    ($ty:ty) => {
+    ($ty:ty, $conversion:literal) => {
         #[doc = concat!("[`BindValue`] implementation for `", stringify!($ty), "`.")]
         ///
         /// # Errors
@@ -418,7 +422,7 @@ macro_rules! lossy {
             #[inline]
             fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
                 let Ok(value) = i64::try_from(*self) else {
-                    return Err(Error::new(Code::MISMATCH));
+                    return Err(Error::new(Code::MISMATCH, format_args!($conversion, *self)));
                 };
 
                 value.bind_value(stmt, index)
@@ -430,12 +434,12 @@ macro_rules! lossy {
 lossless!(i8);
 lossless!(i16);
 lossless!(i32);
-lossy!(i128);
+lossy!(i128, "value {} cannot be converted to sqlite integer");
 lossless!(u8);
 lossless!(u16);
 lossless!(u32);
-lossy!(u64);
-lossy!(u128);
+lossy!(u64, "value {} cannot be converted to sqlite integer");
+lossy!(u128, "value {} cannot be converted to sqlite integer");
 
 /// [`BindValue`] implementation for [`str`] slices.
 ///
@@ -466,6 +470,7 @@ impl BindValue for str {
 
         unsafe {
             sqlite3_try! {
+                stmt,
                 ffi::sqlite3_bind_text(
                     stmt.as_ptr_mut(),
                     index,

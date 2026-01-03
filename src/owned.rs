@@ -26,7 +26,7 @@ impl Owned {
             let ptr = alloc::alloc::alloc(layout);
 
             if ptr.is_null() {
-                return Err(Error::new(Code::NOMEM));
+                return Err(Error::new(Code::NOMEM, "allocation failed"));
             }
 
             ptr.cast::<T>().write(value);

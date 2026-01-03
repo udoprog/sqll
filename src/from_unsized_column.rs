@@ -77,7 +77,10 @@ impl FromUnsizedColumn for str {
             let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), index);
 
             let Ok(len) = usize::try_from(len) else {
-                return Err(Error::new(Code::MISMATCH));
+                return Err(Error::new(
+                    Code::ERROR,
+                    format_args!("column size {len} exceeds addressable memory"),
+                ));
             };
 
             if len == 0 {
@@ -149,17 +152,18 @@ impl FromUnsizedColumn for [u8] {
         unsafe {
             type_check(stmt, index, Type::BLOB)?;
 
-            let i = c_int::try_from(index).unwrap_or(c_int::MAX);
-
-            let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), i)) else {
-                return Err(Error::new(Code::MISMATCH));
+            let Ok(len) = usize::try_from(ffi::sqlite3_column_bytes(stmt.as_ptr(), index)) else {
+                return Err(Error::new(
+                    Code::MISMATCH,
+                    "column size exceeds addressable memory",
+                ));
             };
 
             if len == 0 {
                 return Ok(b"");
             }
 
-            let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), i);
+            let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index);
 
             if ptr.is_null() {
                 return Ok(b"");

@@ -1,6 +1,9 @@
 use core::error;
-use core::ffi::{CStr, c_int};
+use core::ffi::c_int;
 use core::fmt;
+
+use alloc::format;
+use alloc::string::String;
 
 /// A result type.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
@@ -227,39 +230,30 @@ define_codes! {
     pub const OK_SYMLINK = Self::OK.raw | (2 << 8);
 }
 
-impl Code {
-    /// Return the numeric representation of the error code.
-    #[inline]
-    fn as_raw(self) -> c_int {
-        self.raw
-    }
-
-    /// Return the string representation of the error code.
-    #[inline]
-    fn message(self) -> &'static CStr {
-        unsafe { CStr::from_ptr(crate::ffi::sqlite3_errstr(self.raw)) }
-    }
-}
-
 /// An error.
 #[derive(PartialEq, Eq)]
 pub struct Error {
     /// Error code.
     code: Code,
+    message: String,
 }
 
 impl Error {
     /// Construct a new error from the specified code.
     #[inline]
-    pub(crate) fn new(code: Code) -> Self {
-        Self { code }
+    pub(crate) fn new(code: Code, message: impl fmt::Display) -> Self {
+        Self {
+            code,
+            message: format!("{message}"),
+        }
     }
 
     /// Construct a new error from the specified raw code.
     #[inline]
-    pub(crate) fn from_raw(code: c_int) -> Self {
+    pub(crate) fn from_raw(code: c_int, message: impl fmt::Display) -> Self {
         Self {
             code: Code::new(code),
+            message: format!("{message}"),
         }
     }
 
@@ -271,29 +265,19 @@ impl Error {
 }
 
 impl fmt::Debug for Error {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut st = f.debug_struct("Error");
         st.field("code", &self.code);
-
-        if let Ok(message) = self.code.message().to_str() {
-            st.field("message", &message);
-        }
-
+        st.field("message", &self.message);
         st.finish()
     }
 }
 
 impl fmt::Display for Error {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "sqlite3 error {}", self.code.as_raw())?;
-
-        if let Ok(string) = self.code.message().to_str() {
-            write!(f, ": {string}")?;
-        } else {
-            write!(f, ": no message")?;
-        }
-
-        Ok(())
+        self.message.fmt(f)
     }
 }
 

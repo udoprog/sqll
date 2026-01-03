@@ -20,13 +20,16 @@ pub(crate) fn alloc(bytes: &[u8]) -> Result<(*mut c_void, c_int, Option<DeallocF
     // SAFETY: We are receiving a valid byte slice.
     unsafe {
         let Ok(n) = c_int::try_from(bytes.len()) else {
-            return Err(Error::new(Code::NOMEM));
+            return Err(Error::new(
+                Code::ERROR,
+                format_args!("allocation size {} exceeds addressable memory", bytes.len()),
+            ));
         };
 
         let ptr = ffi::sqlite3_malloc(n);
 
         if ptr.is_null() {
-            return Err(Error::new(Code::NOMEM));
+            return Err(Error::new(Code::NOMEM, "allocation failed"));
         }
 
         copy_nonoverlapping(bytes.as_ptr(), ptr.cast::<u8>(), bytes.len());

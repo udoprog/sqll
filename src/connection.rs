@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::ffi;
 use crate::owned::Owned;
-use crate::utils::{c_to_str, sqlite3_try};
+use crate::utils::{c_to_errstr, sqlite3_try};
 use crate::{Code, DatabaseNotFound, Error, Result, State, Statement};
 
 /// A collection of flags use to prepare a statement.
@@ -305,14 +305,17 @@ impl Connection {
 
                 let l = i32::try_from(len).unwrap_or(i32::MAX);
 
-                sqlite3_try!(ffi::sqlite3_prepare_v3(
-                    self.raw.as_ptr(),
-                    ptr,
-                    l,
-                    0,
-                    raw.as_mut_ptr(),
-                    rest.as_mut_ptr(),
-                ));
+                sqlite3_try!(
+                    self,
+                    ffi::sqlite3_prepare_v3(
+                        self.raw.as_ptr(),
+                        ptr,
+                        l,
+                        0,
+                        raw.as_mut_ptr(),
+                        rest.as_mut_ptr(),
+                    )
+                );
 
                 let rest = rest.assume_init();
 
@@ -365,7 +368,10 @@ impl Connection {
     pub fn extended_result_codes(&mut self, enabled: bool) -> Result<()> {
         unsafe {
             let onoff = i32::from(enabled);
-            sqlite3_try!(ffi::sqlite3_extended_result_codes(self.raw.as_ptr(), onoff));
+            sqlite3_try!(
+                self,
+                ffi::sqlite3_extended_result_codes(self.raw.as_ptr(), onoff)
+            );
         }
 
         Ok(())
@@ -402,10 +408,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn error_message(&self) -> &str {
-        // NB: This is the same message as set by sqlite.
-        static DEFAULT_MESSAGE: &str = "not an error";
-
-        unsafe { c_to_str(ffi::sqlite3_errmsg(self.raw.as_ptr())).unwrap_or(DEFAULT_MESSAGE) }
+        unsafe { c_to_errstr(ffi::sqlite3_errmsg(self.raw.as_ptr())) }
     }
 
     /// Build a prepared statement.
@@ -427,7 +430,7 @@ impl Connection {
     ///
     /// let e = c.prepare("CREATE TABLE test (id INTEGER) /* test */; INSERT INTO test (id) VALUES (1);").unwrap_err();
     ///
-    /// assert_eq!(e.code(), Code::ERROR);
+    /// assert_eq!(e.code(), Code::MISUSE);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -484,7 +487,7 @@ impl Connection {
     /// let c = Connection::open_in_memory()?;
     ///
     /// let e = c.prepare_with("CREATE TABLE test (id INTEGER); INSERT INTO test (id) VALUES (1);", Prepare::PERSISTENT).unwrap_err();
-    /// assert_eq!(e.code(), Code::ERROR);
+    /// assert_eq!(e.code(), Code::MISUSE);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -530,6 +533,7 @@ impl Connection {
             let len = i32::try_from(stmt.len()).unwrap_or(i32::MAX);
 
             sqlite3_try! {
+                self,
                 ffi::sqlite3_prepare_v3(
                     self.raw.as_ptr(),
                     ptr,
@@ -545,7 +549,10 @@ impl Connection {
             let o = rest.offset_from_unsigned(ptr);
 
             if o != stmt.len() {
-                return Err(Error::new(Code::ERROR));
+                return Err(Error::new(
+                    Code::MISUSE,
+                    "multiple statements in a single prepare are not allowed",
+                ));
             }
 
             let raw = ptr::NonNull::new_unchecked(raw.assume_init());
@@ -744,7 +751,7 @@ impl Connection {
             // NB: Old callback will be dropped and freed when we set the new
             // one here.
             self.busy_callback = Some(callback);
-            sqlite3_try!(result);
+            sqlite3_try!(self, result);
         }
 
         Ok(())
@@ -771,6 +778,7 @@ impl Connection {
     pub fn clear_busy_handler(&mut self) -> Result<()> {
         unsafe {
             sqlite3_try! {
+                self,
                 ffi::sqlite3_busy_handler(
                     self.raw.as_ptr(),
                     None,
@@ -800,6 +808,7 @@ impl Connection {
     pub fn busy_timeout(&mut self, ms: c_int) -> Result<()> {
         unsafe {
             sqlite3_try! {
+                self,
                 ffi::sqlite3_busy_timeout(
                     self.raw.as_ptr(),
                     ms
@@ -842,13 +851,17 @@ impl Drop for Connection {
 #[cfg(feature = "std")]
 pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
     let Some(bytes) = p.to_str() else {
-        return Err(Error::new(Code::MISUSE));
+        return Err(Error::new(Code::MISUSE, "path is not valid utf-8"));
     };
 
-    match CString::new(bytes) {
-        Ok(string) => Ok(string),
-        Err(..) => Err(Error::new(Code::MISUSE)),
-    }
+    let Ok(string) = CString::new(bytes) else {
+        return Err(Error::new(
+            Code::MISUSE,
+            "path utf-8 contains internal null",
+        ));
+    };
+
+    Ok(string)
 }
 
 /// Options that can be used to customize the opening of a SQLite database.
@@ -1193,12 +1206,12 @@ impl OpenOptions {
             let mut raw = MaybeUninit::uninit();
 
             let code = ffi::sqlite3_open_v2(name.as_ptr(), raw.as_mut_ptr(), self.raw, ptr::null());
-
             let raw = raw.assume_init();
 
             if code != ffi::SQLITE_OK {
+                let error = Error::from_raw(code, c_to_errstr(ffi::sqlite3_errmsg(raw)));
                 ffi::sqlite3_close_v2(raw);
-                return Err(Error::from_raw(code));
+                return Err(error);
             }
 
             Ok(Connection {

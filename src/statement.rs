@@ -6,7 +6,7 @@ use core::ptr;
 use core::slice;
 
 use crate::ffi;
-use crate::utils::c_to_str;
+use crate::utils::{c_to_errstr, c_to_str};
 use crate::{
     Bind, BindValue, Code, Error, FromColumn, FromRow, FromUnsizedColumn, Result, Sink, Type,
 };
@@ -165,6 +165,14 @@ impl Statement {
     #[inline]
     pub(super) fn as_ptr_mut(&mut self) -> *mut ffi::sqlite3_stmt {
         self.raw.as_ptr()
+    }
+
+    pub(crate) fn error_message(&self) -> &str {
+        unsafe {
+            let db = ffi::sqlite3_db_handle(self.as_ptr());
+            let msg_ptr = ffi::sqlite3_errmsg(db);
+            c_to_errstr(msg_ptr)
+        }
     }
 
     /// Get and read the next row from the statement using the [`FromRow`]
@@ -351,7 +359,7 @@ impl Statement {
             match ffi::sqlite3_step(self.raw.as_ptr()) {
                 ffi::SQLITE_ROW => Ok(State::Row),
                 ffi::SQLITE_DONE => Ok(State::Done),
-                code => Err(Error::from_raw(code)),
+                code => Err(Error::from_raw(code, self.error_message())),
             }
         }
     }
@@ -701,12 +709,12 @@ impl Statement {
         name: impl AsRef<CStr>,
         value: impl BindValue,
     ) -> Result<()> {
-        if let Some(index) = self.bind_parameter_index(name) {
-            self.bind_value(index, value)?;
-            Ok(())
-        } else {
-            Err(Error::new(Code::MISMATCH))
-        }
+        let Some(index) = self.bind_parameter_index(name) else {
+            return Err(Error::new(Code::ERROR, "no such bind parameter"));
+        };
+
+        self.bind_value(index, value)?;
+        Ok(())
     }
 
     /// Return the number of columns in the result set returned by the
