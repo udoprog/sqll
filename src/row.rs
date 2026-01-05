@@ -12,6 +12,30 @@ use crate::{Error, FromColumn, Statement};
 ///
 /// # Examples
 ///
+/// The simplest implementation for [`Row`] is provided by tuples.
+///
+/// ```
+/// use sqll::{Connection, Row};
+///
+/// let mut c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users VALUES ('Alice', 42);
+///     INSERT INTO users VALUES ('Bob', 72);
+/// "#)?;
+///
+/// let mut results = c.prepare("SELECT name, age FROM users ORDER BY age")?;
+///
+/// while let Some((name, age)) = results.next::<(&str, u32)>()? {
+///     println!("{name} is {age} years old");
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// It can also be derived on a custom struct:
+///
 /// ```
 /// use sqll::{Connection, Row};
 ///
@@ -86,7 +110,7 @@ where
     Self: Sized,
 {
     /// Constructs an instance of `Self` from the given row.
-    fn from_row(stmt: &'stmt Statement) -> Result<Self, Error>;
+    fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error>;
 }
 
 impl<'stmt, T> Row<'stmt> for T
@@ -94,8 +118,9 @@ where
     T: FromColumn<'stmt>,
 {
     #[inline]
-    fn from_row(stmt: &'stmt Statement) -> Result<Self, Error> {
-        FromColumn::from_column(stmt, 0)
+    fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error> {
+        let prepare = T::check(stmt, 0)?;
+        T::load(stmt, prepare)
     }
 }
 
@@ -139,13 +164,11 @@ macro_rules! implement_tuple {
             $($ty: FromColumn<'stmt>,)*
         {
             #[inline]
-            fn from_row(stmt: &'stmt Statement) -> Result<Self, Error> {
-                let $var0 = FromColumn::from_column(stmt, $value0)?;
-
-                $(
-                    let $var = FromColumn::from_column(stmt, $value0n)?;
-                )*
-
+            fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error> {
+                let $var0 = <$ty0>::check(stmt, $value0)?;
+                $(let $var = <$ty>::check(stmt, $value0n)?;)*
+                let $var0 = <$ty0>::load(stmt, $var0)?;
+                $(let $var = <$ty>::load(stmt, $var)?;)*
                 Ok(($var0, $($var,)*))
             }
         }

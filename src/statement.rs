@@ -7,7 +7,7 @@ use core::slice;
 
 use crate::ffi;
 use crate::utils::{c_to_errstr, c_to_str};
-use crate::{Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Sink, Type};
+use crate::{Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Type};
 
 /// A marker type representing a NULL value.
 ///
@@ -1025,11 +1025,12 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn get<'stmt, T>(&'stmt self, index: c_int) -> Result<T>
+    pub fn get<'stmt, T>(&'stmt mut self, index: c_int) -> Result<T>
     where
         T: FromColumn<'stmt>,
     {
-        FromColumn::from_column(self, index)
+        let prepare = T::check(self, index)?;
+        T::load(self, prepare)
     }
 
     /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
@@ -1064,11 +1065,12 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn get_unsized<T>(&self, index: c_int) -> Result<&T>
+    pub fn get_unsized<T>(&mut self, index: c_int) -> Result<&T>
     where
         T: ?Sized + FromUnsizedColumn,
     {
-        FromUnsizedColumn::from_unsized_column(self, index)
+        let prepare = T::check_unsized(self, index)?;
+        T::load_unsized(self, prepare)
     }
 
     /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
@@ -1098,61 +1100,11 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn get_row<'stmt, T>(&'stmt self) -> Result<T>
+    pub fn get_row<'stmt, T>(&'stmt mut self) -> Result<T>
     where
         T: Row<'stmt>,
     {
         Row::from_row(self)
-    }
-
-    /// Read a value from a column into the provided [`Sink`].
-    ///
-    /// The first column has index 0. The same column can be read multiple
-    /// times.
-    ///
-    /// This can be much more efficient than calling `read` since you can
-    /// provide your own buffers.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let c = Connection::open_in_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT * FROM users WHERE age > ?")?;
-    ///
-    /// let mut results = Vec::new();
-    /// let mut name = String::new();
-    ///
-    /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
-    ///
-    ///     while stmt.step()?.is_row() {
-    ///         name.clear();
-    ///         stmt.read(0, &mut name)?;
-    ///
-    ///         if name == "Bob" {
-    ///             results.push(stmt.get::<i64>(1)?);
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// assert_eq!(results, [40]);
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn read(&self, index: c_int, mut out: impl Sink) -> Result<()> {
-        out.write(self, index)?;
-        Ok(())
     }
 }
 
@@ -1204,7 +1156,7 @@ where
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.stmt.step() {
-            Ok(State::Row) => Some(T::from_row(&self.stmt)),
+            Ok(State::Row) => Some(T::from_row(&mut self.stmt)),
             Ok(State::Done) => None,
             Err(e) => Some(Err(e)),
         }

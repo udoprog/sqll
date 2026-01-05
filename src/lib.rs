@@ -289,7 +289,6 @@ mod from_column;
 mod from_unsized_column;
 mod owned;
 mod row;
-mod sink;
 mod statement;
 mod utils;
 mod value;
@@ -308,13 +307,11 @@ pub use self::fixed_blob::{CapacityError, FixedBlob};
 #[doc(inline)]
 pub use self::fixed_text::FixedText;
 #[doc(inline)]
-pub use self::from_column::FromColumn;
+pub use self::from_column::{CheckPrimitive, FromColumn};
 #[doc(inline)]
-pub use self::from_unsized_column::FromUnsizedColumn;
+pub use self::from_unsized_column::{CheckBytes, FromUnsizedColumn};
 #[doc(inline)]
 pub use self::row::Row;
-#[doc(inline)]
-pub use self::sink::Sink;
 #[doc(inline)]
 pub use self::statement::{Null, State, Statement};
 #[doc(inline)]

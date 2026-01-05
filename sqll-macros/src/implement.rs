@@ -8,7 +8,7 @@ use quote::{ToTokens, quote};
 use syn::punctuated::Punctuated;
 use syn::{
     Data, DataStruct, DeriveInput, Error, Ident, Index, Lifetime, LifetimeParam, LitCStr, LitInt,
-    LitStr, Member, Path, PathArguments, PathSegment,
+    LitStr, Member, Path, PathArguments, PathSegment, Type,
 };
 
 #[derive(Clone, Copy)]
@@ -32,7 +32,7 @@ struct Tokens<'a> {
     error: TypePath<'a, 1>,
     code: TypePath<'a, 1>,
     from_column_t: TypePath<'a, 1>,
-    from_row_t: TypePath<'a, 1>,
+    row_t: TypePath<'a, 1>,
     result: TypePath<'a, 2>,
     statement: TypePath<'a, 1>,
 }
@@ -72,7 +72,7 @@ impl<'a> Tokens<'a> {
             error: TypePath::new(crate_path, ["Error"]),
             code: TypePath::new(crate_path, ["Code"]),
             from_column_t: TypePath::new(crate_path, ["FromColumn"]),
-            from_row_t: TypePath::new(crate_path, ["Row"]),
+            row_t: TypePath::new(crate_path, ["Row"]),
             result: TypePath::new(core_path, ["result", "Result"]),
             statement: TypePath::new(crate_path, ["Statement"]),
         }
@@ -189,13 +189,17 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
         bind_value_t,
         error,
         from_column_t,
-        from_row_t,
+        row_t,
         result,
         statement,
         code,
     } = &tokens;
 
-    let Struct { fields, bindings } = st;
+    let Struct {
+        fields,
+        types,
+        bindings,
+    } = st;
 
     match what {
         What::Bind => {
@@ -257,29 +261,39 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                 }
             }
 
-            let fields = fields
-                .iter()
-                .zip(bindings.iter())
-                .flat_map(|(field, binding)| match binding {
-                    Binding::Index(index) => Some(quote! {
-                        #field: #from_column_t::<#lt>::from_column(stmt, #index)?
-                    }),
-                    Binding::Name(..) => None,
+            let mut setup = Vec::new();
+            let mut checked = Vec::new();
+
+            for (i, (b, ty)) in bindings.iter().zip(types).enumerate() {
+                let Binding::Index(index) = b else {
+                    continue;
+                };
+
+                let c = quote::format_ident!("v{i}");
+
+                setup.push(quote! {
+                    let #c = <#ty as #from_column_t::<#lt>>::check(stmt, #index)?;
                 });
 
-            let this = quote! {
-                Self { #(#fields),* }
-            };
+                checked.push(c);
+            }
+
+            let fields = fields.iter().zip(checked.iter()).map(|(m, c)| {
+                quote! {
+                    #m: #from_column_t::<#lt>::load(stmt, #c)?
+                }
+            });
 
             let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
             let (_, ty_generics, _) = input.generics.split_for_impl();
 
             let expanded = quote! {
                 #[automatically_derived]
-                impl #impl_generics #from_row_t<#lt> for #ident #ty_generics #where_clause {
+                impl #impl_generics #row_t<#lt> for #ident #ty_generics #where_clause {
                     #[inline]
-                    fn from_row(stmt: &#lt #statement) -> #result<Self, #error> {
-                        #result::Ok(#this)
+                    fn from_row(stmt: &#lt mut #statement) -> #result<Self, #error> {
+                        #(#setup)*
+                        #result::Ok(Self { #(#fields),* })
                     }
                 }
             };
@@ -297,6 +311,7 @@ enum Binding {
 #[derive(Default)]
 struct Struct {
     fields: Vec<Member>,
+    types: Vec<Type>,
     bindings: Vec<Binding>,
 }
 
@@ -426,6 +441,7 @@ fn expand_struct(cx: &Ctxt, data: &DataStruct, attrs: &Attrs, what: What) -> Res
         };
 
         st.fields.push(member);
+        st.types.push(field.ty.clone());
         st.bindings.push(access);
     }
 

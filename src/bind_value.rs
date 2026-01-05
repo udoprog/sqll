@@ -1,46 +1,50 @@
 use core::ffi::c_int;
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use crate::bytes;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
 use crate::{Code, Error, FixedBlob, FixedText, Null, Result, Statement, Value};
 
-mod sealed {
-    use crate::{FixedBlob, FixedText, Null, Value};
-
-    pub trait Sealed {}
-    impl Sealed for str {}
-    impl<const N: usize> Sealed for FixedText<N> {}
-    impl Sealed for [u8] {}
-    impl<const N: usize> Sealed for [u8; N] {}
-    impl<const N: usize> Sealed for FixedBlob<N> {}
-    impl Sealed for f32 {}
-    impl Sealed for f64 {}
-    impl Sealed for i8 {}
-    impl Sealed for i16 {}
-    impl Sealed for i32 {}
-    impl Sealed for i64 {}
-    impl Sealed for i128 {}
-    impl Sealed for u8 {}
-    impl Sealed for u16 {}
-    impl Sealed for u32 {}
-    impl Sealed for u64 {}
-    impl Sealed for u128 {}
-    impl Sealed for Value {}
-    impl Sealed for Null {}
-    impl<T> Sealed for Option<T> where T: Sealed {}
-    impl<T> Sealed for &T where T: ?Sized + Sealed {}
-}
-
 /// A type suitable for binding to a prepared statement.
 ///
 /// Use with [`Statement::bind_value`] or [`Statement::bind_value_by_name`].
-pub trait BindValue
-where
-    Self: self::sealed::Sealed,
-{
-    #[doc(hidden)]
+pub trait BindValue {
+    /// Bind a value.
+    ///
+    /// For custom implementations this typically means forwarding a binding
+    /// using an existing implementation and [`Statement::bind_value`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use core::ffi::c_int;
+    ///
+    /// use sqll::{BindValue, Connection, Result, Statement};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// struct Id([u8; 8]);
+    ///
+    /// impl BindValue for Id {
+    ///     #[inline]
+    ///     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+    ///         self.0.as_slice().bind_value(stmt, index)
+    ///     }
+    /// }
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE ids (id BLOB NOT NULL);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("INSERT INTO ids (id) VALUES (?)")?;
+    ///
+    /// stmt.execute(Id(*b"abcdabcd"))?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()>;
 }
 
@@ -48,7 +52,6 @@ impl<T> BindValue for &T
 where
     T: ?Sized + BindValue,
 {
-    #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         (**self).bind_value(stmt, index)
     }
@@ -175,6 +178,36 @@ impl BindValue for [u8] {
         }
 
         Ok(())
+    }
+}
+
+/// [`BindValue`] implementation for a [`Vec<u8>`] byte array.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE files (id INTEGER, data BLOB);
+///
+///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
+///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
+/// stmt.bind_value(1, vec![b'H', b'e', b'l', b'l', b'o'])?;
+///
+/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// assert_eq!(stmt.next::<i64>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl BindValue for Vec<u8> {
+    #[inline]
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        self.as_slice().bind_value(stmt, index)
     }
 }
 
@@ -516,6 +549,35 @@ impl BindValue for str {
         }
 
         Ok(())
+    }
+}
+
+/// [`BindValue`] implementation for a [`String`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
+/// stmt.bind_value(1, String::from("Alice"))?;
+///
+/// assert_eq!(stmt.next::<i64>()?, Some(42));
+/// assert_eq!(stmt.next::<i64>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl BindValue for String {
+    #[inline]
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        self.as_str().bind_value(stmt, index)
     }
 }
 
