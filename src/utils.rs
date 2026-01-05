@@ -6,7 +6,10 @@ macro_rules! __sqlite3_try {
         let code = $expr;
 
         if code != $crate::ffi::SQLITE_OK {
-            return Err($crate::error::Error::from_raw(code, $db.error_message()));
+            return Err($crate::Error::new(
+                $crate::Code::new(code),
+                $db.error_message(),
+            ));
         }
     }};
 }
@@ -33,6 +36,9 @@ macro_rules! __repeat {
     };
 }
 
+/// Repeat a macro to build a tuple implementation.
+///
+/// This supports up to 15 elements.
 pub(crate) use __repeat as repeat;
 
 /// Coerce a null-terminated string into UTF-8, returning `None` if the pointer

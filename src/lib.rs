@@ -280,6 +280,7 @@ mod tests;
 mod bind;
 mod bind_value;
 mod bytes;
+mod code;
 mod connection;
 mod error;
 mod ffi;
@@ -299,9 +300,11 @@ pub use self::bind::Bind;
 #[doc(inline)]
 pub use self::bind_value::BindValue;
 #[doc(inline)]
+pub use self::code::Code;
+#[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]
-pub use self::error::{Code, DatabaseNotFound, Error, Result};
+pub use self::error::{DatabaseNotFound, Error, Result};
 #[doc(inline)]
 pub use self::fixed_blob::{CapacityError, FixedBlob};
 #[doc(inline)]

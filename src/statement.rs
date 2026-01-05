@@ -165,6 +165,7 @@ impl Statement {
         self.raw.as_ptr()
     }
 
+    #[inline]
     pub(crate) fn error_message(&self) -> &str {
         unsafe {
             let db = ffi::sqlite3_db_handle(self.as_ptr());
@@ -260,6 +261,7 @@ impl Statement {
     /// assert_eq!(results, expected);
     /// # Ok::<_, sqll::Error>(())
     /// ```
+    #[inline]
     pub fn next<'stmt, T>(&'stmt mut self) -> Result<Option<T>>
     where
         T: Row<'stmt>,
@@ -351,13 +353,14 @@ impl Statement {
     /// assert_eq!(results, expected);
     /// # Ok::<_, sqll::Error>(())
     /// ```
+    #[inline]
     pub fn step(&mut self) -> Result<State> {
         // SAFETY: We own the raw handle to this statement.
         unsafe {
             match ffi::sqlite3_step(self.raw.as_ptr()) {
                 ffi::SQLITE_ROW => Ok(State::Row),
                 ffi::SQLITE_DONE => Ok(State::Done),
-                code => Err(Error::from_raw(code, self.error_message())),
+                code => Err(Error::new(Code::new(code), self.error_message())),
             }
         }
     }

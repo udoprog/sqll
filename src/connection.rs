@@ -1181,6 +1181,7 @@ impl OpenOptions {
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, cfg(feature = "std"))]
+    #[inline]
     pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
         let path = path_to_cstring(path.as_ref())?;
         self._open(&path)
@@ -1191,11 +1192,13 @@ impl OpenOptions {
     /// This can be used to open in-memory databases by passing `c":memory:"` or
     /// a regular open call with a filesystem path like
     /// `c"/path/to/database.sql"`.
+    #[inline]
     pub fn open_c_str(&self, name: &CStr) -> Result<Connection> {
         self._open(name)
     }
 
     /// Open an in-memory database.
+    #[inline]
     pub fn open_in_memory(&self) -> Result<Connection> {
         self._open(c":memory:")
     }
@@ -1208,7 +1211,7 @@ impl OpenOptions {
             let raw = raw.assume_init();
 
             if code != ffi::SQLITE_OK {
-                let error = Error::from_raw(code, c_to_errstr(ffi::sqlite3_errmsg(raw)));
+                let error = Error::new(Code::new(code), c_to_errstr(ffi::sqlite3_errmsg(raw)));
                 ffi::sqlite3_close_v2(raw);
                 return Err(error);
             }
