@@ -1,4 +1,5 @@
 use core::ffi::c_int;
+use core::marker::PhantomData;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -10,8 +11,9 @@ use crate::{
 };
 
 /// Type returned when calling [`FromColumn::check`] for a primitive value.
-pub struct CheckPrimitive {
+pub struct CheckPrimitive<T> {
     index: c_int,
+    _marker: PhantomData<T>,
 }
 
 /// A type suitable for reading a single value from a prepared statement.
@@ -66,17 +68,17 @@ where
     /// #[derive(Debug, PartialEq, Eq)]
     /// struct Id(Vec<u8>);
     ///
-    /// impl<'stmt> FromColumn<'stmt> for Id {
-    ///     type Check = CheckBytes;
+    /// impl FromColumn<'_> for Id {
+    ///     type Check = CheckBytes<[u8]>;
     ///
     ///     #[inline]
-    ///     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-    ///         Vec::<u8>::check(stmt, index)
+    ///     fn check(stmt: &mut Statement, index: c_int) -> Result<CheckBytes<[u8]>> {
+    ///         Vec::check(stmt, index)
     ///     }
     ///
     ///     #[inline]
-    ///     fn load(stmt: &Statement, checked: CheckBytes) -> Result<Self> {
-    ///         Ok(Id(Vec::<u8>::load(stmt, checked)?))
+    ///     fn load(stmt: &Statement, checked: CheckBytes<[u8]>) -> Result<Self> {
+    ///         Ok(Id(Vec::load(stmt, checked)?))
     ///     }
     /// }
     ///
@@ -123,11 +125,16 @@ where
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Null {
-    type Check = ();
+    type Check = CheckPrimitive<Null>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        type_check(stmt, index, Type::NULL)
+        type_check(stmt, index, Type::NULL)?;
+
+        Ok(CheckPrimitive {
+            index,
+            _marker: PhantomData,
+        })
     }
 
     #[inline]
@@ -142,11 +149,11 @@ pub struct CheckValue {
 }
 
 enum CheckValueKind {
-    Blob(CheckBytes),
-    Text(CheckBytes),
-    Float(CheckPrimitive),
-    Integer(CheckPrimitive),
-    Null(CheckPrimitive),
+    Blob(CheckBytes<[u8]>),
+    Text(CheckBytes<str>),
+    Float(CheckPrimitive<f64>),
+    Integer(CheckPrimitive<i64>),
+    Null(CheckPrimitive<Null>),
 }
 
 /// [`FromColumn`] implementation for [`Value`].
@@ -160,7 +167,7 @@ impl FromColumn<'_> for Value {
             Type::TEXT => CheckValueKind::Text(String::check(stmt, index)?),
             Type::FLOAT => CheckValueKind::Float(f64::check(stmt, index)?),
             Type::INTEGER => CheckValueKind::Integer(i64::check(stmt, index)?),
-            Type::NULL => CheckValueKind::Null(CheckPrimitive { index }),
+            Type::NULL => CheckValueKind::Null(Null::check(stmt, index)?),
             ty => {
                 return Err(Error::new(
                     Code::MISMATCH,
@@ -229,16 +236,19 @@ impl FromColumn<'_> for Value {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for f64 {
-    type Check = CheckPrimitive;
+    type Check = CheckPrimitive<f64>;
 
     #[inline]
     fn check(stmt: &'_ mut Statement, index: c_int) -> Result<Self::Check> {
         type_check(stmt, index, Type::FLOAT)?;
-        Ok(CheckPrimitive { index })
+        Ok(CheckPrimitive {
+            index,
+            _marker: PhantomData,
+        })
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive) -> Result<Self> {
+    fn load(stmt: &Statement, check: CheckPrimitive<f64>) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), check.index) })
     }
 }
@@ -290,17 +300,29 @@ impl FromColumn<'_> for f64 {
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<'stmt> FromColumn<'stmt> for f32 {
-    type Check = CheckPrimitive;
+impl FromColumn<'_> for f32 {
+    type Check = CheckPrimitive<f32>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        f64::check(stmt, index)
+        let check = f64::check(stmt, index)?;
+
+        Ok(CheckPrimitive {
+            index: check.index,
+            _marker: PhantomData,
+        })
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive) -> Result<Self> {
-        Ok(f64::load(stmt, check)? as f32)
+    fn load(stmt: &Statement, check: CheckPrimitive<f32>) -> Result<Self> {
+        let check = CheckPrimitive {
+            index: check.index,
+            _marker: PhantomData,
+        };
+
+        let value = f64::load(stmt, check)?;
+
+        Ok(value as f32)
     }
 }
 
@@ -349,16 +371,19 @@ impl<'stmt> FromColumn<'stmt> for f32 {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for i64 {
-    type Check = CheckPrimitive;
+    type Check = CheckPrimitive<i64>;
 
     #[inline]
     fn check(stmt: &'_ mut Statement, index: c_int) -> Result<Self::Check> {
         type_check(stmt, index, Type::INTEGER)?;
-        Ok(CheckPrimitive { index })
+        Ok(CheckPrimitive {
+            index,
+            _marker: PhantomData,
+        })
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive) -> Result<Self> {
+    fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), check.index) })
     }
 }
@@ -410,15 +435,25 @@ macro_rules! lossless {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Check = CheckPrimitive;
+            type Check = CheckPrimitive<$ty>;
 
             #[inline]
             fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-                i64::check(stmt, index)
+                let check = i64::check(stmt, index)?;
+
+                Ok(CheckPrimitive {
+                    index: check.index,
+                    _marker: PhantomData,
+                })
             }
 
             #[inline]
-            fn load(stmt: &Statement, check: CheckPrimitive) -> Result<Self> {
+            fn load(stmt: &Statement, check: CheckPrimitive<$ty>) -> Result<Self> {
+                let check = CheckPrimitive {
+                    index: check.index,
+                    _marker: PhantomData,
+                };
+
                 let value = i64::load(stmt, check)?;
                 Ok(value as $ty)
             }
@@ -497,15 +532,25 @@ macro_rules! lossy {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Check = CheckPrimitive;
+            type Check = CheckPrimitive<$ty>;
 
             #[inline]
             fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-                i64::check(stmt, index)
+                let check = i64::check(stmt, index)?;
+
+                Ok(CheckPrimitive {
+                    index: check.index,
+                    _marker: PhantomData,
+                })
             }
 
             #[inline]
-            fn load(stmt: &Statement, check: CheckPrimitive) -> Result<Self> {
+            fn load(stmt: &Statement, check: CheckPrimitive<$ty>) -> Result<Self> {
+                let check = CheckPrimitive {
+                    index: check.index,
+                    _marker: PhantomData,
+                };
+
                 let value = i64::load(stmt, check)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
@@ -573,7 +618,7 @@ lossless!(i128);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt str {
-    type Check = CheckBytes;
+    type Check = CheckBytes<str>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
@@ -581,7 +626,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
     }
 
     #[inline]
-    fn load(stmt: &'stmt Statement, check: CheckBytes) -> Result<Self> {
+    fn load(stmt: &'stmt Statement, check: CheckBytes<str>) -> Result<Self> {
         str::load_unsized(stmt, check)
     }
 }
@@ -634,7 +679,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for String {
-    type Check = CheckBytes;
+    type Check = CheckBytes<str>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
@@ -642,7 +687,7 @@ impl FromColumn<'_> for String {
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes) -> Result<Self> {
+    fn load(stmt: &Statement, check: CheckBytes<str>) -> Result<Self> {
         let mut s = String::with_capacity(check.len());
         s.push_str(str::load_unsized(stmt, check)?);
         Ok(s)
@@ -697,7 +742,7 @@ impl FromColumn<'_> for String {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Vec<u8> {
-    type Check = CheckBytes;
+    type Check = CheckBytes<[u8]>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
@@ -705,7 +750,7 @@ impl FromColumn<'_> for Vec<u8> {
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes) -> Result<Self> {
+    fn load(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<Self> {
         let mut buf = Vec::with_capacity(check.len());
         buf.extend_from_slice(<[u8]>::load_unsized(stmt, check)?);
         Ok(buf)
@@ -757,7 +802,7 @@ impl FromColumn<'_> for Vec<u8> {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
-    type Check = CheckBytes;
+    type Check = CheckBytes<[u8]>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
@@ -765,7 +810,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
     }
 
     #[inline]
-    fn load(stmt: &'stmt Statement, check: CheckBytes) -> Result<Self> {
+    fn load(stmt: &'stmt Statement, check: CheckBytes<[u8]>) -> Result<Self> {
         FromUnsizedColumn::load_unsized(stmt, check)
     }
 }
@@ -804,7 +849,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
-    type Check = CheckBytes;
+    type Check = CheckBytes<[u8]>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
@@ -812,7 +857,7 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes) -> Result<Self> {
+    fn load(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<Self> {
         match FixedBlob::try_from(<[u8]>::load_unsized(stmt, check)?) {
             Ok(bytes) => Ok(bytes),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
@@ -854,7 +899,7 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedText<N> {
-    type Check = CheckBytes;
+    type Check = CheckBytes<str>;
 
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
@@ -862,7 +907,7 @@ impl<const N: usize> FromColumn<'_> for FixedText<N> {
     }
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes) -> Result<Self> {
+    fn load(stmt: &Statement, check: CheckBytes<str>) -> Result<Self> {
         match FixedText::try_from(str::load_unsized(stmt, check)?) {
             Ok(s) => Ok(s),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),

@@ -1,4 +1,5 @@
 use core::ffi::c_int;
+use core::marker::PhantomData;
 use core::slice;
 
 use crate::ffi;
@@ -7,12 +8,19 @@ use crate::{Code, Error, Result, Statement, Type};
 
 /// The outcome of calling [`FromUnsizedColumn::check_unsized`] for [`str`] or a
 /// byte slice.
-pub struct CheckBytes {
+pub struct CheckBytes<T>
+where
+    T: ?Sized,
+{
     index: c_int,
     len: usize,
+    _marker: PhantomData<T>,
 }
 
-impl CheckBytes {
+impl<T> CheckBytes<T>
+where
+    T: ?Sized,
+{
     /// Returns the length of the prepared bytes.
     #[inline]
     pub const fn len(&self) -> usize {
@@ -77,15 +85,15 @@ pub trait FromUnsizedColumn {
     /// }
     ///
     /// impl FromUnsizedColumn for Id {
-    ///     type CheckUnsized = CheckBytes;
+    ///     type CheckUnsized = CheckBytes<[u8]>;
     ///
     ///     #[inline]
-    ///     fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<Self::CheckUnsized> {
+    ///     fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<CheckBytes<[u8]>> {
     ///         <[u8]>::check_unsized(stmt, index)
     ///     }
     ///
     ///     #[inline]
-    ///     fn load_unsized(stmt: &Statement, check: Self::CheckUnsized) -> Result<&Self> {
+    ///     fn load_unsized(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<&Self> {
     ///         Ok(Id::new(<[u8]>::load_unsized(stmt, check)?))
     ///     }
     /// }
@@ -152,7 +160,7 @@ pub trait FromUnsizedColumn {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for str {
-    type CheckUnsized = CheckBytes;
+    type CheckUnsized = CheckBytes<str>;
 
     #[inline]
     fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<Self::CheckUnsized> {
@@ -172,14 +180,18 @@ impl FromUnsizedColumn for str {
                 ));
             };
 
-            Ok(CheckBytes { index, len })
+            Ok(CheckBytes {
+                index,
+                len,
+                _marker: PhantomData,
+            })
         }
     }
 
     #[inline]
     fn load_unsized(
         stmt: &Statement,
-        CheckBytes { index, len }: Self::CheckUnsized,
+        CheckBytes { index, len, .. }: Self::CheckUnsized,
     ) -> Result<&Self> {
         unsafe {
             if len == 0 {
@@ -242,7 +254,7 @@ impl FromUnsizedColumn for str {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for [u8] {
-    type CheckUnsized = CheckBytes;
+    type CheckUnsized = CheckBytes<[u8]>;
 
     #[inline]
     fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<Self::CheckUnsized> {
@@ -262,14 +274,18 @@ impl FromUnsizedColumn for [u8] {
                 ));
             };
 
-            Ok(CheckBytes { index, len })
+            Ok(CheckBytes {
+                index,
+                len,
+                _marker: PhantomData,
+            })
         }
     }
 
     #[inline]
     fn load_unsized(
         stmt: &Statement,
-        CheckBytes { index, len }: Self::CheckUnsized,
+        CheckBytes { index, len, .. }: Self::CheckUnsized,
     ) -> Result<&Self> {
         unsafe {
             let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index);
