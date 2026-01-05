@@ -7,7 +7,9 @@ use core::slice;
 
 use crate::ffi;
 use crate::utils::{c_to_errstr, c_to_str};
-use crate::{Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Type};
+use crate::{
+    Bind, BindValue, Check, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Type,
+};
 
 /// A marker type representing a NULL value.
 ///
@@ -1032,7 +1034,7 @@ impl Statement {
     where
         T: FromColumn<'stmt>,
     {
-        let prepare = T::check(self, index)?;
+        let prepare = T::Check::check(self, index)?;
         T::load(self, prepare)
     }
 
@@ -1072,7 +1074,7 @@ impl Statement {
     where
         T: ?Sized + FromUnsizedColumn,
     {
-        let prepare = T::check_unsized(self, index)?;
+        let prepare = T::CheckUnsized::check(self, index)?;
         T::load_unsized(self, prepare)
     }
 

@@ -1,38 +1,7 @@
-use core::ffi::c_int;
-use core::marker::PhantomData;
 use core::slice;
 
 use crate::ffi;
-use crate::from_column::type_check;
-use crate::{Code, Error, Result, Statement, Type};
-
-/// The outcome of calling [`FromUnsizedColumn::check_unsized`] for [`str`] or a
-/// byte slice.
-pub struct CheckBytes<T>
-where
-    T: ?Sized,
-{
-    index: c_int,
-    len: usize,
-    _marker: PhantomData<T>,
-}
-
-impl<T> CheckBytes<T>
-where
-    T: ?Sized,
-{
-    /// Returns the length of the prepared bytes.
-    #[inline]
-    pub const fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns whether the prepared bytes is empty.
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-}
+use crate::{Check, CheckBytes, Result, Statement};
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
@@ -52,14 +21,14 @@ where
 /// idempotently converted and strictly type-checked. As in we only permit
 /// string to string conversions, but deny integer to string conversions.
 pub trait FromUnsizedColumn {
-    /// The prepared check for reading the unsized column.
-    type CheckUnsized;
-
-    /// Perform checks and warm up for the given column.
+    /// The prepared check for reading the column.
+    //
+    /// This must designate one of the database-primitive types as checks, like:
+    /// * [`CheckBytes<T>`] where `T` is a slice type like `[u8]` or `str`.
     ///
-    /// Calling this ensures that any conversion performed over the column is
-    /// done before we attempt to read it.
-    fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<Self::CheckUnsized>;
+    /// When this value is received in [`FromUnsizedColumn::load_unsized`] it
+    /// can be used to actually load the a value of the underlying type.
+    type CheckUnsized: Check;
 
     /// Read an unsized value from the specified column.
     ///
@@ -67,7 +36,6 @@ pub trait FromUnsizedColumn {
     ///
     /// ```
     /// use core::ffi::c_int;
-    /// use core::fmt;
     ///
     /// use sqll::{Connection, FromUnsizedColumn, Result, Statement, CheckBytes};
     ///
@@ -88,13 +56,8 @@ pub trait FromUnsizedColumn {
     ///     type CheckUnsized = CheckBytes<[u8]>;
     ///
     ///     #[inline]
-    ///     fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<CheckBytes<[u8]>> {
-    ///         <[u8]>::check_unsized(stmt, index)
-    ///     }
-    ///
-    ///     #[inline]
     ///     fn load_unsized(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<&Self> {
-    ///         Ok(Id::new(<[u8]>::load_unsized(stmt, check)?))
+    ///         Ok(Id::new(<_>::load_unsized(stmt, check)?))
     ///     }
     /// }
     ///
@@ -163,32 +126,6 @@ impl FromUnsizedColumn for str {
     type CheckUnsized = CheckBytes<str>;
 
     #[inline]
-    fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<Self::CheckUnsized> {
-        unsafe {
-            // Note that this type check is important, because it locks the type
-            // of conversion we permit for a string column.
-            type_check(stmt, index, Type::TEXT)?;
-
-            let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), index);
-
-            // This is unlikely to not be optimized out, but for the off chance
-            // we still keep it.
-            let Ok(len) = usize::try_from(len) else {
-                return Err(Error::new(
-                    Code::ERROR,
-                    format_args!("column size {len} exceeds addressable memory"),
-                ));
-            };
-
-            Ok(CheckBytes {
-                index,
-                len,
-                _marker: PhantomData,
-            })
-        }
-    }
-
-    #[inline]
     fn load_unsized(
         stmt: &Statement,
         CheckBytes { index, len, .. }: Self::CheckUnsized,
@@ -255,32 +192,6 @@ impl FromUnsizedColumn for str {
 /// ```
 impl FromUnsizedColumn for [u8] {
     type CheckUnsized = CheckBytes<[u8]>;
-
-    #[inline]
-    fn check_unsized(stmt: &mut Statement, index: c_int) -> Result<Self::CheckUnsized> {
-        unsafe {
-            // Note that this type check is important, because it locks the type
-            // of conversion we permit for a blob column.
-            type_check(stmt, index, Type::BLOB)?;
-
-            let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), index);
-
-            // This is unlikely to not be optimized out, but for the off chance
-            // we still keep it.
-            let Ok(len) = usize::try_from(len) else {
-                return Err(Error::new(
-                    Code::ERROR,
-                    format_args!("column size {len} exceeds addressable memory"),
-                ));
-            };
-
-            Ok(CheckBytes {
-                index,
-                len,
-                _marker: PhantomData,
-            })
-        }
-    }
 
     #[inline]
     fn load_unsized(

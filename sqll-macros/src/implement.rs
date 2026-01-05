@@ -29,11 +29,12 @@ impl What {
 struct Tokens<'a> {
     bind_t: TypePath<'a, 1>,
     bind_value_t: TypePath<'a, 1>,
-    error: TypePath<'a, 1>,
+    check_t: TypePath<'a, 1>,
     code: TypePath<'a, 1>,
+    error: TypePath<'a, 1>,
     from_column_t: TypePath<'a, 1>,
-    row_t: TypePath<'a, 1>,
     result: TypePath<'a, 2>,
+    row_t: TypePath<'a, 1>,
     statement: TypePath<'a, 1>,
 }
 
@@ -69,11 +70,12 @@ impl<'a> Tokens<'a> {
         Self {
             bind_t: TypePath::new(crate_path, ["Bind"]),
             bind_value_t: TypePath::new(crate_path, ["BindValue"]),
-            error: TypePath::new(crate_path, ["Error"]),
+            check_t: TypePath::new(crate_path, ["Check"]),
             code: TypePath::new(crate_path, ["Code"]),
+            error: TypePath::new(crate_path, ["Error"]),
             from_column_t: TypePath::new(crate_path, ["FromColumn"]),
-            row_t: TypePath::new(crate_path, ["Row"]),
             result: TypePath::new(core_path, ["result", "Result"]),
+            row_t: TypePath::new(crate_path, ["Row"]),
             statement: TypePath::new(crate_path, ["Statement"]),
         }
     }
@@ -187,12 +189,13 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
     let Tokens {
         bind_t,
         bind_value_t,
+        check_t,
+        code,
         error,
         from_column_t,
-        row_t,
         result,
+        row_t,
         statement,
-        code,
     } = &tokens;
 
     let Struct {
@@ -272,7 +275,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                 let c = quote::format_ident!("v{i}");
 
                 setup.push(quote! {
-                    let #c = <#ty as #from_column_t::<#lt>>::check(stmt, #index)?;
+                    let #c = <<#ty as #from_column_t::<#lt>>::Check as #check_t>::check(stmt, #index)?;
                 });
 
                 checked.push(c);

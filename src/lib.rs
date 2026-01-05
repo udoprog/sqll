@@ -280,6 +280,7 @@ mod tests;
 mod bind;
 mod bind_value;
 mod bytes;
+mod check;
 mod code;
 mod connection;
 mod error;
@@ -300,6 +301,8 @@ pub use self::bind::Bind;
 #[doc(inline)]
 pub use self::bind_value::BindValue;
 #[doc(inline)]
+pub use self::check::{Check, CheckBytes, CheckPrimitive, CheckValue};
+#[doc(inline)]
 pub use self::code::Code;
 #[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
@@ -310,9 +313,9 @@ pub use self::fixed_blob::{CapacityError, FixedBlob};
 #[doc(inline)]
 pub use self::fixed_text::FixedText;
 #[doc(inline)]
-pub use self::from_column::{CheckPrimitive, FromColumn};
+pub use self::from_column::FromColumn;
 #[doc(inline)]
-pub use self::from_unsized_column::{CheckBytes, FromUnsizedColumn};
+pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
 pub use self::row::Row;
 #[doc(inline)]

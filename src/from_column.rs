@@ -1,20 +1,12 @@
-use core::ffi::c_int;
-use core::marker::PhantomData;
-
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::check::CheckValueKind;
 use crate::ffi;
 use crate::{
-    CheckBytes, Code, Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Statement,
-    Type, Value,
+    Check, CheckBytes, CheckPrimitive, CheckValue, Code, Error, FixedBlob, FixedText,
+    FromUnsizedColumn, Null, Result, Statement, Value,
 };
-
-/// Type returned when calling [`FromColumn::check`] for a primitive value.
-pub struct CheckPrimitive<T> {
-    index: c_int,
-    _marker: PhantomData<T>,
-}
 
 /// A type suitable for reading a single value from a prepared statement.
 ///
@@ -42,13 +34,16 @@ where
     Self: Sized,
 {
     /// The prepared check for reading the column.
-    type Check;
-
-    /// Perform checks and warm up for the given column.
     ///
-    /// Calling this ensures that any conversion performed over the column is
-    /// done before we attempt to read it.
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check>;
+    /// This must designate one of the database-primitive types as checks, like:
+    /// * [`CheckPrimitive<T>`] where `T` is a primitive type like [`i64`],
+    ///   [`f64`], or [`Null`].
+    /// * [`CheckBytes<T>`] where `T` is a slice type like `[u8]` or `str`.
+    /// * [`CheckValue`] for dynamically typed values.
+    ///
+    /// When this value is received in [`FromColumn::load`] it can be used to
+    /// actually load the a value of the underlying type.
+    type Check: Check;
 
     /// Read a value from the specified column.
     ///
@@ -59,7 +54,6 @@ where
     ///
     /// ```
     /// use core::ffi::c_int;
-    /// use core::fmt;
     ///
     /// use sqll::{Connection, FromColumn, Result, Statement, CheckBytes};
     ///
@@ -72,13 +66,8 @@ where
     ///     type Check = CheckBytes<[u8]>;
     ///
     ///     #[inline]
-    ///     fn check(stmt: &mut Statement, index: c_int) -> Result<CheckBytes<[u8]>> {
-    ///         Vec::check(stmt, index)
-    ///     }
-    ///
-    ///     #[inline]
     ///     fn load(stmt: &Statement, checked: CheckBytes<[u8]>) -> Result<Self> {
-    ///         Ok(Id(Vec::load(stmt, checked)?))
+    ///         Ok(Id(<_>::load(stmt, checked)?))
     ///     }
     /// }
     ///
@@ -128,56 +117,14 @@ impl FromColumn<'_> for Null {
     type Check = CheckPrimitive<Null>;
 
     #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        type_check(stmt, index, Type::NULL)?;
-
-        Ok(CheckPrimitive {
-            index,
-            _marker: PhantomData,
-        })
-    }
-
-    #[inline]
     fn load(_: &Statement, _: Self::Check) -> Result<Self> {
         Ok(Null)
     }
 }
 
-/// Type returned when calling [`FromColumn::check`] for a dynamic [`Value`].
-pub struct CheckValue {
-    kind: CheckValueKind,
-}
-
-enum CheckValueKind {
-    Blob(CheckBytes<[u8]>),
-    Text(CheckBytes<str>),
-    Float(CheckPrimitive<f64>),
-    Integer(CheckPrimitive<i64>),
-    Null(CheckPrimitive<Null>),
-}
-
 /// [`FromColumn`] implementation for [`Value`].
 impl FromColumn<'_> for Value {
     type Check = CheckValue;
-
-    #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        let kind = match stmt.column_type(index) {
-            Type::BLOB => CheckValueKind::Blob(Vec::<u8>::check(stmt, index)?),
-            Type::TEXT => CheckValueKind::Text(String::check(stmt, index)?),
-            Type::FLOAT => CheckValueKind::Float(f64::check(stmt, index)?),
-            Type::INTEGER => CheckValueKind::Integer(i64::check(stmt, index)?),
-            Type::NULL => CheckValueKind::Null(Null::check(stmt, index)?),
-            ty => {
-                return Err(Error::new(
-                    Code::MISMATCH,
-                    format_args!("dynamic value has unsupported column type {ty}"),
-                ));
-            }
-        };
-
-        Ok(CheckValue { kind })
-    }
 
     #[inline]
     fn load(stmt: &Statement, check: CheckValue) -> Result<Self> {
@@ -239,15 +186,6 @@ impl FromColumn<'_> for f64 {
     type Check = CheckPrimitive<f64>;
 
     #[inline]
-    fn check(stmt: &'_ mut Statement, index: c_int) -> Result<Self::Check> {
-        type_check(stmt, index, Type::FLOAT)?;
-        Ok(CheckPrimitive {
-            index,
-            _marker: PhantomData,
-        })
-    }
-
-    #[inline]
     fn load(stmt: &Statement, check: CheckPrimitive<f64>) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), check.index) })
     }
@@ -301,27 +239,11 @@ impl FromColumn<'_> for f64 {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for f32 {
-    type Check = CheckPrimitive<f32>;
+    type Check = CheckPrimitive<f64>;
 
     #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        let check = f64::check(stmt, index)?;
-
-        Ok(CheckPrimitive {
-            index: check.index,
-            _marker: PhantomData,
-        })
-    }
-
-    #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive<f32>) -> Result<Self> {
-        let check = CheckPrimitive {
-            index: check.index,
-            _marker: PhantomData,
-        };
-
+    fn load(stmt: &Statement, check: CheckPrimitive<f64>) -> Result<Self> {
         let value = f64::load(stmt, check)?;
-
         Ok(value as f32)
     }
 }
@@ -372,15 +294,6 @@ impl FromColumn<'_> for f32 {
 /// ```
 impl FromColumn<'_> for i64 {
     type Check = CheckPrimitive<i64>;
-
-    #[inline]
-    fn check(stmt: &'_ mut Statement, index: c_int) -> Result<Self::Check> {
-        type_check(stmt, index, Type::INTEGER)?;
-        Ok(CheckPrimitive {
-            index,
-            _marker: PhantomData,
-        })
-    }
 
     #[inline]
     fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
@@ -435,25 +348,10 @@ macro_rules! lossless {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Check = CheckPrimitive<$ty>;
+            type Check = CheckPrimitive<i64>;
 
             #[inline]
-            fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-                let check = i64::check(stmt, index)?;
-
-                Ok(CheckPrimitive {
-                    index: check.index,
-                    _marker: PhantomData,
-                })
-            }
-
-            #[inline]
-            fn load(stmt: &Statement, check: CheckPrimitive<$ty>) -> Result<Self> {
-                let check = CheckPrimitive {
-                    index: check.index,
-                    _marker: PhantomData,
-                };
-
+            fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
                 let value = i64::load(stmt, check)?;
                 Ok(value as $ty)
             }
@@ -532,25 +430,10 @@ macro_rules! lossy {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Check = CheckPrimitive<$ty>;
+            type Check = CheckPrimitive<i64>;
 
             #[inline]
-            fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-                let check = i64::check(stmt, index)?;
-
-                Ok(CheckPrimitive {
-                    index: check.index,
-                    _marker: PhantomData,
-                })
-            }
-
-            #[inline]
-            fn load(stmt: &Statement, check: CheckPrimitive<$ty>) -> Result<Self> {
-                let check = CheckPrimitive {
-                    index: check.index,
-                    _marker: PhantomData,
-                };
-
+            fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
                 let value = i64::load(stmt, check)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
@@ -621,11 +504,6 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
     type Check = CheckBytes<str>;
 
     #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        str::check_unsized(stmt, index)
-    }
-
-    #[inline]
     fn load(stmt: &'stmt Statement, check: CheckBytes<str>) -> Result<Self> {
         str::load_unsized(stmt, check)
     }
@@ -680,11 +558,6 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
 /// ```
 impl FromColumn<'_> for String {
     type Check = CheckBytes<str>;
-
-    #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        str::check_unsized(stmt, index)
-    }
 
     #[inline]
     fn load(stmt: &Statement, check: CheckBytes<str>) -> Result<Self> {
@@ -745,11 +618,6 @@ impl FromColumn<'_> for Vec<u8> {
     type Check = CheckBytes<[u8]>;
 
     #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        <[u8]>::check_unsized(stmt, index)
-    }
-
-    #[inline]
     fn load(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<Self> {
         let mut buf = Vec::with_capacity(check.len());
         buf.extend_from_slice(<[u8]>::load_unsized(stmt, check)?);
@@ -805,11 +673,6 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
     type Check = CheckBytes<[u8]>;
 
     #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        <[u8]>::check_unsized(stmt, index)
-    }
-
-    #[inline]
     fn load(stmt: &'stmt Statement, check: CheckBytes<[u8]>) -> Result<Self> {
         FromUnsizedColumn::load_unsized(stmt, check)
     }
@@ -850,11 +713,6 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
     type Check = CheckBytes<[u8]>;
-
-    #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        <[u8]>::check_unsized(stmt, index)
-    }
 
     #[inline]
     fn load(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<Self> {
@@ -900,11 +758,6 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedText<N> {
     type Check = CheckBytes<str>;
-
-    #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        str::check_unsized(stmt, index)
-    }
 
     #[inline]
     fn load(stmt: &Statement, check: CheckBytes<str>) -> Result<Self> {
@@ -959,39 +812,10 @@ where
     type Check = Option<T::Check>;
 
     #[inline]
-    fn check(stmt: &mut Statement, index: c_int) -> Result<Self::Check> {
-        if stmt.column_type(index) == Type::NULL {
-            return Ok(None);
-        }
-
-        Ok(Some(T::check(stmt, index)?))
-    }
-
-    #[inline]
     fn load(stmt: &'stmt Statement, check: Option<T::Check>) -> Result<Self> {
         match check {
             Some(check) => Ok(Some(T::load(stmt, check)?)),
             None => Ok(None),
         }
     }
-}
-
-// NB: We have to perform strict type checking to avoid auto-conversion, if we
-// permit it, the pointers that have previously been fetched for a given column
-// may become invalidated.
-//
-// See: https://sqlite.org/c3ref/column_blob.html
-#[inline(always)]
-pub(crate) fn type_check(stmt: &Statement, index: c_int, expected: Type) -> Result<()> {
-    if stmt.column_type(index) != expected {
-        return Err(Error::new(
-            Code::MISMATCH,
-            format_args!(
-                "expected column type {expected} but found found {}",
-                stmt.column_type(index)
-            ),
-        ));
-    }
-
-    Ok(())
 }

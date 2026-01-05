@@ -1,5 +1,5 @@
 use crate::utils::repeat;
-use crate::{Error, FromColumn, Statement};
+use crate::{Check, Error, FromColumn, Statement};
 
 /// This allows a type to be constructed from a [`Statement`] using [`next`] or
 /// [`iter`].
@@ -119,7 +119,7 @@ where
 {
     #[inline]
     fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error> {
-        let prepare = T::check(stmt, 0)?;
+        let prepare = T::Check::check(stmt, 0)?;
         T::load(stmt, prepare)
     }
 }
@@ -165,8 +165,8 @@ macro_rules! implement_tuple {
         {
             #[inline]
             fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error> {
-                let $var0 = <$ty0>::check(stmt, $value0)?;
-                $(let $var = <$ty>::check(stmt, $value0n)?;)*
+                let $var0 = <$ty0>::Check::check(stmt, $value0)?;
+                $(let $var = <$ty>::Check::check(stmt, $value0n)?;)*
                 let $var0 = <$ty0>::load(stmt, $var0)?;
                 $(let $var = <$ty>::load(stmt, $var)?;)*
                 Ok(($var0, $($var,)*))
