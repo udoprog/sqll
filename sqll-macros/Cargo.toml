@@ -1,6 +1,6 @@
 [package]
 name = "sqll-macros"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["John-John Tedro <udoprog@tedro.se>"]
 edition = "2024"
 description = "Efficient interface to SQLite that doesn't get in your way"
