@@ -2,11 +2,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::ty::AnyKind;
-use crate::ty::{self, ColumnType};
+use crate::ty::{self, AnyKind, NotNull, Type};
 use crate::{
-    Code, Error, FixedBlob, FixedText, FromUnsizedColumn, NotNull, Null, Result, Statement, Text,
-    Value,
+    Code, Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Statement, Text, Value,
 };
 
 /// A type suitable for reading a single value from a prepared statement.
@@ -23,17 +21,16 @@ use crate::{
 /// By separating reading a column into two stages in the underlying row API we
 /// can hopefully load references directly from the database.
 ///
-/// The [`ColumnType`] trait is response for checking, see it for more
-/// information.
+/// The [`Type`] trait is response for checking, see it for more information.
 ///
 /// # Examples
 ///
 /// It is expected that this trait is implemented for types which can be
 /// conveniently read out of a row.
 ///
-/// In order to do so, the first step is to pick the implementation of
-/// [`ColumnType`] to associated with the [`Type` associated type]. This
-/// determines the underlying database type being loaded.
+/// In order to do so, the first step is to pick the implementation of [`Type`]
+/// to associated with the [`Type` associated type]. This determines the
+/// underlying database type being loaded.
 ///
 /// An instance of this type is then passed into [`FromColumn::from_column`]
 /// allowing the underlying type to be loaded from the statement it is
@@ -95,7 +92,7 @@ where
     /// [`Text`]: crate::ty::Text
     /// [`Any`]: crate::ty::Any
     /// [`Nullable<T>`]: crate::ty::Nullable
-    type Type: ColumnType;
+    type Type: Type;
 
     /// Read a value from the specified column.
     ///
@@ -195,8 +192,8 @@ impl<'stmt> FromColumn<'stmt> for Value<'stmt> {
     #[inline]
     fn from_column(stmt: &'stmt Statement, index: ty::Any) -> Result<Self> {
         match index.into_kind() {
-            AnyKind::Blob(index) => Ok(Value::blob(<_>::from_unsized_column(stmt, index)?)),
-            AnyKind::Text(index) => Ok(Value::text(<_>::from_unsized_column(stmt, index)?)),
+            AnyKind::Blob(index) => Ok(Value::blob(<[u8]>::from_unsized_column(stmt, index)?)),
+            AnyKind::Text(index) => Ok(Value::text(Text::from_unsized_column(stmt, index)?)),
             AnyKind::Float(index) => Ok(Value::float(f64::from_column(stmt, index)?)),
             AnyKind::Integer(index) => Ok(Value::integer(i64::from_column(stmt, index)?)),
         }
@@ -204,6 +201,12 @@ impl<'stmt> FromColumn<'stmt> for Value<'stmt> {
 }
 
 /// [`FromColumn`] implementation for [`f64`].
+///
+/// This corresponds exactly with the internal SQLite [`FLOAT`][value-type] or
+/// [`Float`][type] types.
+///
+/// [value-type]: crate::ValueType::FLOAT
+/// [type]: crate::ty::Float
 ///
 /// # Examples
 ///
@@ -313,7 +316,13 @@ impl FromColumn<'_> for f32 {
     }
 }
 
-/// [`FromColumn`] implementation for `i64`.
+/// [`FromColumn`] implementation for [`i64`].
+///
+/// This corresponds exactly with the internal SQLite [`INTEGER`][value-type] or
+/// [`Integer`][type] types.
+///
+/// [value-type]: crate::ValueType::INTEGER
+/// [type]: crate::ty::Integer
 ///
 /// # Examples
 ///

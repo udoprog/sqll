@@ -5,14 +5,15 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::ffi;
-use crate::ty::ColumnType;
+use crate::ty::Type;
 use crate::utils::{c_to_error_text, c_to_text};
-use crate::{Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Text, Type};
+use crate::{
+    Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Text, ValueType,
+};
 
 /// A marker type representing NULL.
 ///
-/// This is both a value and type marker through [`ColumnType`] representing
-/// NULL.
+/// This is both a value and type marker through [`Type`] representing NULL.
 ///
 /// This can be used in [`BindValue`] and [`FromColumn`] when a NULL value is
 /// expected.
@@ -1024,7 +1025,7 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// use sqll::{Connection, Type};
+    /// use sqll::{Connection, ValueType};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -1036,24 +1037,24 @@ impl Statement {
     ///
     /// let mut stmt = c.prepare("SELECT * FROM users")?;
     ///
-    /// assert_eq!(stmt.column_type(0), Type::NULL);
-    /// assert_eq!(stmt.column_type(1), Type::NULL);
-    /// assert_eq!(stmt.column_type(2), Type::NULL);
-    /// assert_eq!(stmt.column_type(3), Type::NULL);
+    /// assert_eq!(stmt.column_type(0), ValueType::NULL);
+    /// assert_eq!(stmt.column_type(1), ValueType::NULL);
+    /// assert_eq!(stmt.column_type(2), ValueType::NULL);
+    /// assert_eq!(stmt.column_type(3), ValueType::NULL);
     ///
     /// assert!(stmt.step()?.is_row());
     ///
-    /// assert_eq!(stmt.column_type(0), Type::INTEGER);
-    /// assert_eq!(stmt.column_type(1), Type::TEXT);
-    /// assert_eq!(stmt.column_type(2), Type::FLOAT);
-    /// assert_eq!(stmt.column_type(3), Type::BLOB);
+    /// assert_eq!(stmt.column_type(0), ValueType::INTEGER);
+    /// assert_eq!(stmt.column_type(1), ValueType::TEXT);
+    /// assert_eq!(stmt.column_type(2), ValueType::FLOAT);
+    /// assert_eq!(stmt.column_type(3), ValueType::BLOB);
     /// // Since the fifth column does not exist it is always `Null`.
-    /// assert_eq!(stmt.column_type(4), Type::NULL);
+    /// assert_eq!(stmt.column_type(4), ValueType::NULL);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn column_type(&self, index: c_int) -> Type {
-        unsafe { Type::new(ffi::sqlite3_column_type(self.raw.as_ptr(), index)) }
+    pub fn column_type(&self, index: c_int) -> ValueType {
+        unsafe { ValueType::new(ffi::sqlite3_column_type(self.raw.as_ptr(), index)) }
     }
 
     /// Return the name for a bind parameter if it exists.
@@ -1207,7 +1208,7 @@ impl Statement {
     where
         T: ?Sized + FromUnsizedColumn,
     {
-        let index = T::UnsizedType::check(self, index)?;
+        let index = T::Type::check(self, index)?;
         T::from_unsized_column(self, index)
     }
 }

@@ -1,4 +1,4 @@
-use crate::ty::ColumnType;
+use crate::ty::Type;
 use crate::utils::repeat;
 use crate::{Error, FromColumn, Statement};
 

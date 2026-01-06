@@ -1,8 +1,8 @@
 use core::slice;
 
 use crate::ffi;
-use crate::ty::{self, ColumnType};
-use crate::{Result, Statement, Text};
+use crate::ty::{self, Type};
+use crate::{Code, Error, Result, Statement, Text};
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
@@ -33,7 +33,7 @@ pub trait FromUnsizedColumn {
     ///
     /// [`Text`]: crate::ty::Text
     /// [`Blob`]: crate::ty::Blob
-    type UnsizedType: ColumnType;
+    type Type: Type;
 
     /// Read an unsized value from the specified column.
     ///
@@ -59,7 +59,7 @@ pub trait FromUnsizedColumn {
     /// }
     ///
     /// impl FromUnsizedColumn for Id {
-    ///     type UnsizedType = ty::Blob;
+    ///     type Type = ty::Blob;
     ///
     ///     #[inline]
     ///     fn from_unsized_column(stmt: &Statement, index: ty::Blob) -> Result<&Self> {
@@ -79,10 +79,16 @@ pub trait FromUnsizedColumn {
     /// assert_eq!(select.unsized_column::<Id>(0)?, Id::new(b"\xab\xcd\xab\xcd"));
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    fn from_unsized_column(stmt: &Statement, index: Self::UnsizedType) -> Result<&Self>;
+    fn from_unsized_column(stmt: &Statement, index: Self::Type) -> Result<&Self>;
 }
 
 /// [`FromUnsizedColumn`] implementation for [`Text`].
+///
+/// This corresponds exactly with the internal SQLite [`TEXT`][value-type] or
+/// [`Text`][type] types.
+///
+/// [value-type]: crate::ValueType::TEXT
+/// [type]: crate::ty::Text
 ///
 /// # Examples
 ///
@@ -132,7 +138,7 @@ pub trait FromUnsizedColumn {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for Text {
-    type UnsizedType = ty::Text;
+    type Type = ty::Text;
 
     #[inline]
     fn from_unsized_column(stmt: &Statement, index: ty::Text) -> Result<&Self> {
@@ -141,7 +147,8 @@ impl FromUnsizedColumn for Text {
                 return Ok(Text::from_bytes(b""));
             }
 
-            // SAFETY: Documentation guaranteeds this always returns a valid UTF-8 by sqlite.
+            // SAFETY: Documentation guaranteeds this always returns a valid
+            // UTF-8 by sqlite.
             let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index.column());
             debug_assert!(!ptr.is_null(), "sqlite3_column_bytes returned null pointer");
             let text = slice::from_raw_parts(ptr, index.len());
@@ -197,15 +204,14 @@ impl FromUnsizedColumn for Text {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for str {
-    type UnsizedType = ty::Text;
+    type Type = ty::Text;
 
     #[inline]
-    fn from_unsized_column(stmt: &Statement, index: Self::UnsizedType) -> Result<&Self> {
-        let Ok(string) = Text::from_unsized_column(stmt, index)?.to_str() else {
-            return Err(crate::Error::new(
-                crate::Code::MISMATCH,
-                "column is not valid UTF-8",
-            ));
+    fn from_unsized_column(stmt: &Statement, index: Self::Type) -> Result<&Self> {
+        let text = Text::from_unsized_column(stmt, index)?;
+
+        let Ok(string) = text.to_str() else {
+            return Err(Error::new(Code::MISMATCH, "column is not valid UTF-8"));
         };
 
         Ok(string)
@@ -213,6 +219,12 @@ impl FromUnsizedColumn for str {
 }
 
 /// [`FromUnsizedColumn`] implementation for `[u8]`.
+///
+/// This corresponds exactly with the internal SQLite [`BLOB`][value-type] or
+/// [`Blob`][type] types.
+///
+/// [value-type]: crate::ValueType::BLOB
+/// [type]: crate::ty::Blob
 ///
 /// # Examples
 ///
@@ -258,7 +270,7 @@ impl FromUnsizedColumn for str {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for [u8] {
-    type UnsizedType = ty::Blob;
+    type Type = ty::Blob;
 
     #[inline]
     fn from_unsized_column(stmt: &Statement, index: ty::Blob) -> Result<&Self> {

@@ -30,12 +30,12 @@ struct Tokens<'a> {
     bind_t: TypePath<'a, 1>,
     bind_value_t: TypePath<'a, 1>,
     code: TypePath<'a, 1>,
-    column_type_t: TypePath<'a, 2>,
     error: TypePath<'a, 1>,
     from_column_t: TypePath<'a, 1>,
     result: TypePath<'a, 2>,
     row_t: TypePath<'a, 1>,
     statement: TypePath<'a, 1>,
+    type_t: TypePath<'a, 2>,
 }
 
 struct TypePath<'a, const N: usize> {
@@ -71,12 +71,12 @@ impl<'a> Tokens<'a> {
             bind_t: TypePath::new(crate_path, ["Bind"]),
             bind_value_t: TypePath::new(crate_path, ["BindValue"]),
             code: TypePath::new(crate_path, ["Code"]),
-            column_type_t: TypePath::new(crate_path, ["ty", "ColumnType"]),
             error: TypePath::new(crate_path, ["Error"]),
             from_column_t: TypePath::new(crate_path, ["FromColumn"]),
             result: TypePath::new(core_path, ["result", "Result"]),
             row_t: TypePath::new(crate_path, ["Row"]),
             statement: TypePath::new(crate_path, ["Statement"]),
+            type_t: TypePath::new(crate_path, ["ty", "Type"]),
         }
     }
 }
@@ -190,7 +190,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
         bind_t,
         bind_value_t,
         code,
-        column_type_t,
+        type_t: column_type_t,
         error,
         from_column_t,
         result,

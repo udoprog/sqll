@@ -278,9 +278,11 @@ impl<const N: usize> BindValue for [u8; N] {
 
 /// [`BindValue`] implementation for [`f64`].
 ///
-/// This corresponds to the internal SQLite [`FLOAT`] type.
+/// This corresponds exactly with the internal SQLite [`FLOAT`][value-type] or
+/// [`Float`][type] types.
 ///
-/// [`FLOAT`]: crate::Type::FLOAT
+/// [value-type]: crate::ValueType::FLOAT
+/// [type]: crate::ty::Float
 ///
 /// # Examples
 ///
@@ -363,10 +365,11 @@ impl BindValue for f32 {
 
 /// [`BindValue`] implementation for [`i64`].
 ///
-/// This corresponds to the internal SQLite [`INTEGER`] type and can therefore
-/// represent any value.
+/// This corresponds exactly with the internal SQLite [`INTEGER`][value-type] or
+/// [`Integer`][type] types.
 ///
-/// [`INTEGER`]: crate::Type::INTEGER
+/// [value-type]: crate::ValueType::INTEGER
+/// [type]: crate::ty::Integer
 ///
 /// # Examples
 ///

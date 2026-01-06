@@ -260,8 +260,9 @@
 //! [SQLite]: https://www.sqlite.org
 
 #![no_std]
-#![allow(clippy::should_implement_trait)]
+#![allow(clippy::module_inception)]
 #![allow(clippy::new_without_default)]
+#![allow(clippy::should_implement_trait)]
 #![warn(rustdoc::broken_intra_doc_links)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
@@ -288,7 +289,6 @@ mod fixed_blob;
 mod fixed_text;
 mod from_column;
 mod from_unsized_column;
-mod not_null;
 mod owned;
 mod row;
 mod statement;
@@ -296,6 +296,7 @@ mod text;
 pub mod ty;
 mod utils;
 mod value;
+mod value_type;
 mod version;
 
 #[doc(inline)]
@@ -317,15 +318,15 @@ pub use self::from_column::FromColumn;
 #[doc(inline)]
 pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
-pub use self::not_null::NotNull;
-#[doc(inline)]
 pub use self::row::Row;
 #[doc(inline)]
 pub use self::statement::{Null, State, Statement};
 #[doc(inline)]
 pub use self::text::Text;
 #[doc(inline)]
-pub use self::value::{Type, Value};
+pub use self::value::Value;
+#[doc(inline)]
+pub use self::value_type::ValueType;
 #[doc(inline)]
 pub use self::version::{lib_version, lib_version_number};
 

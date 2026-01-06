@@ -1,61 +1,6 @@
-use core::ffi::c_int;
 use core::fmt;
 
-use crate::ffi;
-
-/// The type of a value.
-#[derive(Clone, Copy, Eq, PartialEq)]
-#[non_exhaustive]
-pub struct Type {
-    raw: c_int,
-}
-
-impl Type {
-    /// Construct from a raw type.
-    #[inline]
-    pub(crate) const fn new(raw: c_int) -> Self {
-        Self { raw }
-    }
-
-    /// The blob type.
-    pub const BLOB: Self = Self::new(ffi::SQLITE_BLOB);
-    /// The text type.
-    pub const TEXT: Self = Self::new(ffi::SQLITE_TEXT);
-    /// The floating-point type.
-    pub const FLOAT: Self = Self::new(ffi::SQLITE_FLOAT);
-    /// The integer type.
-    pub const INTEGER: Self = Self::new(ffi::SQLITE_INTEGER);
-    /// The null type.
-    pub const NULL: Self = Self::new(ffi::SQLITE_NULL);
-}
-
-impl fmt::Display for Type {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.raw {
-            ffi::SQLITE_BLOB => write!(f, "BLOB"),
-            ffi::SQLITE_TEXT => write!(f, "TEXT"),
-            ffi::SQLITE_FLOAT => write!(f, "FLOAT"),
-            ffi::SQLITE_INTEGER => write!(f, "INTEGER"),
-            ffi::SQLITE_NULL => write!(f, "NULL"),
-            raw => write!(f, "UNKNOWN({raw})"),
-        }
-    }
-}
-
-impl fmt::Debug for Type {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.raw {
-            ffi::SQLITE_BLOB => write!(f, "BLOB"),
-            ffi::SQLITE_TEXT => write!(f, "TEXT"),
-            ffi::SQLITE_FLOAT => write!(f, "FLOAT"),
-            ffi::SQLITE_INTEGER => write!(f, "INTEGER"),
-            ffi::SQLITE_NULL => write!(f, "NULL"),
-            raw => write!(f, "UNKNOWN({raw})"),
-        }
-    }
-}
+use crate::{Text, ValueType};
 
 /// A dynamic value.
 ///
@@ -115,11 +60,11 @@ impl<'stmt> Value<'stmt> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Kind<'stmt> {
     Integer(i64),
     Float(f64),
-    Text(&'stmt str),
+    Text(&'stmt Text),
     Blob(&'stmt [u8]),
 }
 
@@ -162,18 +107,21 @@ impl<'stmt> Value<'stmt> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::Value;
+    /// use sqll::{Value, Text};
     ///
     /// let value = Value::text("");
-    /// assert_eq!(value.as_text(), Some(""));
+    /// assert_eq!(value.as_text(), Some(Text::new("")));
     ///
     /// let value = Value::text("hello");
-    /// assert_eq!(value.as_text(), Some("hello"));
+    /// assert_eq!(value.as_text(), Some(Text::new("hello")));
     /// ```
     #[inline]
-    pub const fn text(value: &'stmt str) -> Self {
+    pub fn text<T>(value: &'stmt T) -> Self
+    where
+        T: ?Sized + AsRef<Text>,
+    {
         Self {
-            kind: Kind::Text(value),
+            kind: Kind::Text(value.as_ref()),
         }
     }
 
@@ -237,16 +185,16 @@ impl<'stmt> Value<'stmt> {
     /// # Examples
     ///
     /// ```
-    /// use sqll::Value;
+    /// use sqll::{Value, Text};
     ///
     /// let value = Value::text("");
-    /// assert_eq!(value.as_text(), Some(""));
+    /// assert_eq!(value.as_text(), Some(Text::new("")));
     ///
     /// let value = Value::text("hello");
-    /// assert_eq!(value.as_text(), Some("hello"));
+    /// assert_eq!(value.as_text(), Some(Text::new("hello")));
     /// ```
     #[inline]
-    pub const fn as_text(&self) -> Option<&'stmt str> {
+    pub const fn as_text(&self) -> Option<&'stmt Text> {
         if let Kind::Text(value) = self.kind {
             return Some(value);
         }
@@ -273,21 +221,82 @@ impl<'stmt> Value<'stmt> {
         None
     }
 
-    /// Return the type of the value.
+    /// Return the [`ValueType`] of the value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, ValueType, Value};
+    ///
+    /// let mut c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE test (value);
+    ///
+    ///     INSERT INTO test (value) VALUES (42), (3.14), ('Hello, world!'), (X'DEADBEEF');
+    /// "#)?;
+    ///
+    /// let mut select = c.prepare("SELECT value FROM test")?;
+    ///
+    /// let value = select.next::<Value<'_>>()?.map(|v| v.column_type());
+    /// assert_eq!(value, Some(ValueType::INTEGER));
+    ///
+    /// let value = select.next::<Value<'_>>()?.map(|v| v.column_type());
+    /// assert_eq!(value, Some(ValueType::FLOAT));
+    ///
+    /// let value = select.next::<Value<'_>>()?.map(|v| v.column_type());
+    /// assert_eq!(value, Some(ValueType::TEXT));
+    ///
+    /// let value = select.next::<Value<'_>>()?.map(|v| v.column_type());
+    /// assert_eq!(value, Some(ValueType::BLOB));
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     #[inline]
-    pub const fn ty(&self) -> Type {
+    pub const fn column_type(&self) -> ValueType {
         match &self.kind {
-            Kind::Blob(_) => Type::BLOB,
-            Kind::Float(_) => Type::FLOAT,
-            Kind::Integer(_) => Type::INTEGER,
-            Kind::Text(_) => Type::TEXT,
+            Kind::Blob(_) => ValueType::BLOB,
+            Kind::Float(_) => ValueType::FLOAT,
+            Kind::Integer(_) => ValueType::INTEGER,
+            Kind::Text(_) => ValueType::TEXT,
         }
     }
 }
 
+/// Debug implementation for [`Value`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Value;
+///
+/// let value = Value::integer(42);
+/// assert_eq!(format!("{:?}", value), "42");
+///
+/// let value = Value::float(3.14);
+/// assert_eq!(format!("{:?}", value), "3.14");
+///
+/// let value = Value::text("hello");
+/// assert_eq!(format!("{:?}", value), "\"hello\"");
+///
+/// let value = Value::blob(&[0xDE, 0xAD, 0xBE, 0xEF]);
+/// assert_eq!(format!("{:?}", value), "b\"\\xde\\xad\\xbe\\xef\"");
+/// ```
 impl fmt::Debug for Value<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.kind.fmt(f)
+        match self.kind {
+            Kind::Integer(value) => write!(f, "{value}"),
+            Kind::Float(value) => write!(f, "{value}"),
+            Kind::Text(value) => write!(f, "{value:?}"),
+            Kind::Blob(value) => {
+                write!(f, "b\"")?;
+
+                for byte in value {
+                    write!(f, "\\x{:02x}", byte)?;
+                }
+
+                write!(f, "\"")
+            }
+        }
     }
 }

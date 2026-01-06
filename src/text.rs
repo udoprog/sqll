@@ -289,6 +289,42 @@ impl Borrow<[u8]> for Text {
     }
 }
 
+/// Allow getting a reference to self.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Text;
+///
+/// let t = Text::new(b"example");
+/// let t_ref: &Text = t.as_ref();
+/// assert_eq!(t_ref, t);
+/// ```
+impl AsRef<Text> for Text {
+    #[inline]
+    fn as_ref(&self) -> &Text {
+        self
+    }
+}
+
+/// Allow getting a a string as a [`Text`] reference.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Text;
+///
+/// let t = "example";
+/// let t_ref: &Text = t.as_ref();
+/// assert_eq!(t_ref, t);
+/// ```
+impl AsRef<Text> for str {
+    #[inline]
+    fn as_ref(&self) -> &Text {
+        Text::new(self)
+    }
+}
+
 /// Allow getting a reference to the underlying byte slice.
 ///
 /// # Examples
