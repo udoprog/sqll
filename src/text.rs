@@ -219,6 +219,19 @@ impl Hash for Text {
     }
 }
 
+/// Allow borrowing the underlying byte slice.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Text;
+///
+/// use core::borrow::Borrow;
+///
+/// let t = Text::new(b"example");
+/// let b: &[u8] = t.borrow();
+/// assert_eq!(b, b"example");
+/// ```
 impl Borrow<[u8]> for Text {
     #[inline]
     fn borrow(&self) -> &[u8] {
@@ -226,6 +239,17 @@ impl Borrow<[u8]> for Text {
     }
 }
 
+/// Allow getting a reference to the underlying byte slice.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Text;
+///
+/// let t = Text::new(b"example");
+/// let b: &[u8] = t.as_ref();
+/// assert_eq!(b, b"example");
+/// ```
 impl AsRef<[u8]> for Text {
     #[inline]
     fn as_ref(&self) -> &[u8] {

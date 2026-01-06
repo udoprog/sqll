@@ -56,7 +56,7 @@ pub(crate) unsafe fn c_to_text<'a>(ptr: *const i8) -> Option<&'a Text> {
     Some(Text::new(c_str.to_bytes()))
 }
 
-pub(crate) unsafe fn c_to_errstr(ptr: *const i8) -> &'static Text {
+pub(crate) unsafe fn c_to_error_text(ptr: *const i8) -> &'static Text {
     // NB: This is the same message as set by sqlite.
     static DEFAULT_MESSAGE: &Text = Text::from_bytes(b"not an error");
     unsafe { c_to_text(ptr).unwrap_or(DEFAULT_MESSAGE) }

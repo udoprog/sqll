@@ -62,7 +62,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, Null};
+/// use sqll::{Connection, Null, Result};
 ///
 /// let c = Connection::open_in_memory()?;
 ///
@@ -72,15 +72,10 @@ where
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
-/// stmt.bind_value(1, Null)?;
+/// stmt.bind(Null)?;
 ///
-/// let mut names = Vec::new();
-///
-/// while let Some(name) = stmt.next::<String>()? {
-///     names.push(name);
-/// }
-///
-/// assert_eq!(names, vec![String::from("Alice")]);
+/// let names = stmt.iter::<String>().collect::<Result<Vec<_>>>()?;
+/// assert_eq!(names, [String::from("Alice")]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for Null {
@@ -101,7 +96,7 @@ impl BindValue for Null {
 /// # Examples
 ///
 /// ```
-/// use sqll::{Connection, Value};
+/// use sqll::{Connection, Value, Result};
 ///
 /// let c = Connection::open_in_memory()?;
 ///
@@ -112,15 +107,10 @@ impl BindValue for Null {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
-/// stmt.bind_value(1, Value::null())?;
+/// stmt.bind(Value::null())?;
 ///
-/// let mut names = Vec::new();
-///
-/// while let Some(name) = stmt.next::<String>()? {
-///     names.push(name);
-/// }
-///
-/// assert_eq!(names, vec![String::from("Alice")]);
+/// let names = stmt.iter::<String>().collect::<Result<Vec<_>>>()?;
+/// assert_eq!(names, [String::from("Alice")]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for Value {
@@ -150,13 +140,16 @@ impl BindValue for Value {
 ///
 ///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
 ///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+///     INSERT INTO files (id, data) VALUES (2, X'');
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
-/// stmt.bind_value(1, &b"Hello"[..])?;
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(&b"Hello"[..])?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+///
+/// stmt.bind(&b""[..])?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for [u8] {
@@ -195,13 +188,16 @@ impl BindValue for [u8] {
 ///
 ///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
 ///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+///     INSERT INTO files (id, data) VALUES (2, X'');
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
-/// stmt.bind_value(1, vec![b'H', b'e', b'l', b'l', b'o'])?;
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(vec![b'H', b'e', b'l', b'l', b'o'])?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+///
+/// stmt.bind(vec![])?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for Vec<u8> {
@@ -225,15 +221,16 @@ impl BindValue for Vec<u8> {
 ///
 ///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
 ///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+///     INSERT INTO files (id, data) VALUES (2, X'');
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
-/// let data = FixedBlob::from(b"Hello");
-/// stmt.bind_value(1, data)?;
+/// stmt.bind(FixedBlob::from(b"Hello"))?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(FixedBlob::from(b""))?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> BindValue for FixedBlob<N> {
@@ -257,13 +254,15 @@ impl<const N: usize> BindValue for FixedBlob<N> {
 ///
 ///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
 ///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
+///     INSERT INTO files (id, data) VALUES (2, X'');
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
-/// stmt.bind_value(1, b"Hello")?;
+/// stmt.bind(b"Hello")?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(b"")?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> BindValue for [u8; N] {
@@ -293,10 +292,8 @@ impl<const N: usize> BindValue for [u8; N] {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-/// stmt.bind_value(1, 2.0f64)?;
-///
-/// assert_eq!(stmt.next::<i64>()?, Some(2));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(2.0f64)?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for f64 {
@@ -381,10 +378,9 @@ impl BindValue for f32 {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-/// stmt.bind_value(1, 2i64)?;
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(2i64)?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for i64 {
@@ -423,10 +419,8 @@ macro_rules! lossless {
         /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-        #[doc = concat!("stmt.bind_value(1, 2", stringify!($ty), ")?;")]
-        ///
-        /// assert!(stmt.step()?.is_row());
-        /// assert_eq!(stmt.get::<i64>(0)?, 1);
+        #[doc = concat!("stmt.bind(2", stringify!($ty), ")?;")]
+        /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl BindValue for $ty {
@@ -460,7 +454,7 @@ macro_rules! lossy {
         /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-        #[doc = concat!("let e = stmt.bind_value(1, ", stringify!($ty), "::MAX).unwrap_err();")]
+        #[doc = concat!("let e = stmt.bind(", stringify!($ty), "::MAX).unwrap_err();")]
         /// assert_eq!(e.code(), sqll::Code::MISMATCH);
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -479,10 +473,9 @@ macro_rules! lossy {
         /// "#)?;
         ///
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
-        #[doc = concat!("stmt.bind_value(1, 2", stringify!($ty), ")?;")]
         ///
-        /// assert!(stmt.step()?.is_row());
-        /// assert_eq!(stmt.get::<i64>(0)?, 1);
+        #[doc = concat!("stmt.bind(2", stringify!($ty), ")?;")]
+        /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl BindValue for $ty {
@@ -513,21 +506,23 @@ lossy!(u128, "value {} cannot be converted to sqlite integer");
 /// # Examples
 ///
 /// ```
-/// use sqll::Connection;
+/// use sqll::{Connection, Text};
 ///
 /// let c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
 ///
-///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30), ('', 25);
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind_value(1, "Alice")?;
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(42));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind("Alice")?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+///
+/// stmt.bind("")?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(25)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for str {
@@ -549,20 +544,25 @@ impl BindValue for str {
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
 ///
-///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30), ('', 25);
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind_value(1, Text::new(b"Alice"))?;
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(42));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(Text::new(b"Alice"))?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+///
+/// stmt.bind(Text::new(b""))?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(25)]);
+///
+/// stmt.bind(b"")?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), []);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for Text {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        let (data, len, dealloc) = bytes::alloc(self.as_bytes())?;
+        let (ptr, len, dealloc) = bytes::alloc(self.as_bytes())?;
 
         unsafe {
             sqlite3_try! {
@@ -570,7 +570,7 @@ impl BindValue for Text {
                 ffi::sqlite3_bind_text(
                     stmt.as_ptr_mut(),
                     index,
-                    data.cast(),
+                    ptr.cast(),
                     len,
                     dealloc,
                 )
@@ -597,10 +597,9 @@ impl BindValue for Text {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind_value(1, String::from("Alice"))?;
 ///
-/// assert_eq!(stmt.next::<i64>()?, Some(42));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(String::from("Alice"))?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for String {
@@ -626,18 +625,14 @@ impl BindValue for String {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-///
-/// let name = FixedText::<5>::try_from("Alice")?;
-/// stmt.bind_value(1, name)?;
-///
-/// assert_eq!(stmt.next::<i64>()?, Some(42));
-/// assert_eq!(stmt.next::<i64>()?, None);
+/// stmt.bind(FixedText::<5>::try_from("Alice")?)?;
+/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
 /// # Ok::<_, Box<dyn std::error::Error>>(())
 /// ```
 impl<const N: usize> BindValue for FixedText<N> {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        self.as_str().bind_value(stmt, index)
+        self.as_text().bind_value(stmt, index)
     }
 }
 
@@ -656,21 +651,14 @@ impl<const N: usize> BindValue for FixedText<N> {
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
-/// stmt.reset()?;
-/// stmt.bind_value(1, "Alice")?;
-/// stmt.bind_value(2, None::<i64>)?;
+/// stmt.bind(("Alice", None::<i64>))?;
 /// assert!(stmt.step()?.is_done());
 ///
-/// stmt.reset()?;
-/// stmt.bind_value(1, "Bob")?;
-/// stmt.bind_value(2, Some(30i64))?;
+/// stmt.bind(("Bob", Some(30i64)))?;
 /// assert!(stmt.step()?.is_done());
 ///
 /// let mut it = c.prepare("SELECT name, age FROM users")?.into_iter::<(String, Option<i64>)>();
-///
-/// assert_eq!(it.next(), Some(Ok((String::from("Alice"), None))));
-/// assert_eq!(it.next(), Some(Ok((String::from("Bob"), Some(30)))));
-/// assert_eq!(it.next(), None);
+/// assert_eq!(it.collect::<Vec<_>>(), [Ok((String::from("Alice"), None)), Ok((String::from("Bob"), Some(30)))]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<T> BindValue for Option<T>

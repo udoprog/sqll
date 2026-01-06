@@ -5,7 +5,7 @@ use core::ops::Range;
 use core::ptr::NonNull;
 
 use crate::ffi;
-use crate::utils::{c_to_errstr, c_to_text};
+use crate::utils::{c_to_error_text, c_to_text};
 use crate::{
     Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Text, Type, ValueType,
 };
@@ -120,15 +120,10 @@ impl State {
 ///
 /// /* .. */
 ///
-/// insert_stmt.reset()?;
-/// insert_stmt.bind_value(1, 42)?;
-/// assert!(insert_stmt.step()?.is_done());
+/// insert_stmt.execute(42)?;
 ///
-/// query.reset()?;
-///
-/// while let Some(value) = query.next::<i64>()? {
-///     assert_eq!(value, 42);
-/// }
+/// query.bind(())?;
+/// assert_eq!(query.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 #[repr(transparent)]
@@ -171,7 +166,7 @@ impl Statement {
         unsafe {
             let db = ffi::sqlite3_db_handle(self.as_ptr());
             let msg_ptr = ffi::sqlite3_errmsg(db);
-            c_to_errstr(msg_ptr)
+            c_to_error_text(msg_ptr)
         }
     }
 
@@ -245,8 +240,7 @@ impl Statement {
     /// let mut results = Vec::new();
     ///
     /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
+    ///     stmt.bind(age)?;
     ///
     ///     while let Some(person) = stmt.next::<Person>()? {
     ///         results.push((person.name, person.age));
@@ -337,11 +331,10 @@ impl Statement {
     /// let mut results = Vec::new();
     ///
     /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
+    ///     stmt.bind(age)?;
     ///
-    ///     while stmt.step()?.is_row() {
-    ///         results.push((stmt.get::<String>(0)?, stmt.get::<i64>(1)?));
+    ///     while let Some(row) = stmt.next::<(String, i64)>()? {
+    ///         results.push(row);
     ///     }
     /// }
     ///
@@ -539,8 +532,7 @@ impl Statement {
     /// let mut results = Vec::new();
     ///
     /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
+    ///     stmt.bind(age)?;
     ///
     ///     while let Some(row) = stmt.next::<(String, i64)>()? {
     ///         results.push(row);
@@ -586,8 +578,7 @@ impl Statement {
     /// let mut results = Vec::new();
     ///
     /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
+    ///     stmt.bind(age)?;
     ///
     ///     while let Some(row) = stmt.next::<(String, i64)>()? {
     ///         results.push(row);
@@ -789,12 +780,12 @@ impl Statement {
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// let cols = stmt.columns().collect::<Vec<_>>();
-    /// assert_eq!(cols, vec![0, 1]);
-    /// assert!(cols.iter().flat_map(|i| stmt.column_name(*i)).eq(["name", "age"]));
+    /// assert_eq!(cols, [0, 1]);
+    /// assert_eq!(cols.iter().flat_map(|i| stmt.column_name(*i)).collect::<Vec<_>>(), ["name", "age"]);
     ///
     /// let cols = stmt.columns().rev().collect::<Vec<_>>();
-    /// assert_eq!(cols, vec![1, 0]);
-    /// assert!(cols.iter().flat_map(|i| stmt.column_name(*i)).eq(["age", "name"]));
+    /// assert_eq!(cols, [1, 0]);
+    /// assert_eq!(cols.iter().flat_map(|i| stmt.column_name(*i)).collect::<Vec<_>>(), ["age", "name"]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -1013,11 +1004,12 @@ impl Statement {
     /// let mut results = Vec::new();
     ///
     /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
+    ///     stmt.bind(age)?;
     ///
-    ///     while let Some(row) = stmt.next::<(String, i64)>()? {
-    ///         results.push(row);
+    ///     while stmt.step()?.is_row() {
+    ///         let name = stmt.get::<String>(0)?;
+    ///         let age = stmt.get::<i64>(1)?;
+    ///         results.push((name, age));
     ///     }
     /// }
     ///
@@ -1061,11 +1053,11 @@ impl Statement {
     /// let mut stmt = c.prepare("SELECT name FROM users WHERE age > ?")?;
     ///
     /// for age in [30, 50] {
-    ///     stmt.reset()?;
-    ///     stmt.bind_value(1, age)?;
+    ///     stmt.bind(age)?;
     ///
     ///     while stmt.step()?.is_row() {
-    ///         assert!(matches!(stmt.get_unsized::<str>(0)?, "Alice" | "Bob"));
+    ///         let name = stmt.get_unsized::<str>(0)?;
+    ///         assert!(matches!(name, "Alice" | "Bob"));
     ///     }
     /// }
     /// # Ok::<_, sqll::Error>(())

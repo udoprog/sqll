@@ -1,5 +1,5 @@
 use core::ffi::{c_int, c_void};
-use core::ptr::{copy_nonoverlapping, null_mut};
+use core::ptr::{copy_nonoverlapping, dangling_mut};
 
 use crate::ffi;
 use crate::{Code, Error, Result};
@@ -14,7 +14,7 @@ pub(crate) fn alloc(bytes: &[u8]) -> Result<(*mut c_void, c_int, Option<DeallocF
         // Avoid allocating empty collections entirely by simply using a
         // dangling pointer. This is correctly aligned so it should be usable by
         // sqlite.
-        return Ok((null_mut(), 0, None));
+        return Ok((dangling_mut(), 0, None));
     }
 
     // SAFETY: We are receiving a valid byte slice.

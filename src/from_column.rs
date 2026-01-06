@@ -10,9 +10,9 @@ use crate::{
 
 /// A type suitable for reading a single value from a prepared statement.
 ///
-/// Use with [`Statement::get`].
+/// This trait can be used directly through [`Statement::get`], to read multiple
+/// columns simultaneously see [`Row`].
 ///
-/// To read multiple columns simultaneously see [`Row`].
 ///
 /// [`Row`]: crate::Row
 ///
@@ -24,6 +24,54 @@ use crate::{
 ///
 /// The [`ValueType`] trait is response for checking, see it for more
 /// information.
+///
+/// # Examples
+///
+/// It is expected that this trait is implemented for types which can be
+/// conveniently read out of a row.
+///
+/// In order to do so, the first step is to pick the implementation of
+/// [`ValueType`] to associated with the [`Type` associated type]. This
+/// determines the underlying database type being loaded.
+///
+/// An instance of this type is then passed into [`FromColumn::from_column`]
+/// allowing the underlying type to be loaded from the statement it is
+/// associated with.
+///
+/// ```
+/// use sqll::{Connection, FromColumn, Result, Statement, Primitive};
+///
+/// #[derive(Debug, PartialEq, Eq)]
+/// struct Timestamp {
+///     seconds: i64,
+/// }
+///
+/// impl FromColumn<'_> for Timestamp {
+///     type Type = Primitive<i64>;
+///
+///     #[inline]
+///     fn from_column(stmt: &Statement, index: Self::Type) -> Result<Self> {
+///         Ok(Timestamp {
+///             seconds: i64::from_column(stmt, index)?,
+///         })
+///     }
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (ts INTEGER);
+///
+///     INSERT INTO test (ts) VALUES (1767675413);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT ts FROM test")?;
+///
+/// assert_eq!(stmt.next::<Timestamp>()?, Some(Timestamp { seconds: 1767675413 }));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// [`Type` associated type]: FromColumn::Type
 pub trait FromColumn<'stmt>
 where
     Self: Sized,
@@ -31,8 +79,8 @@ where
     /// The type of a column.
     ///
     /// This must designate one of the database-primitive types as checks, like:
-    /// * [`Primitive<T>`] where `T` is a primitive type like [`i64`],
-    ///   [`f64`], or [`Null`].
+    /// * [`Primitive<T>`] where `T` is a primitive type like [`i64`], [`f64`],
+    ///   or [`Null`].
     /// * [`Unsized<T>`] where `T` is a slice type like `[u8]` or `str`.
     /// * [`Dynamic`] for dynamically typed values.
     ///
@@ -97,15 +145,9 @@ where
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-/// stmt.bind_value(1, "Alice")?;
+/// stmt.bind("Alice")?;
 ///
-/// let mut names = Vec::new();
-///
-/// while let Some(value) = stmt.next::<Null>()? {
-///     names.push(value);
-/// }
-///
-/// assert_eq!(names, vec![Null]);
+/// assert_eq!(stmt.iter::<Null>().collect::<Vec<_>>(), [Ok(Null)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Null {
@@ -786,14 +828,14 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 ///
 /// assert!(stmt.step()?.is_row());
 /// let bytes = stmt.get::<FixedText<5>>(0)?;
-/// assert_eq!(bytes.as_str(), "Alice");
+/// assert_eq!(bytes.as_text(), "Alice");
 ///
 /// assert!(stmt.step()?.is_row());
 /// let e = stmt.get::<FixedText<2>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
 /// let bytes = stmt.get::<FixedText<5>>(0)?;
-/// assert_eq!(bytes.as_str(), "Bob");
+/// assert_eq!(bytes.as_text(), "Bob");
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedText<N> {
@@ -823,22 +865,15 @@ impl<const N: usize> FromColumn<'_> for FixedText<N> {
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
-/// stmt.reset()?;
-/// stmt.bind_value(1, "Alice")?;
-/// stmt.bind_value(2, None::<i64>)?;
-/// assert!(stmt.step()?.is_done());
-///
-/// stmt.reset()?;
-/// stmt.bind_value(1, "Bob")?;
-/// stmt.bind_value(2, Some(30i64))?;
-/// assert!(stmt.step()?.is_done());
+/// stmt.execute(("Alice", None::<i64>))?;
+/// stmt.execute(("Bob", Some(30i64)))?;
 ///
 /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
 ///
 /// let mut names_and_ages = Vec::new();
 ///
-/// while let Some((name, age)) = stmt.next::<(String, Option<i64>)>()? {
-///     names_and_ages.push((name, age));
+/// while let Some(row) = stmt.next::<(String, Option<i64>)>()? {
+///     names_and_ages.push(row);
 /// }
 ///
 /// names_and_ages.sort();

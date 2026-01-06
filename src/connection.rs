@@ -1,5 +1,5 @@
 use core::ffi::CStr;
-use core::ffi::{c_int, c_longlong, c_uint, c_void};
+use core::ffi::{c_int, c_uint, c_void};
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::BitOr;
@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::ffi;
 use crate::owned::Owned;
-use crate::utils::{c_to_errstr, sqlite3_try};
+use crate::utils::{c_to_error_text, sqlite3_try};
 use crate::{Code, DatabaseNotFound, Error, Result, State, Statement, Text};
 
 /// A collection of flags use to prepare a statement.
@@ -408,7 +408,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn error_message(&self) -> &Text {
-        unsafe { c_to_errstr(ffi::sqlite3_errmsg(self.raw.as_ptr())) }
+        unsafe { c_to_error_text(ffi::sqlite3_errmsg(self.raw.as_ptr())) }
     }
 
     /// Build a prepared statement.
@@ -452,15 +452,10 @@ impl Connection {
     ///
     /// drop(c);
     ///
-    /// insert_stmt.reset()?;
-    /// insert_stmt.bind_value(1, 42)?;
-    /// assert!(insert_stmt.step()?.is_done());
+    /// insert_stmt.execute(42)?;
     ///
-    /// query_stmt.reset()?;
-    ///
-    /// while let Some(id) = query_stmt.next::<i64>()? {
-    ///     assert_eq!(id, 42);
-    /// }
+    /// query_stmt.bind(())?;
+    /// assert_eq!(query_stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -511,15 +506,11 @@ impl Connection {
     ///
     /// /* .. */
     ///
-    /// insert_stmt.reset()?;
-    /// insert_stmt.bind_value(1, 42)?;
+    /// insert_stmt.bind(42)?;
     /// assert!(insert_stmt.step()?.is_done());
     ///
-    /// query_stmt.reset()?;
-    ///
-    /// while let Some(id) = query_stmt.next::<i64>()? {
-    ///     assert_eq!(id, 42);
-    /// }
+    /// query_stmt.bind(())?;
+    /// assert_eq!(query_stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn prepare_with(&self, stmt: impl AsRef<str>, flags: Prepare) -> Result<Statement> {
@@ -658,35 +649,26 @@ impl Connection {
     /// "#)?;
     /// assert_eq!(c.last_insert_rowid(), 2);
     ///
-    /// c.execute(r#"
-    ///     INSERT INTO users (name) VALUES ('Charlie')
-    /// "#)?;
+    /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
     /// assert_eq!(c.last_insert_rowid(), 3);
     ///
-    /// c.execute(r#"
-    ///     INSERT INTO users (name) VALUES ('Dave')
-    /// "#)?;
+    /// c.execute("INSERT INTO users (name) VALUES ('Dave')")?;
     /// assert_eq!(c.last_insert_rowid(), 4);
     ///
     /// let mut select = c.prepare("SELECT id FROM users WHERE name = ?")?;
-    /// select.bind_value(1, "Dave")?;
+    /// select.bind("Dave")?;
     ///
-    /// while let Some(id) = select.next::<i64>()? {
-    ///     assert_eq!(id, 4);
+    /// for id in select.iter::<i64>() {
+    ///     assert_eq!(id?, 4);
     /// }
     ///
-    /// c.execute(r#"
-    ///     DELETE FROM users WHERE id = 3
-    /// "#)?;
+    /// c.execute("DELETE FROM users WHERE id = 3")?;
     /// assert_eq!(c.last_insert_rowid(), 4);
     ///
-    /// c.execute(r#"
-    ///     INSERT INTO users (name) VALUES ('Charlie')
-    /// "#)?;
+    /// c.execute("INSERT INTO users (name) VALUES ('Charlie')")?;
     /// assert_eq!(c.last_insert_rowid(), 5);
     ///
-    /// select.reset()?;
-    /// select.bind_value(1, "Charlie")?;
+    /// select.bind("Charlie")?;
     ///
     /// while let Some(id) = select.next::<i64>()? {
     ///     assert_eq!(id, 5);
@@ -694,7 +676,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn last_insert_rowid(&self) -> c_longlong {
+    pub fn last_insert_rowid(&self) -> i64 {
         unsafe { ffi::sqlite3_last_insert_rowid(self.raw.as_ptr()) }
     }
 
@@ -1211,7 +1193,7 @@ impl OpenOptions {
             let raw = raw.assume_init();
 
             if code != ffi::SQLITE_OK {
-                let error = Error::new(Code::new(code), c_to_errstr(ffi::sqlite3_errmsg(raw)));
+                let error = Error::new(Code::new(code), c_to_error_text(ffi::sqlite3_errmsg(raw)));
                 ffi::sqlite3_close_v2(raw);
                 return Err(error);
             }

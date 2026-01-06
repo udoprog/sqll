@@ -3,7 +3,7 @@ use core::hash::{Hash, Hasher};
 use core::ops::Deref;
 use core::str;
 
-use crate::{CapacityError, FixedBlob};
+use crate::{CapacityError, FixedBlob, Text};
 
 /// A helper to read at most a fixed number of `N` bytes from a column. This
 /// allocates the storage for the bytes read on the stack.
@@ -20,7 +20,7 @@ impl<const N: usize> FixedText<N> {
     /// use sqll::FixedText;
     ///
     /// let s = FixedText::<5>::new();
-    /// assert_eq!(s.as_str(), "");
+    /// assert_eq!(s.as_text(), "");
     /// ```
     pub const fn new() -> Self {
         Self {
@@ -31,24 +31,17 @@ impl<const N: usize> FixedText<N> {
     /// Converts a vector of bytes to a String without checking that the string
     /// contains valid UTF-8.
     ///
-    /// # Safety
-    ///
-    /// This function is unsafe because it does not check that the bytes passed
-    /// to it are valid UTF-8. If this constraint is violated, it may cause
-    /// memory unsafety issues with future users of the String, as the rest of
-    /// the standard library assumes that Strings are valid UTF-8.
-    ///
     /// # Examples
     ///
     /// ```
     /// use sqll::{FixedBlob, FixedText};
     ///
     /// let bytes = FixedBlob::<16>::try_from(&b"Hello World"[..])?;
-    /// let s = unsafe { FixedText::from_utf8_unchecked(bytes) };
-    /// assert_eq!(s.as_str(), "Hello World");
+    /// let s = unsafe { FixedText::from_inner(bytes) };
+    /// assert_eq!(s.as_text(), "Hello World");
     /// # Ok::<_, sqll::CapacityError>(())
     /// ```
-    pub const unsafe fn from_utf8_unchecked(inner: FixedBlob<N>) -> Self {
+    pub const fn from_inner(inner: FixedBlob<N>) -> Self {
         Self { inner }
     }
 
@@ -69,51 +62,51 @@ impl<const N: usize> FixedText<N> {
     ///
     /// let mut stmt = c.prepare("SELECT name FROM users")?;
     ///
-    /// for name in stmt.iter::<FixedText<6>>() {
-    ///     let name = name?;
-    ///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
-    /// }
-    /// # Ok::<_, sqll::Error>(())
+    /// assert_eq! {
+    ///     stmt.iter::<FixedText<6>>().collect::<Vec<_>>(),
+    ///     [Ok(FixedText::<6>::try_from("Alice")?), Ok(FixedText::<6>::try_from("Bob")?)]
+    /// };
+    /// # Ok::<_, Box<dyn core::error::Error>>(())
     /// ```
-    pub fn as_str(&self) -> &str {
-        unsafe { str::from_utf8_unchecked(self.inner.as_slice()) }
+    pub fn as_text(&self) -> &Text {
+        Text::new(self.inner.as_slice())
     }
 }
 
 impl<const N: usize> Deref for FixedText<N> {
-    type Target = str;
+    type Target = Text;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.as_str()
+        self.as_text()
     }
 }
 
 impl<const N: usize> fmt::Debug for FixedText<N> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_str().fmt(f)
+        self.as_text().fmt(f)
     }
 }
 
 impl<const N: usize> fmt::Display for FixedText<N> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_str().fmt(f)
+        self.as_text().fmt(f)
     }
 }
 
-impl<const N: usize> AsRef<str> for FixedText<N> {
+impl<const N: usize> AsRef<Text> for FixedText<N> {
     #[inline]
-    fn as_ref(&self) -> &str {
-        self.as_str()
+    fn as_ref(&self) -> &Text {
+        self.as_text()
     }
 }
 
 impl<const N: usize> PartialEq for FixedText<N> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.as_str() == other.as_str()
+        self.as_text() == other.as_text()
     }
 }
 
@@ -129,7 +122,7 @@ impl<const N: usize> PartialOrd for FixedText<N> {
 impl<const N: usize> Ord for FixedText<N> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.as_str().cmp(other.as_str())
+        self.as_text().cmp(other.as_text())
     }
 }
 
@@ -139,7 +132,7 @@ impl<const N: usize> Hash for FixedText<N> {
     where
         H: Hasher,
     {
-        self.as_str().hash(state)
+        self.as_text().hash(state)
     }
 }
 
@@ -159,7 +152,7 @@ impl<const N: usize> Clone for FixedText<N> {
 /// ```
 /// use sqll::FixedText;
 /// let s = FixedText::<5>::try_from("Hello")?;
-/// assert_eq!(s.as_str(), "Hello");
+/// assert_eq!(s.as_text(), "Hello");
 /// # Ok::<_, sqll::CapacityError>(())
 /// ```
 impl<const N: usize> TryFrom<&str> for FixedText<N> {
@@ -167,10 +160,6 @@ impl<const N: usize> TryFrom<&str> for FixedText<N> {
 
     #[inline]
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        unsafe {
-            Ok(Self::from_utf8_unchecked(FixedBlob::try_from(
-                value.as_bytes(),
-            )?))
-        }
+        Ok(Self::from_inner(FixedBlob::try_from(value.as_bytes())?))
     }
 }

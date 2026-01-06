@@ -174,6 +174,7 @@ unsafe impl ValueType for Primitive<f64> {
 /// ```
 /// use sqll::{Connection, FromColumn, Result, Statement, Primitive};
 ///
+/// #[derive(Debug, PartialEq, Eq)]
 /// struct MyInteger(i64);
 ///
 /// impl FromColumn<'_> for MyInteger {
@@ -195,7 +196,7 @@ unsafe impl ValueType for Primitive<f64> {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM test")?;
 ///
-/// assert!(matches!(stmt.next::<MyInteger>()?, Some(MyInteger(42))));
+/// assert_eq!(stmt.next::<MyInteger>()?, Some(MyInteger(42)));
 /// # Ok::<_, sqll::Error>(())
 /// ```
 unsafe impl ValueType for Primitive<i64> {
@@ -283,6 +284,7 @@ where
 /// ```
 /// use sqll::{Connection, FromColumn, Result, Statement, Text, Unsized};
 ///
+/// #[derive(Debug, PartialEq, Eq)]
 /// struct MyString<'stmt>(&'stmt str);
 ///
 /// impl<'stmt> FromColumn<'stmt> for MyString<'stmt> {
@@ -304,7 +306,7 @@ where
 ///
 /// let mut stmt = c.prepare("SELECT value FROM test")?;
 ///
-/// assert!(matches!(stmt.next::<MyString>()?, Some(MyString("Hello, world!"))));
+/// assert_eq!(stmt.next::<MyString>()?, Some(MyString("Hello, world!")));
 /// # Ok::<_, sqll::Error>(())
 /// ```
 unsafe impl ValueType for Unsized<Text> {
@@ -347,6 +349,7 @@ unsafe impl ValueType for Unsized<Text> {
 /// ```
 /// use sqll::{Connection, FromColumn, Result, Statement, Unsized};
 ///
+/// #[derive(Debug, PartialEq, Eq)]
 /// struct MyBytes<'stmt>(&'stmt [u8]);
 ///
 /// impl<'stmt> FromColumn<'stmt> for MyBytes<'stmt> {
@@ -368,7 +371,7 @@ unsafe impl ValueType for Unsized<Text> {
 ///
 /// let mut stmt = c.prepare("SELECT value FROM test")?;
 ///
-/// assert!(matches!(stmt.next::<MyBytes>()?, Some(MyBytes(&[0x2A, 0x2B, 0x2C]))));
+/// assert_eq!(stmt.next::<MyBytes>()?, Some(MyBytes(&[0x2A, 0x2B, 0x2C])));
 /// # Ok::<_, sqll::Error>(())
 /// ```
 unsafe impl ValueType for Unsized<[u8]> {

@@ -44,4 +44,4 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
-members = ["sqll-macros","sqll-sys", "tools"]
+members = ["sqll-macros", "sqll-sys", "tools"]
