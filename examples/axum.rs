@@ -12,6 +12,7 @@ use axum::{Extension, Router};
 use sqll::{OpenOptions, Prepare, Statement};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio::task::{self, JoinError};
 
 struct Inner {
     select_users: Statement,
@@ -73,6 +74,11 @@ impl IntoResponse for WebError {
                 "Formatting error",
             )
                 .into_response(),
+            WebErrorKind::JoinError(err) => (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {}", err),
+            )
+                .into_response(),
         }
     }
 }
@@ -80,6 +86,7 @@ impl IntoResponse for WebError {
 enum WebErrorKind {
     DatabaseError(sqll::Error),
     Format,
+    JoinError(JoinError),
 }
 
 impl From<sqll::Error> for WebError {
@@ -98,6 +105,14 @@ impl From<fmt::Error> for WebError {
     }
 }
 
+impl From<JoinError> for WebError {
+    fn from(error: JoinError) -> Self {
+        WebError {
+            kind: WebErrorKind::JoinError(error),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let db = setup_db()?;
@@ -110,21 +125,25 @@ async fn main() -> Result<()> {
 }
 
 async fn get_user(Extension(db): Extension<Database>) -> Result<Html<String>, WebError> {
-    let mut out = String::with_capacity(1024);
+    let mut db = db.inner.lock_owned().await;
 
-    let mut db = db.inner.lock().await;
-    db.select_users.reset()?;
+    let task = task::spawn_blocking(move || {
+        let mut out = String::with_capacity(1024);
+        db.select_users.reset()?;
 
-    writeln!(out, "<!DOCTYPE html>")?;
-    writeln!(out, "<html>")?;
-    writeln!(out, "<head><title>User List</title></head>")?;
-    writeln!(out, "<body>")?;
+        writeln!(out, "<!DOCTYPE html>")?;
+        writeln!(out, "<html>")?;
+        writeln!(out, "<head><title>User List</title></head>")?;
+        writeln!(out, "<body>")?;
 
-    while let Some((name, age)) = db.select_users.next::<(&str, i64)>()? {
-        writeln!(out, "<div>Name: {name}, Age: {age}</div>")?;
-    }
+        while let Some((name, age)) = db.select_users.next::<(&str, i64)>()? {
+            writeln!(out, "<div>Name: {name}, Age: {age}</div>")?;
+        }
 
-    writeln!(out, "</body>")?;
-    writeln!(out, "</html>")?;
-    Ok(Html(out))
+        writeln!(out, "</body>")?;
+        writeln!(out, "</html>")?;
+        Ok(Html(out))
+    });
+
+    task.await?
 }
