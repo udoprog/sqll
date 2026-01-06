@@ -1,7 +1,8 @@
 use core::slice;
 
 use crate::ffi;
-use crate::{Result, Statement, Text, Unsized, ValueType};
+use crate::ty::{self, ColumnType};
+use crate::{Result, Statement, Text};
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
@@ -23,12 +24,16 @@ use crate::{Result, Statement, Text, Unsized, ValueType};
 pub trait FromUnsizedColumn {
     /// The prepared index for reading the column.
     //
-    /// This must designate one of the database-primitive types as checks, like:
-    /// * [`Unsized<T>`] where `T` is a slice type like `[u8]` or `str`.
+    /// This must designate one of the database-primitive types as checks that
+    /// are unsized like [`Text`] or [`Blob`].
     ///
-    /// When this value is received in [`FromUnsizedColumn::from_unsized_column`] it
-    /// can be used to actually load the a value of the underlying type.
-    type UnsizedType: ValueType;
+    /// When this value is received in
+    /// [`FromUnsizedColumn::from_unsized_column`] it can be used to actually
+    /// load the a value of the underlying type.
+    ///
+    /// [`Text`]: crate::ty::Text
+    /// [`Blob`]: crate::ty::Blob
+    type UnsizedType: ColumnType;
 
     /// Read an unsized value from the specified column.
     ///
@@ -37,7 +42,8 @@ pub trait FromUnsizedColumn {
     /// ```
     /// use core::ffi::c_int;
     ///
-    /// use sqll::{Connection, FromUnsizedColumn, Result, Statement, Unsized};
+    /// use sqll::{Connection, FromUnsizedColumn, Result, Statement};
+    /// use sqll::ty;
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -53,10 +59,10 @@ pub trait FromUnsizedColumn {
     /// }
     ///
     /// impl FromUnsizedColumn for Id {
-    ///     type UnsizedType = Unsized<[u8]>;
+    ///     type UnsizedType = ty::Blob;
     ///
     ///     #[inline]
-    ///     fn from_unsized_column(stmt: &Statement, index: Unsized<[u8]>) -> Result<&Self> {
+    ///     fn from_unsized_column(stmt: &Statement, index: ty::Blob) -> Result<&Self> {
     ///         Ok(Id::new(<_>::from_unsized_column(stmt, index)?))
     ///     }
     /// }
@@ -126,22 +132,19 @@ pub trait FromUnsizedColumn {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for Text {
-    type UnsizedType = Unsized<Text>;
+    type UnsizedType = ty::Text;
 
     #[inline]
-    fn from_unsized_column(
-        stmt: &Statement,
-        Unsized { index, len, .. }: Self::UnsizedType,
-    ) -> Result<&Self> {
+    fn from_unsized_column(stmt: &Statement, index: ty::Text) -> Result<&Self> {
         unsafe {
-            if len == 0 {
+            if index.is_empty() {
                 return Ok(Text::from_bytes(b""));
             }
 
             // SAFETY: Documentation guaranteeds this always returns a valid UTF-8 by sqlite.
-            let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index);
+            let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index.column());
             debug_assert!(!ptr.is_null(), "sqlite3_column_bytes returned null pointer");
-            let text = slice::from_raw_parts(ptr, len);
+            let text = slice::from_raw_parts(ptr, index.len());
             Ok(Text::from_bytes(text))
         }
     }
@@ -194,7 +197,7 @@ impl FromUnsizedColumn for Text {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for str {
-    type UnsizedType = Unsized<Text>;
+    type UnsizedType = ty::Text;
 
     #[inline]
     fn from_unsized_column(stmt: &Statement, index: Self::UnsizedType) -> Result<&Self> {
@@ -255,22 +258,19 @@ impl FromUnsizedColumn for str {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for [u8] {
-    type UnsizedType = Unsized<[u8]>;
+    type UnsizedType = ty::Blob;
 
     #[inline]
-    fn from_unsized_column(
-        stmt: &Statement,
-        Unsized { index, len, .. }: Self::UnsizedType,
-    ) -> Result<&Self> {
+    fn from_unsized_column(stmt: &Statement, index: ty::Blob) -> Result<&Self> {
         unsafe {
-            let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index);
+            let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index.column());
 
             // NB: Per documentation, an empty column is null.
             if ptr.is_null() {
                 return Ok(b"");
             }
 
-            let bytes = slice::from_raw_parts(ptr.cast(), len);
+            let bytes = slice::from_raw_parts(ptr.cast(), index.len());
             Ok(bytes)
         }
     }

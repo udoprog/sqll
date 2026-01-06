@@ -1,5 +1,6 @@
+use crate::ty::ColumnType;
 use crate::utils::repeat;
-use crate::{Error, FromColumn, Statement, ValueType};
+use crate::{Error, FromColumn, Statement};
 
 /// This allows a type to be constructed from a [`Statement`] using [`next`],
 /// [`iter`], or [`row`].

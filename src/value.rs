@@ -1,9 +1,6 @@
 use core::ffi::c_int;
 use core::fmt;
 
-use alloc::string::String;
-use alloc::vec::Vec;
-
 use crate::ffi;
 
 /// The type of a value.
@@ -60,71 +57,87 @@ impl fmt::Debug for Type {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Kind {
-    Null,
-    Blob(Vec<u8>),
-    Text(String),
-    Float(f64),
-    Integer(i64),
-}
-
 /// A dynamic value.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, Value};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (value);
+///
+///     INSERT INTO test (value) VALUES ('Hello, world!'), (42), (3.14), (X'DEADBEEF');
+/// "#)?;
+///
+/// let mut select = c.prepare("SELECT value FROM test")?;
+/// assert_eq!(select.next::<Value<'_>>()?, Some(Value::text("Hello, world!")));
+/// assert_eq!(select.next::<Value<'_>>()?, Some(Value::integer(42)));
+/// assert_eq!(select.next::<Value<'_>>()?, Some(Value::float(3.14)));
+/// assert_eq!(select.next::<Value<'_>>()?, Some(Value::blob(&[0xDE, 0xAD, 0xBE, 0xEF])));
+/// assert_eq!(select.next::<Value<'_>>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Cannot inhabit null values:
+///
+/// ```
+/// use sqll::{Connection, Code, Value, Null};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (value);
+///
+///     INSERT INTO test (value) VALUES (NULL);
+/// "#)?;
+///
+/// let mut select = c.prepare("SELECT value FROM test")?;
+/// let e = select.next::<Value<'_>>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
+///
+/// select.reset()?;
+/// assert_eq!(select.iter::<Null>().collect::<Vec<_>>(), [Ok(Null)]);
+/// # Ok::<_, sqll::Error>(())
+/// ```
 #[derive(Clone, PartialEq)]
-pub struct Value {
-    pub(super) kind: Kind,
+pub struct Value<'stmt> {
+    kind: Kind<'stmt>,
 }
 
-impl Value {
-    /// Construct a null value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Value;
-    ///
-    /// let value = Value::null();
-    /// assert!(value.is_null());
-    /// ```
+impl<'stmt> Value<'stmt> {
+    /// Return the kind of the value.
     #[inline]
-    pub const fn null() -> Self {
-        Self { kind: Kind::Null }
+    pub(crate) fn kind(&self) -> &Kind<'stmt> {
+        &self.kind
     }
+}
 
-    /// Construct a blob value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Kind<'stmt> {
+    Integer(i64),
+    Float(f64),
+    Text(&'stmt str),
+    Blob(&'stmt [u8]),
+}
+
+impl<'stmt> Value<'stmt> {
+    /// Construct a integer value.
     ///
     /// # Examples
     ///
     /// ```
     /// use sqll::Value;
     ///
-    /// let value = Value::blob(Vec::new());
-    /// assert_eq!(value.as_blob(), Some(&[][..]));
+    /// let value = Value::integer(42);
+    /// assert_eq!(value.as_integer(), Some(42));
     /// ```
     #[inline]
-    pub const fn blob(value: Vec<u8>) -> Self {
+    pub const fn integer(value: i64) -> Self {
         Self {
-            kind: Kind::Blob(value),
-        }
-    }
-
-    /// Construct a text value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Value;
-    ///
-    /// let value = Value::text(String::new());
-    /// assert_eq!(value.as_text(), Some(""));
-    ///
-    /// let value = Value::text(String::from("hello"));
-    /// assert_eq!(value.as_text(), Some("hello"));
-    /// ```
-    #[inline]
-    pub const fn text(value: String) -> Self {
-        Self {
-            kind: Kind::Text(value),
+            kind: Kind::Integer(value),
         }
     }
 
@@ -144,8 +157,44 @@ impl Value {
             kind: Kind::Float(value),
         }
     }
+    /// Construct a text value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Value;
+    ///
+    /// let value = Value::text("");
+    /// assert_eq!(value.as_text(), Some(""));
+    ///
+    /// let value = Value::text("hello");
+    /// assert_eq!(value.as_text(), Some("hello"));
+    /// ```
+    #[inline]
+    pub const fn text(value: &'stmt str) -> Self {
+        Self {
+            kind: Kind::Text(value),
+        }
+    }
 
-    /// Construct a integer value.
+    /// Construct a blob value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Value;
+    ///
+    /// let value = Value::blob(&[]);
+    /// assert_eq!(value.as_blob(), Some(&[][..]));
+    /// ```
+    #[inline]
+    pub const fn blob(value: &'stmt [u8]) -> Self {
+        Self {
+            kind: Kind::Blob(value),
+        }
+    }
+
+    /// Return the integer number if the value is `Integer`.
     ///
     /// # Examples
     ///
@@ -156,63 +205,9 @@ impl Value {
     /// assert_eq!(value.as_integer(), Some(42));
     /// ```
     #[inline]
-    pub const fn integer(value: i64) -> Self {
-        Self {
-            kind: Kind::Integer(value),
-        }
-    }
-
-    /// Return whether the value is `Null`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Value;
-    ///
-    /// let value = Value::null();
-    /// assert!(value.is_null());
-    /// ```
-    #[inline]
-    pub const fn is_null(&self) -> bool {
-        matches!(self.kind, Kind::Null)
-    }
-
-    /// Return the binary data if the value is `Binary`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Value;
-    ///
-    /// let value = Value::blob(Vec::new());
-    /// assert_eq!(value.as_blob(), Some(&[][..]));
-    /// ```
-    #[inline]
-    pub const fn as_blob(&self) -> Option<&[u8]> {
-        if let Kind::Blob(value) = &self.kind {
-            return Some(value.as_slice());
-        }
-
-        None
-    }
-
-    /// Return the string if the value is `String`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Value;
-    ///
-    /// let value = Value::text(String::new());
-    /// assert_eq!(value.as_text(), Some(""));
-    ///
-    /// let value = Value::text(String::from("hello"));
-    /// assert_eq!(value.as_text(), Some("hello"));
-    /// ```
-    #[inline]
-    pub const fn as_text(&self) -> Option<&str> {
-        if let Kind::Text(value) = &self.kind {
-            return Some(value.as_str());
+    pub const fn as_integer(&self) -> Option<i64> {
+        if let Kind::Integer(value) = self.kind {
+            return Some(value);
         }
 
         None
@@ -237,39 +232,60 @@ impl Value {
         None
     }
 
-    /// Return the integer number if the value is `Integer`.
+    /// Return the string if the value is `String`.
     ///
     /// # Examples
     ///
     /// ```
     /// use sqll::Value;
     ///
-    /// let value = Value::integer(42);
-    /// assert_eq!(value.as_integer(), Some(42));
+    /// let value = Value::text("");
+    /// assert_eq!(value.as_text(), Some(""));
+    ///
+    /// let value = Value::text("hello");
+    /// assert_eq!(value.as_text(), Some("hello"));
     /// ```
     #[inline]
-    pub const fn as_integer(&self) -> Option<i64> {
-        if let Kind::Integer(value) = self.kind {
+    pub const fn as_text(&self) -> Option<&'stmt str> {
+        if let Kind::Text(value) = self.kind {
             return Some(value);
         }
 
         None
     }
 
-    /// Return the type.
+    /// Return the binary data if the value is `Binary`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Value;
+    ///
+    /// let value = Value::blob(&[]);
+    /// assert_eq!(value.as_blob(), Some(&[][..]));
+    /// ```
     #[inline]
-    pub const fn kind(&self) -> Type {
+    pub const fn as_blob(&self) -> Option<&'stmt [u8]> {
+        if let Kind::Blob(value) = self.kind {
+            return Some(value);
+        }
+
+        None
+    }
+
+    /// Return the type of the value.
+    #[inline]
+    pub const fn ty(&self) -> Type {
         match &self.kind {
             Kind::Blob(_) => Type::BLOB,
             Kind::Float(_) => Type::FLOAT,
             Kind::Integer(_) => Type::INTEGER,
             Kind::Text(_) => Type::TEXT,
-            Kind::Null => Type::NULL,
         }
     }
 }
 
-impl fmt::Debug for Value {
+impl fmt::Debug for Value<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.kind.fmt(f)

@@ -288,11 +288,12 @@ mod fixed_blob;
 mod fixed_text;
 mod from_column;
 mod from_unsized_column;
+mod not_null;
 mod owned;
 mod row;
 mod statement;
 mod text;
-mod ty;
+pub mod ty;
 mod utils;
 mod value;
 mod version;
@@ -316,13 +317,13 @@ pub use self::from_column::FromColumn;
 #[doc(inline)]
 pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
+pub use self::not_null::NotNull;
+#[doc(inline)]
 pub use self::row::Row;
 #[doc(inline)]
 pub use self::statement::{Null, State, Statement};
 #[doc(inline)]
 pub use self::text::Text;
-#[doc(inline)]
-pub use self::ty::{Dynamic, Primitive, Unsized, ValueType};
 #[doc(inline)]
 pub use self::value::{Type, Value};
 #[doc(inline)]

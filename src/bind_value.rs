@@ -11,12 +11,17 @@ use crate::{Code, Error, FixedBlob, FixedText, Null, Result, Statement, Text, Va
 
 /// A type suitable for binding to a prepared statement.
 ///
-/// Use with [`Statement::bind_value`] or [`Statement::bind_value_by_name`].
+/// This is typically used indirectly via [`bind_value`], [`bind`], or
+/// [`execute`].
+///
+/// [`bind_value`]: crate::Statement::bind_value
+/// [`bind`]: crate::Statement::bind
+/// [`execute`]: crate::Statement::execute
 pub trait BindValue {
-    /// Bind a value.
+    /// Bind a value to the specified parameter index.
     ///
-    /// For custom implementations this typically means forwarding a binding
-    /// using an existing implementation and [`Statement::bind_value`].
+    /// Custom implementations tend to delegate to the appropriate interior
+    /// column type they need.
     ///
     /// # Examples
     ///
@@ -32,7 +37,7 @@ pub trait BindValue {
     /// impl BindValue for Id {
     ///     #[inline]
     ///     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-    ///         self.0.as_slice().bind_value(stmt, index)
+    ///         self.0.bind_value(stmt, index)
     ///     }
     /// }
     ///
@@ -107,21 +112,20 @@ impl BindValue for Null {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
-/// stmt.bind(Value::null())?;
+/// stmt.bind(None::<Value<'_>>)?;
 ///
-/// let names = stmt.iter::<String>().collect::<Result<Vec<_>>>()?;
-/// assert_eq!(names, [String::from("Alice")]);
+/// assert_eq!(stmt.next::<Value<'_>>(), Ok(Some(Value::text("Alice"))));
+/// assert_eq!(stmt.next::<Value<'_>>(), Ok(None));
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl BindValue for Value {
+impl BindValue for Value<'_> {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        match &self.kind {
-            Kind::Blob(value) => value.as_slice().bind_value(stmt, index),
+        match *self.kind() {
+            Kind::Blob(value) => value.bind_value(stmt, index),
             Kind::Float(value) => value.bind_value(stmt, index),
             Kind::Integer(value) => value.bind_value(stmt, index),
-            Kind::Text(value) => value.as_str().bind_value(stmt, index),
-            Kind::Null => Null.bind_value(stmt, index),
+            Kind::Text(value) => value.bind_value(stmt, index),
         }
     }
 }
@@ -638,7 +642,30 @@ impl<const N: usize> BindValue for FixedText<N> {
 
 /// [`BindValue`] implementation for [`Option`].
 ///
+/// If the option is `None`, binds a [`Null`] value. If it is `Some(..)` binds a
+/// value of the expected type.
+///
 /// # Examples
+///
+/// Inserting values:
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let mut c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER, name TEXT, age REAL, photo BLOB, email TEXT);
+/// "#)?;
+///
+/// let mut insert = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
+///
+/// insert.execute((None::<i64>, None::<&str>, None::<f64>, None::<&[u8]>, None::<&str>))?;
+/// insert.execute((Some(2i64), Some("Bob"), Some(69.42), Some(&[0x69u8, 0x42u8][..]), None::<&str>))?;
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Reading back values:
 ///
 /// ```
 /// use sqll::Connection;
@@ -650,12 +677,8 @@ impl<const N: usize> BindValue for FixedText<N> {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
-///
-/// stmt.bind(("Alice", None::<i64>))?;
-/// assert!(stmt.step()?.is_done());
-///
-/// stmt.bind(("Bob", Some(30i64)))?;
-/// assert!(stmt.step()?.is_done());
+/// stmt.execute(("Alice", None::<i64>))?;
+/// stmt.execute(("Bob", Some(30i64)))?;
 ///
 /// let mut it = c.prepare("SELECT name, age FROM users")?.into_iter::<(String, Option<i64>)>();
 /// assert_eq!(it.collect::<Vec<_>>(), [Ok((String::from("Alice"), None)), Ok((String::from("Bob"), Some(30)))]);

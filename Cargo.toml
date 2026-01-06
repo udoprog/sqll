@@ -16,7 +16,7 @@ keywords = ["api-bindings", "database", "ffi", "sqlite"]
 categories = ["api-bindings", "database"]
 
 [features]
-default = ["std", "derive", "bundled", "threadsafe"]
+default = ["std", "derive", "threadsafe"]
 std = ["alloc"]
 alloc = []
 derive = ["dep:sqll-macros"]

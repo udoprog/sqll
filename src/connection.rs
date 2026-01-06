@@ -268,6 +268,20 @@ impl Connection {
     ///
     /// [`prepare`]: Self::prepare
     ///
+    /// # Errors
+    ///
+    /// If any of the statements fail, an error is returned.
+    ///
+    /// ```
+    /// use sqll::{Code, Connection};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// let e = c.execute(":)").unwrap_err();
+    /// assert_eq!(e.code(), Code::ERROR);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    ///
     /// # Examples
     ///
     /// ```

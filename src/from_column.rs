@@ -2,10 +2,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::ffi;
-use crate::ty::DynamicKind;
+use crate::ty::AnyKind;
+use crate::ty::{self, ColumnType};
 use crate::{
-    Code, Dynamic, Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Primitive, Result,
-    Statement, Text, Unsized, Value, ValueType,
+    Code, Error, FixedBlob, FixedText, FromUnsizedColumn, NotNull, Null, Result, Statement, Text,
+    Value,
 };
 
 /// A type suitable for reading a single value from a prepared statement.
@@ -22,7 +23,7 @@ use crate::{
 /// By separating reading a column into two stages in the underlying row API we
 /// can hopefully load references directly from the database.
 ///
-/// The [`ValueType`] trait is response for checking, see it for more
+/// The [`ColumnType`] trait is response for checking, see it for more
 /// information.
 ///
 /// # Examples
@@ -31,7 +32,7 @@ use crate::{
 /// conveniently read out of a row.
 ///
 /// In order to do so, the first step is to pick the implementation of
-/// [`ValueType`] to associated with the [`Type` associated type]. This
+/// [`ColumnType`] to associated with the [`Type` associated type]. This
 /// determines the underlying database type being loaded.
 ///
 /// An instance of this type is then passed into [`FromColumn::from_column`]
@@ -39,7 +40,8 @@ use crate::{
 /// associated with.
 ///
 /// ```
-/// use sqll::{Connection, FromColumn, Result, Statement, Primitive};
+/// use sqll::{Connection, FromColumn, Result, Statement};
+/// use sqll::ty;
 ///
 /// #[derive(Debug, PartialEq, Eq)]
 /// struct Timestamp {
@@ -47,10 +49,10 @@ use crate::{
 /// }
 ///
 /// impl FromColumn<'_> for Timestamp {
-///     type Type = Primitive<i64>;
+///     type Type = ty::Integer;
 ///
 ///     #[inline]
-///     fn from_column(stmt: &Statement, index: Self::Type) -> Result<Self> {
+///     fn from_column(stmt: &Statement, index: ty::Integer) -> Result<Self> {
 ///         Ok(Timestamp {
 ///             seconds: i64::from_column(stmt, index)?,
 ///         })
@@ -79,14 +81,21 @@ where
     /// The type of a column.
     ///
     /// This must designate one of the database-primitive types as checks, like:
-    /// * [`Primitive<T>`] where `T` is a primitive type like [`i64`], [`f64`],
-    ///   or [`Null`].
-    /// * [`Unsized<T>`] where `T` is a slice type like `[u8]` or `str`.
-    /// * [`Dynamic`] for dynamically typed values.
+    /// * [`Integer`] or [`Float`].
+    /// * [`Blob`] or [`Text`].
+    /// * [`Any`] for dynamically typed column.
+    /// * [`Nullable<T>`] for nullable types.
     ///
     /// When this value is received in [`FromColumn::from_column`] it can be
     /// used to actually load the a value of the underlying type.
-    type Type: ValueType;
+    ///
+    /// [`Integer`]: crate::ty::Integer
+    /// [`Float`]: crate::ty::Float
+    /// [`Blob`]: crate::ty::Blob
+    /// [`Text`]: crate::ty::Text
+    /// [`Any`]: crate::ty::Any
+    /// [`Nullable<T>`]: crate::ty::Nullable
+    type Type: ColumnType;
 
     /// Read a value from the specified column.
     ///
@@ -96,9 +105,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// use core::ffi::c_int;
-    ///
-    /// use sqll::{Connection, FromColumn, Result, Statement, Unsized};
+    /// use sqll::{Connection, FromColumn, Result, Statement};
+    /// use sqll::ty;
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -106,11 +114,11 @@ where
     /// struct Id(Vec<u8>);
     ///
     /// impl FromColumn<'_> for Id {
-    ///     type Type = Unsized<[u8]>;
+    ///     type Type = ty::Blob;
     ///
     ///     #[inline]
-    ///     fn from_column(stmt: &Statement, checked: Unsized<[u8]>) -> Result<Self> {
-    ///         Ok(Id(<_>::from_column(stmt, checked)?))
+    ///     fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
+    ///         Ok(Id(<_>::from_column(stmt, index)?))
     ///     }
     /// }
     ///
@@ -151,7 +159,7 @@ where
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Null {
-    type Type = Primitive<Null>;
+    type Type = Null;
 
     #[inline]
     fn from_column(_: &Statement, _: Self::Type) -> Result<Self> {
@@ -160,17 +168,37 @@ impl FromColumn<'_> for Null {
 }
 
 /// [`FromColumn`] implementation for [`Value`].
-impl FromColumn<'_> for Value {
-    type Type = Dynamic;
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, Value, Result};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
+/// stmt.bind(None::<Value<'_>>)?;
+///
+/// assert_eq!(stmt.next::<Value<'_>>(), Ok(Some(Value::text("Alice"))));
+/// assert_eq!(stmt.next::<Value<'_>>(), Ok(None));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl<'stmt> FromColumn<'stmt> for Value<'stmt> {
+    type Type = ty::Any;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Dynamic) -> Result<Self> {
-        match index.kind {
-            DynamicKind::Blob(index) => Ok(Value::blob(Vec::<u8>::from_column(stmt, index)?)),
-            DynamicKind::Text(index) => Ok(Value::text(String::from_column(stmt, index)?)),
-            DynamicKind::Float(index) => Ok(Value::float(f64::from_column(stmt, index)?)),
-            DynamicKind::Integer(index) => Ok(Value::integer(i64::from_column(stmt, index)?)),
-            DynamicKind::Null(Primitive { .. }) => Ok(Value::null()),
+    fn from_column(stmt: &'stmt Statement, index: ty::Any) -> Result<Self> {
+        match index.into_kind() {
+            AnyKind::Blob(index) => Ok(Value::blob(<_>::from_unsized_column(stmt, index)?)),
+            AnyKind::Text(index) => Ok(Value::text(<_>::from_unsized_column(stmt, index)?)),
+            AnyKind::Float(index) => Ok(Value::float(f64::from_column(stmt, index)?)),
+            AnyKind::Integer(index) => Ok(Value::integer(i64::from_column(stmt, index)?)),
         }
     }
 }
@@ -220,10 +248,10 @@ impl FromColumn<'_> for Value {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for f64 {
-    type Type = Primitive<f64>;
+    type Type = ty::Float;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Primitive<f64>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Float) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), index.index) })
     }
 }
@@ -276,10 +304,10 @@ impl FromColumn<'_> for f64 {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for f32 {
-    type Type = Primitive<f64>;
+    type Type = ty::Float;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Primitive<f64>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Float) -> Result<Self> {
         let value = f64::from_column(stmt, index)?;
         Ok(value as f32)
     }
@@ -330,10 +358,10 @@ impl FromColumn<'_> for f32 {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for i64 {
-    type Type = Primitive<i64>;
+    type Type = ty::Integer;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Primitive<i64>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Integer) -> Result<Self> {
         Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), index.index) })
     }
 }
@@ -385,10 +413,10 @@ macro_rules! lossless {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Type = Primitive<i64>;
+            type Type = ty::Integer;
 
             #[inline]
-            fn from_column(stmt: &Statement, index: Primitive<i64>) -> Result<Self> {
+            fn from_column(stmt: &Statement, index: ty::Integer) -> Result<Self> {
                 let value = i64::from_column(stmt, index)?;
                 Ok(value as $ty)
             }
@@ -467,10 +495,10 @@ macro_rules! lossy {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Type = Primitive<i64>;
+            type Type = ty::Integer;
 
             #[inline]
-            fn from_column(stmt: &Statement, index: Primitive<i64>) -> Result<Self> {
+            fn from_column(stmt: &Statement, index: ty::Integer) -> Result<Self> {
                 let value = i64::from_column(stmt, index)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
@@ -536,10 +564,10 @@ lossless!(i128);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt Text {
-    type Type = Unsized<Text>;
+    type Type = ty::Text;
 
     #[inline]
-    fn from_column(stmt: &'stmt Statement, index: Unsized<Text>) -> Result<Self> {
+    fn from_column(stmt: &'stmt Statement, index: ty::Text) -> Result<Self> {
         <_>::from_unsized_column(stmt, index)
     }
 }
@@ -587,10 +615,10 @@ impl<'stmt> FromColumn<'stmt> for &'stmt Text {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt str {
-    type Type = Unsized<Text>;
+    type Type = ty::Text;
 
     #[inline]
-    fn from_column(stmt: &'stmt Statement, index: Unsized<Text>) -> Result<Self> {
+    fn from_column(stmt: &'stmt Statement, index: ty::Text) -> Result<Self> {
         <_>::from_unsized_column(stmt, index)
     }
 }
@@ -641,10 +669,10 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for String {
-    type Type = Unsized<Text>;
+    type Type = ty::Text;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Unsized<Text>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Text) -> Result<Self> {
         let mut s = String::with_capacity(index.len());
         s.push_str(<_>::from_unsized_column(stmt, index)?);
         Ok(s)
@@ -697,10 +725,10 @@ impl FromColumn<'_> for String {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Vec<u8> {
-    type Type = Unsized<[u8]>;
+    type Type = ty::Blob;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Unsized<[u8]>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
         let mut buf = Vec::with_capacity(index.len());
         buf.extend_from_slice(<_>::from_unsized_column(stmt, index)?);
         Ok(buf)
@@ -752,10 +780,10 @@ impl FromColumn<'_> for Vec<u8> {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
-    type Type = Unsized<[u8]>;
+    type Type = ty::Blob;
 
     #[inline]
-    fn from_column(stmt: &'stmt Statement, index: Unsized<[u8]>) -> Result<Self> {
+    fn from_column(stmt: &'stmt Statement, index: ty::Blob) -> Result<Self> {
         <_>::from_unsized_column(stmt, index)
     }
 }
@@ -794,10 +822,10 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
-    type Type = Unsized<[u8]>;
+    type Type = ty::Blob;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Unsized<[u8]>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
         match FixedBlob::try_from(<[u8]>::from_unsized_column(stmt, index)?) {
             Ok(bytes) => Ok(bytes),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
@@ -839,10 +867,10 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedText<N> {
-    type Type = Unsized<Text>;
+    type Type = ty::Text;
 
     #[inline]
-    fn from_column(stmt: &Statement, index: Unsized<Text>) -> Result<Self> {
+    fn from_column(stmt: &Statement, index: ty::Text) -> Result<Self> {
         match FixedText::try_from(str::from_unsized_column(stmt, index)?) {
             Ok(s) => Ok(s),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
@@ -882,13 +910,13 @@ impl<const N: usize> FromColumn<'_> for FixedText<N> {
 /// ```
 impl<'stmt, T> FromColumn<'stmt> for Option<T>
 where
-    T: FromColumn<'stmt>,
+    T: FromColumn<'stmt, Type: NotNull>,
 {
-    type Type = Option<T::Type>;
+    type Type = ty::Nullable<T::Type>;
 
     #[inline]
-    fn from_column(stmt: &'stmt Statement, index: Option<T::Type>) -> Result<Self> {
-        match index {
+    fn from_column(stmt: &'stmt Statement, index: ty::Nullable<T::Type>) -> Result<Self> {
+        match index.inner {
             Some(index) => Ok(Some(T::from_column(stmt, index)?)),
             None => Ok(None),
         }

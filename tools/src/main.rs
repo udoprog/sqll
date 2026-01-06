@@ -270,7 +270,7 @@ async fn entry(opts: &Opts) -> Result<()> {
 
     builder
         .generate()?
-        .write_to_file(sys_root.join("src/base.rs"))
+        .write_to_file(root.join("src/ffi.rs"))
         .context("generating bindings")?;
 
     let build_rs = sys_root.join("build.rs");

@@ -54,8 +54,7 @@
 
 #![no_std]
 
-#[allow(non_camel_case_types, non_snake_case)]
-#[allow(clippy::all)]
+#[allow(clippy::all, warnings)]
 mod base;
 pub use base::*;
 

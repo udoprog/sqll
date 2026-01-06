@@ -26,7 +26,7 @@ include = [
 links = "sqlite3"
 
 [features]
-default = ["threadsafe", "bundled", "strict"]
+default = ["threadsafe", "strict"]
 bundled = []
 threadsafe = []
 strict = []

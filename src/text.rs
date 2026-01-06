@@ -4,22 +4,41 @@ use core::fmt::{self, Write};
 use core::hash::{Hash, Hasher};
 use core::str::Utf8Error;
 
-/// A byte string wrapper around what is effectively the canonical UTF-8 text
-/// type.
+/// A SQLite text value.
 ///
-/// This stems from the fact that sqlite provides no guarantees that the
-/// underlying string type is well-formed UTF-8. Something Rust depends on for
-/// its `str` type. A database might for example be modified by an external tool
-/// which does not produce valid UTF-8.
+/// One of the types in a SQLite database is a text type, internally these can
+/// have two opaque representations. UTF-8 and UTF-16 (of various endianesses).
+/// This library only interacts with the UTF-8 portion of the library.
 ///
-/// In effect, we need our own private text-like type which can represent any
-/// text value from the database.
+/// Rust strings demand that all text is valid and well-formed UTF-8. SQLite
+/// despite calling what it returns as UTF-8 it doesn't validate that the data
+/// it stores is well-formed. To put it in other terms, garbage in is garbage
+/// out. For a more detailed overview see the [Invalid UTF Policy].
 ///
-/// If you want a string slice, we still implement the relevant traits, but be
-/// aware that those APIs require valid UTF-8 and perform validation that has an
-/// overhead and may fail.
+/// Since we want a thing wrapper on top of SQLite, that leaves us with having
+/// to treat all text values as potentially malformed UTF-8, which is where this
+/// wrapper type comes in. It provides some basic text-like functionality
+/// similar to the [`bstr` crate] which makes your life a little easier. Such as
+/// safely printing the value.
 ///
-/// See <https://www.sqlite.org/invalidutf.html>
+/// A type loaded as [`Text`] doesn't validate that the underlying bytes are
+/// valid or well-formed UTF-8, but provide some access to the literal
+/// underlying data and convenience method for performing the text validation
+/// locally such as [`Text::to_str`].
+///
+/// For cases where you prefer to do this validation up front, we do provide
+/// [`FromColumn`] implementations for string-like types where you can opt in to
+/// eagerly perform the validation.
+///
+/// Reading the UTF policy carefully also leads you to the realization that all
+/// SQLite APIs which might mix in user-provided text can produce malformed
+/// UTF-8. Like [`Connection::error_message`]. Meaning even if we didn't want to
+/// support lossless text values, we would still want to treat these values
+/// carefully.
+///
+/// [`FromColumn`]: crate::FromColumn
+/// [Invalid UTF Policy]: <https://www.sqlite.org/invalidutf.html>
+/// [`Connection::error_message`]: crate::Connection::error_message
 ///
 /// # Examples
 ///
