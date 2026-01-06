@@ -62,8 +62,3 @@ pub use base::*;
 compile_error!(
     "sqll-sys: If the `threadsafe` feature is disabled, the `bundled` feature must be enabled. Otherwise it has no effect."
 );
-
-#[cfg(all(not(feature = "bundled"), feature = "strict"))]
-compile_error!(
-    "sqll-sys: The `strict` feature can only be used when the `bundled` feature is enabled."
-);
