@@ -98,7 +98,7 @@ macro_rules! implement_tuple {
         ///
         /// A tuple binds elements one after another starting from the first index.
         ///
-        /// [`Statement::get`]: crate::statement::Statement::get
+        /// [`Statement::column`]: crate::statement::Statement::column
         ///
         /// # Examples
         ///

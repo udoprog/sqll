@@ -137,7 +137,6 @@ fn bundled() {
 
     if cfg!(not(debug_assertions)) {
         build.define("NDEBUG", "1");
-        build.flag("-O3");
     }
 
     build.compile("libsqlite3.a");

@@ -14,7 +14,7 @@ use crate::{
 ///
 /// This can be used both as [`BindValue`] and [`FromColumn`].
 ///
-/// See [`Statement::bind_value`] and [`Statement::get`].
+/// See [`Statement::bind_value`] and [`Statement::column`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Null;
 
@@ -82,25 +82,58 @@ impl State {
 
 /// A prepared statement.
 ///
-/// Prepared statements are compiled using [`Connection::prepare`] or
-/// [`Connection::prepare_with`]. The [`Connection`] which constructed the
-/// prepared statement will remain alive for as long as the statement is alive,
-/// even if the connection is dropped.
+/// Prepared statements are compiled using [`prepare`] or [`prepare_with`]. The
+/// [`Connection`] which constructed the prepared statement will remain alive
+/// for as long as the statement is alive, even if the connection is dropped.
 ///
-/// They can be re-used, but between each re-use they must be reset using
-/// [`reset`]. A defensive coding style suggests its appropriate to always call
-/// this before using a statement unless it was just created. A call to
-/// [`reset`] must also be done to refresh the prepared statement with respects
-/// to changes in the database.
+/// Statements can be re-used, but between each re-use [`reset`] has to be
+/// called which require exclusive access. A defensive coding style suggests its
+/// appropriate to always call this before using a statement unless it was just
+/// created. A call to [`reset`] must also be done to refresh the prepared
+/// statement with respects to changes in the database.
+///
+/// A handful of convenience methods calls [`reset`] internally, such as
+/// [`bind`] and [`execute`] since it wouldn't make sense to use them without
+/// resetting.
+///
+/// Low level APIs are the following:
+/// * [`reset`] - Resets the statement to be re-executed.
+/// * [`step`] - Steps the statement over the query.
+/// * [`bind_value`] - Binds a single value to a specific index in a statement.
+/// * [`column`] - Reads a single column from the current row.
+/// * [`unsized_column`] - Reads a single unsized column from the current row.
+///
+/// Higher level APIs are the following and are generally preferred to use since
+/// they are less prone to errors:
+/// * [`bind`] - Binds values to the statement using the [`Bind`] trait allowing
+///   for multiple values to be bound.
+/// * [`execute`] - Executes the statement to completion. Can take a binding
+///   using the [`Bind`] trait.
+/// * [`next`] - Reads the entire next row from the statement using the [`Row`]
+///   trait.
+/// * [`iter`] - Coerces the statement into an iterator over rows using the
+///   [`Row`] trait.
+/// * [`into_iter`] - Coerces the statement into an owned iterator over rows
+///   using the [`Row`] trait.
 ///
 /// For durable prepared statements it is recommended that
-/// [`Connection::prepare_with`] is used with [`Prepare::PERSISTENT`] set.
+/// [`prepare_with`] is used with [`Prepare::PERSISTENT`] set.
 ///
-/// [`Connection::prepare_with`]: crate::Connection::prepare_with
-/// [`Connection::prepare`]: crate::Connection::prepare
+/// [`bind_value`]: Self::bind_value
+/// [`bind`]: Self::bind
+/// [`column`]: Self::column
+/// [`prepare_with`]: crate::Connection::prepare_with
+/// [`prepare`]: crate::Connection::prepare
 /// [`Connection`]: crate::Connection
+/// [`execute`]: Self::execute
+/// [`into_iter`]: Self::into_iter
+/// [`iter`]: Self::iter
+/// [`next`]: Self::next
 /// [`Prepare::PERSISTENT`]: crate::Prepare::PERSISTENT
 /// [`reset`]: Self::reset
+/// [`row`]: Self::row
+/// [`step`]: Self::step
+/// [`unsized_column`]: Self::unsized_column
 ///
 /// # Examples
 ///
@@ -295,20 +328,20 @@ impl Statement {
     /// "#)?;
     ///
     /// let mut stmt = c.prepare("SELECT id, name FROM users;")?;
-    /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
-    /// assert_eq!(stmt.get::<String>(1).unwrap_err().code(), Code::MISMATCH);
+    /// assert_eq!(stmt.column::<i64>(0).unwrap_err().code(), Code::MISMATCH);
+    /// assert_eq!(stmt.column::<String>(1).unwrap_err().code(), Code::MISMATCH);
     ///
     /// assert!(stmt.step()?.is_row());
-    /// assert_eq!(stmt.get::<i64>(0)?, 0);
-    /// assert_eq!(stmt.get_unsized::<str>(1)?, "Alice");
+    /// assert_eq!(stmt.column::<i64>(0)?, 0);
+    /// assert_eq!(stmt.unsized_column::<str>(1)?, "Alice");
     ///
     /// assert!(stmt.step()?.is_row());
-    /// assert_eq!(stmt.get::<i64>(0)?, 1);
-    /// assert_eq!(stmt.get_unsized::<str>(1)?, "Bob");
+    /// assert_eq!(stmt.column::<i64>(0)?, 1);
+    /// assert_eq!(stmt.unsized_column::<str>(1)?, "Bob");
     ///
     /// assert!(stmt.step()?.is_done());
-    /// assert_eq!(stmt.get::<i64>(0).unwrap_err().code(), Code::MISMATCH);
-    /// assert_eq!(stmt.get::<String>(1).unwrap_err().code(), Code::MISMATCH);
+    /// assert_eq!(stmt.column::<i64>(0).unwrap_err().code(), Code::MISMATCH);
+    /// assert_eq!(stmt.column::<String>(1).unwrap_err().code(), Code::MISMATCH);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -404,9 +437,10 @@ impl Statement {
     /// Coerce a statement into a typed iterator over the rows produced by this
     /// statement through the [`Row`] trait.
     ///
-    /// Unlike [`next`], this does not support borrowing from the columns
-    /// because a statement stores the state for each row. You have to used
-    /// owned values such as [`String`] or [`FixedBlob`].
+    /// Unlike [`next`], this does not support borrowing from the columns of the
+    /// row because in order to allow multiple items to be accessed from the
+    /// iterator each row has to be owned. Columns therefore has to used owned
+    /// variants such as [`String`] or [`FixedBlob`].
     ///
     /// [`next`]: Self::next
     /// [`String`]: alloc::string::String
@@ -458,8 +492,14 @@ impl Statement {
     /// Coerce a statement into an owned typed iterator over the rows produced
     /// by this statement through the [`Row`] trait.
     ///
-    /// This does not support borrowing from the statement, because a statement
-    /// stores the state for each row.
+    /// Unlike [`next`], this does not support borrowing from the columns of the
+    /// row because in order to allow multiple items to be accessed from the
+    /// iterator each row has to be owned. Columns therefore has to used owned
+    /// variants such as [`String`] or [`FixedBlob`].
+    ///
+    /// [`next`]: Self::next
+    /// [`String`]: alloc::string::String
+    /// [`FixedBlob`]: crate::FixedBlob
     ///
     /// # Examples
     ///
@@ -980,6 +1020,45 @@ impl Statement {
         unsafe { c_to_text(ffi::sqlite3_bind_parameter_name(self.raw.as_ptr(), index)) }
     }
 
+    /// Read a value from the entire row using the [`Row`] trait.
+    ///
+    /// This is usually implemented using the [`Row` derive].
+    ///
+    /// [`Row` derive]: derive@crate::Row
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
+    ///
+    /// assert!(stmt.step()?.is_row());
+    /// assert_eq!(stmt.row::<(&str, i64)>()?, ("Alice", 72));
+    ///
+    /// assert!(stmt.step()?.is_row());
+    /// assert_eq!(stmt.row::<(&str, i64)>()?, ("Bob", 40));
+    ///
+    /// assert!(stmt.step()?.is_done());
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn row<'stmt, T>(&'stmt mut self) -> Result<T>
+    where
+        T: Row<'stmt>,
+    {
+        Row::from_row(self)
+    }
+
     /// Get a single value from a column through [`FromColumn`].
     ///
     /// The first column has index 0. The same column can be read multiple
@@ -1007,8 +1086,8 @@ impl Statement {
     ///     stmt.bind(age)?;
     ///
     ///     while stmt.step()?.is_row() {
-    ///         let name = stmt.get::<String>(0)?;
-    ///         let age = stmt.get::<i64>(1)?;
+    ///         let name = stmt.column::<String>(0)?;
+    ///         let age = stmt.column::<i64>(1)?;
     ///         results.push((name, age));
     ///     }
     /// }
@@ -1023,7 +1102,7 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn get<'stmt, T>(&'stmt mut self, index: c_int) -> Result<T>
+    pub fn column<'stmt, T>(&'stmt mut self, index: c_int) -> Result<T>
     where
         T: FromColumn<'stmt>,
     {
@@ -1056,53 +1135,19 @@ impl Statement {
     ///     stmt.bind(age)?;
     ///
     ///     while stmt.step()?.is_row() {
-    ///         let name = stmt.get_unsized::<str>(0)?;
+    ///         let name = stmt.unsized_column::<str>(0)?;
     ///         assert!(matches!(name, "Alice" | "Bob"));
     ///     }
     /// }
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn get_unsized<T>(&mut self, index: c_int) -> Result<&T>
+    pub fn unsized_column<T>(&mut self, index: c_int) -> Result<&T>
     where
         T: ?Sized + FromUnsizedColumn,
     {
         let index = T::UnsizedType::check(self, index)?;
         T::from_unsized_column(self, index)
-    }
-
-    /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
-    ///
-    /// The first column has index 0. The same column can be read multiple
-    /// times.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::Connection;
-    ///
-    /// let c = Connection::open_in_memory()?;
-    ///
-    /// c.execute(r#"
-    ///     CREATE TABLE users (name TEXT, age INTEGER);
-    ///
-    ///     INSERT INTO users VALUES ('Alice', 72);
-    ///     INSERT INTO users VALUES ('Bob', 40);
-    /// "#)?;
-    ///
-    /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
-    ///
-    /// while stmt.step()?.is_row() {
-    ///     assert!(matches!(stmt.get_row::<(&str, i64)>()?, ("Alice", 72) | ("Bob", 40)));
-    /// }
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn get_row<'stmt, T>(&'stmt mut self) -> Result<T>
-    where
-        T: Row<'stmt>,
-    {
-        Row::from_row(self)
     }
 }
 

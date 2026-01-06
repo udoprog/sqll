@@ -1,4 +1,7 @@
-use sqll::{Connection, Prepare, Result, Row};
+use std::io::{self, Write};
+use std::time::Instant;
+
+use sqll::{OpenOptions, Prepare, Row};
 
 #[derive(Row)]
 struct Person<'stmt> {
@@ -6,8 +9,16 @@ struct Person<'stmt> {
     name: &'stmt str,
 }
 
-fn main() -> Result<()> {
-    let conn = Connection::open_in_memory()?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut conn = OpenOptions::new();
+
+    conn.create().read_write();
+
+    unsafe {
+        conn.no_mutex();
+    }
+
+    let conn = conn.open_in_memory()?;
 
     conn.execute(
         r#"
@@ -26,15 +37,23 @@ fn main() -> Result<()> {
 
     let mut stmt = conn.prepare_with("SELECT id, name FROM persons", Prepare::PERSISTENT)?;
 
-    for _ in 0..10 {
+    let mut o = io::sink();
+
+    let start = Instant::now();
+    let mut c = 0;
+
+    for _ in 0..100_000 {
         stmt.reset()?;
 
-        println!("Found persons:");
+        writeln!(o, "Found persons:")?;
 
         while let Some(p) = stmt.next::<Person<'_>>()? {
-            println!("ID: {}, Name: {}", p.id, p.name);
+            c += 1;
+            writeln!(o, "ID: {}, Name: {}", p.id, p.name)?;
         }
     }
 
+    println!("Elapsed: {:?}", start.elapsed());
+    println!("Total persons found: {c}");
     Ok(())
 }

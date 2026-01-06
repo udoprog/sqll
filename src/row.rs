@@ -1,13 +1,14 @@
 use crate::utils::repeat;
 use crate::{Error, FromColumn, Statement, ValueType};
 
-/// This allows a type to be constructed from a [`Statement`] using [`next`] or
-/// [`iter`].
+/// This allows a type to be constructed from a [`Statement`] using [`next`],
+/// [`iter`], or [`row`].
 ///
 /// This is typically implemented with the [`Row` derive].
 ///
 /// [`iter`]: Statement::iter
 /// [`next`]: Statement::next
+/// [`row`]: Statement::row
 /// [`Row` derive]: derive@crate::Row
 ///
 /// # Examples
@@ -97,10 +98,10 @@ use crate::{Error, FromColumn, Statement, ValueType};
 /// let mut stmt = c.prepare("SELECT name, age FROM users ORDER BY age")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let person = stmt.get_row::<Person>()?;
+///     let person = stmt.row::<Person>()?;
 ///     println!("{} is {} years old", person.name, person.age);
 ///
-///     let PersonTuple(name, age) = stmt.get_row::<PersonTuple>()?;
+///     let PersonTuple(name, age) = stmt.row::<PersonTuple>()?;
 ///     println!("{name} is {age} years old");
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -137,7 +138,7 @@ macro_rules! implement_tuple {
         /// A tuple reads elements one after another, starting at the first
         /// index.
         ///
-        /// [`Statement::get`]: crate::statement::Statement::get
+        /// [`Statement::column`]: crate::statement::Statement::column
         ///
         /// # Examples
         ///

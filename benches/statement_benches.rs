@@ -26,8 +26,8 @@ fn read_statement(bencher: &mut Criterion) {
             stmt.bind_value(2, 42.0).unwrap();
 
             while stmt.step().unwrap().is_row() {
-                assert!(stmt.get::<i64>(0).unwrap() > 42);
-                assert!(stmt.get::<f64>(1).unwrap() > 42.0);
+                assert!(stmt.column::<i64>(0).unwrap() > 42);
+                assert!(stmt.column::<f64>(1).unwrap() > 42.0);
             }
         });
     });

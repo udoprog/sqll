@@ -5,7 +5,7 @@ use crate::{Result, Statement, Text, Unsized, ValueType};
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
-/// Use with [`Statement::get_unsized`].
+/// Use with [`Statement::unsized_column`].
 ///
 /// # Safe implementation
 ///
@@ -70,7 +70,7 @@ pub trait FromUnsizedColumn {
     /// let mut select = c.prepare("SELECT id FROM ids")?;
     /// assert!(select.step()?.is_row());
     ///
-    /// assert_eq!(select.get_unsized::<Id>(0)?, Id::new(b"\xab\xcd\xab\xcd"));
+    /// assert_eq!(select.unsized_column::<Id>(0)?, Id::new(b"\xab\xcd\xab\xcd"));
     /// # Ok::<_, sqll::Error>(())
     /// ```
     fn from_unsized_column(stmt: &Statement, index: Self::UnsizedType) -> Result<&Self>;
@@ -94,11 +94,11 @@ pub trait FromUnsizedColumn {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// assert!(stmt.step()?.is_row());
-/// let name = stmt.get_unsized::<Text>(0)?;
+/// let name = stmt.unsized_column::<Text>(0)?;
 /// assert_eq!(name, "Alice");
 ///
 /// assert!(stmt.step()?.is_row());
-/// let name = stmt.get_unsized::<Text>(0)?;
+/// let name = stmt.unsized_column::<Text>(0)?;
 /// assert_eq!(name, "Bob");
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -120,7 +120,7 @@ pub trait FromUnsizedColumn {
 /// let mut name = String::new();
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get_unsized::<str>(0).unwrap_err();
+///     let e = stmt.unsized_column::<str>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -165,7 +165,7 @@ impl FromUnsizedColumn for Text {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let name = stmt.get_unsized::<str>(0)?;
+///     let name = stmt.unsized_column::<str>(0)?;
 ///     assert!(matches!(name, "Alice" | "Bob"));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -188,7 +188,7 @@ impl FromUnsizedColumn for Text {
 /// let mut name = String::new();
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get_unsized::<str>(0).unwrap_err();
+///     let e = stmt.unsized_column::<str>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -227,7 +227,7 @@ impl FromUnsizedColumn for str {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let name = stmt.get_unsized::<[u8]>(0)?;
+///     let name = stmt.unsized_column::<[u8]>(0)?;
 ///     assert!(matches!(name, b"\xaa\xbb" | b"\xbb\xcc" | b""));
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -249,7 +249,7 @@ impl FromUnsizedColumn for str {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get_unsized::<[u8]>(0).unwrap_err();
+///     let e = stmt.unsized_column::<[u8]>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())

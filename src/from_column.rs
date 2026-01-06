@@ -10,7 +10,7 @@ use crate::{
 
 /// A type suitable for reading a single value from a prepared statement.
 ///
-/// This trait can be used directly through [`Statement::get`], to read multiple
+/// This trait can be used directly through [`Statement::column`], to read multiple
 /// columns simultaneously see [`Row`].
 ///
 ///
@@ -91,7 +91,7 @@ where
     /// Read a value from the specified column.
     ///
     /// For custom implementations this typically means accessing the value from
-    /// the column using [`Statement::get`].
+    /// the column using [`Statement::column`].
     ///
     /// # Examples
     ///
@@ -123,7 +123,7 @@ where
     /// let mut select = c.prepare("SELECT id FROM ids")?;
     /// assert!(select.step()?.is_row());
     ///
-    /// assert_eq!(select.get::<Id>(0)?, Id(vec![0xab, 0xcd, 0xab, 0xcd]));
+    /// assert_eq!(select.column::<Id>(0)?, Id(vec![0xab, 0xcd, 0xab, 0xcd]));
     /// # Ok::<_, sqll::Error>(())
     /// ```
     fn from_column(stmt: &'stmt Statement, index: Self::Type) -> Result<Self>;
@@ -214,7 +214,7 @@ impl FromColumn<'_> for Value {
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get::<i64>(0).unwrap_err();
+///     let e = stmt.column::<i64>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -270,7 +270,7 @@ impl FromColumn<'_> for f64 {
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get::<i32>(0).unwrap_err();
+///     let e = stmt.column::<i32>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -324,7 +324,7 @@ impl FromColumn<'_> for f32 {
 /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get::<f64>(0).unwrap_err();
+///     let e = stmt.column::<f64>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -379,7 +379,7 @@ macro_rules! lossless {
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
         /// while stmt.step()?.is_row() {
-        ///     let e = stmt.get::<f64>(0).unwrap_err();
+        ///     let e = stmt.column::<f64>(0).unwrap_err();
         ///     assert_eq!(e.code(), Code::MISMATCH);
         /// }
         /// # Ok::<_, sqll::Error>(())
@@ -419,7 +419,7 @@ macro_rules! lossy {
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
         /// assert!(stmt.step()?.is_row());
-        #[doc = concat!("let e = stmt.get::<", stringify!($ty), ">(0).unwrap_err();")]
+        #[doc = concat!("let e = stmt.column::<", stringify!($ty), ">(0).unwrap_err();")]
         /// assert_eq!(e.code(), Code::MISMATCH);
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -461,7 +461,7 @@ macro_rules! lossy {
         /// let mut stmt = c.prepare("SELECT value FROM numbers")?;
         ///
         /// while stmt.step()?.is_row() {
-        ///     let e = stmt.get::<f64>(0).unwrap_err();
+        ///     let e = stmt.column::<f64>(0).unwrap_err();
         ///     assert_eq!(e.code(), Code::MISMATCH);
         /// }
         /// # Ok::<_, sqll::Error>(())
@@ -746,7 +746,7 @@ impl FromColumn<'_> for Vec<u8> {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// while stmt.step()?.is_row() {
-///     let e = stmt.get::<&[u8]>(0).unwrap_err();
+///     let e = stmt.column::<&[u8]>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
 /// }
 /// # Ok::<_, sqll::Error>(())
@@ -782,14 +782,14 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
 /// assert!(stmt.step()?.is_row());
-/// let bytes = stmt.get::<FixedBlob<4>>(0)?;
+/// let bytes = stmt.column::<FixedBlob<4>>(0)?;
 /// assert_eq!(bytes.as_slice(), &[1, 2, 3, 4]);
 ///
 /// assert!(stmt.step()?.is_row());
-/// let e = stmt.get::<FixedBlob<4>>(0).unwrap_err();
+/// let e = stmt.column::<FixedBlob<4>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
-/// let bytes = stmt.get::<FixedBlob<5>>(0)?;
+/// let bytes = stmt.column::<FixedBlob<5>>(0)?;
 /// assert_eq!(bytes.as_slice(), &[5, 6, 7, 8, 9]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -827,14 +827,14 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
 /// assert!(stmt.step()?.is_row());
-/// let bytes = stmt.get::<FixedText<5>>(0)?;
+/// let bytes = stmt.column::<FixedText<5>>(0)?;
 /// assert_eq!(bytes.as_text(), "Alice");
 ///
 /// assert!(stmt.step()?.is_row());
-/// let e = stmt.get::<FixedText<2>>(0).unwrap_err();
+/// let e = stmt.column::<FixedText<2>>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
-/// let bytes = stmt.get::<FixedText<5>>(0)?;
+/// let bytes = stmt.column::<FixedText<5>>(0)?;
 /// assert_eq!(bytes.as_text(), "Bob");
 /// # Ok::<_, sqll::Error>(())
 /// ```
