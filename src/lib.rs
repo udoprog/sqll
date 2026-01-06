@@ -280,7 +280,6 @@ mod tests;
 mod bind;
 mod bind_value;
 mod bytes;
-mod check;
 mod code;
 mod connection;
 mod error;
@@ -292,6 +291,8 @@ mod from_unsized_column;
 mod owned;
 mod row;
 mod statement;
+mod text;
+mod ty;
 mod utils;
 mod value;
 mod version;
@@ -300,8 +301,6 @@ mod version;
 pub use self::bind::Bind;
 #[doc(inline)]
 pub use self::bind_value::BindValue;
-#[doc(inline)]
-pub use self::check::{Check, CheckBytes, CheckPrimitive, CheckValue};
 #[doc(inline)]
 pub use self::code::Code;
 #[doc(inline)]
@@ -320,6 +319,10 @@ pub use self::from_unsized_column::FromUnsizedColumn;
 pub use self::row::Row;
 #[doc(inline)]
 pub use self::statement::{Null, State, Statement};
+#[doc(inline)]
+pub use self::text::Text;
+#[doc(inline)]
+pub use self::ty::{Dynamic, Primitive, Unsized, ValueType};
 #[doc(inline)]
 pub use self::value::{Type, Value};
 #[doc(inline)]

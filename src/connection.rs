@@ -14,7 +14,7 @@ use std::path::Path;
 use crate::ffi;
 use crate::owned::Owned;
 use crate::utils::{c_to_errstr, sqlite3_try};
-use crate::{Code, DatabaseNotFound, Error, Result, State, Statement};
+use crate::{Code, DatabaseNotFound, Error, Result, State, Statement, Text};
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -407,7 +407,7 @@ impl Connection {
     /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn error_message(&self) -> &str {
+    pub fn error_message(&self) -> &Text {
         unsafe { c_to_errstr(ffi::sqlite3_errmsg(self.raw.as_ptr())) }
     }
 

@@ -2,13 +2,12 @@ use core::ffi::{CStr, c_int};
 use core::fmt;
 use core::marker::PhantomData;
 use core::ops::Range;
-use core::ptr;
-use core::slice;
+use core::ptr::NonNull;
 
 use crate::ffi;
-use crate::utils::{c_to_errstr, c_to_str};
+use crate::utils::{c_to_errstr, c_to_text};
 use crate::{
-    Bind, BindValue, Check, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Type,
+    Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Text, Type, ValueType,
 };
 
 /// A marker type representing a NULL value.
@@ -134,7 +133,7 @@ impl State {
 /// ```
 #[repr(transparent)]
 pub struct Statement {
-    raw: ptr::NonNull<ffi::sqlite3_stmt>,
+    raw: NonNull<ffi::sqlite3_stmt>,
 }
 
 impl fmt::Debug for Statement {
@@ -151,7 +150,7 @@ unsafe impl Send for Statement {}
 impl Statement {
     /// Construct a statement from a raw pointer.
     #[inline]
-    pub(crate) fn from_raw(raw: ptr::NonNull<ffi::sqlite3_stmt>) -> Statement {
+    pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3_stmt>) -> Statement {
         Statement { raw }
     }
 
@@ -168,7 +167,7 @@ impl Statement {
     }
 
     #[inline]
-    pub(crate) fn error_message(&self) -> &str {
+    pub(crate) fn error_message(&self) -> &Text {
         unsafe {
             let db = ffi::sqlite3_db_handle(self.as_ptr());
             let msg_ptr = ffi::sqlite3_errmsg(db);
@@ -748,10 +747,19 @@ impl Statement {
 
     /// Return the name of a column.
     ///
-    /// If an invalid index is specified, `None` is returned.
+    /// Note that column names might internally undergo some normalization by
+    /// SQLite, since we provide an API where we return UTF-8, if the opened
+    /// database stores them in UTF-16 an internal conversion will take place.
+    ///
+    /// Since we are not using the UTF-16 APIs, these conversions are cached and
+    /// are expected to be one way. The returned references are therefore
+    /// assumed to be valid for the shared lifetime of the statement.
+    ///
+    /// If an invalid index is specified or some other error internal to sqlite
+    /// occurs, `None` is returned.
     ///
     /// ```
-    /// use sqll::Connection;
+    /// use sqll::{Connection, Text};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -761,8 +769,8 @@ impl Statement {
     ///
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
-    /// assert_eq!(stmt.column_name(0), Some("name"));
-    /// assert_eq!(stmt.column_name(1), Some("age"));
+    /// assert_eq!(stmt.column_name(0), Some(Text::new("name")));
+    /// assert_eq!(stmt.column_name(1), Some(Text::new("age")));
     /// assert_eq!(stmt.column_name(2), None);
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -790,27 +798,8 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn column_name(&self, index: c_int) -> Option<&str> {
-        unsafe {
-            let ptr = ffi::sqlite3_column_name(self.raw.as_ptr(), index);
-
-            if ptr.is_null() {
-                return None;
-            }
-
-            // NB: Look for the null terminator. sqlite guarantees that it's in
-            // here somewhere. Unfortunately we have to go byte-by-byte since we
-            // don't know the extend of the string being returned.
-            for len in 0.. {
-                if ptr.add(len).read() == 0 {
-                    let bytes = slice::from_raw_parts(ptr.cast(), len);
-                    let s = str::from_utf8_unchecked(bytes);
-                    return Some(s);
-                }
-            }
-
-            None
-        }
+    pub fn column_name(&self, index: c_int) -> Option<&Text> {
+        unsafe { c_to_text(ffi::sqlite3_column_name(self.raw.as_ptr(), index)) }
     }
 
     /// Return an iterator of column indexes.
@@ -856,10 +845,18 @@ impl Statement {
     /// Column names are visible even when a prepared statement has not been
     /// advanced using [`Statement::step`].
     ///
+    /// Note that column names might internally undergo some normalization by
+    /// SQLite, since we provide an API where we return UTF-8, if the opened
+    /// database stores them in UTF-16 an internal conversion will take place.
+    ///
+    /// Since we are not using the UTF-16 APIs, these conversions are cached and
+    /// are expected to be one way. The returned references are therefore
+    /// assumed to be valid for the shared lifetime of the statement.
+    ///
     /// # Examples
     ///
     /// ```
-    /// use sqll::Connection;
+    /// use sqll::{Connection, Text};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -870,19 +867,19 @@ impl Statement {
     /// let stmt = c.prepare("SELECT * FROM users;")?;
     ///
     /// let column_names = stmt.column_names().collect::<Vec<_>>();
-    /// assert_eq!(column_names, vec!["name", "age", "occupation"]);
+    /// assert_eq!(column_names, vec![Text::new("name"), Text::new("age"), Text::new("occupation")]);
     ///
     /// let column_names = stmt.column_names().rev().collect::<Vec<_>>();
-    /// assert_eq!(column_names, vec!["occupation", "age", "name"]);
+    /// assert_eq!(column_names, vec![Text::new("occupation"), Text::new("age"), Text::new("name")]);
     ///
     /// let name = stmt.column_names().nth(1);
-    /// assert_eq!(name, Some("age"));
+    /// assert_eq!(name, Some(Text::new("age")));
     ///
     /// let name = stmt.column_names().nth(2);
-    /// assert_eq!(name, Some("occupation"));
+    /// assert_eq!(name, Some(Text::new("occupation")));
     ///
     /// let name = stmt.column_names().rev().nth(2);
-    /// assert_eq!(name, Some("name"));
+    /// assert_eq!(name, Some(Text::new("name")));
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -974,18 +971,22 @@ impl Statement {
     /// # Examples
     ///
     /// ```
-    /// # let c = sqll::Connection::open(":memory:")?;
+    /// use sqll::{Connection, Text};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
     /// c.execute(r#"
     ///     CREATE TABLE users (name STRING)
     /// "#);
+    ///
     /// let stmt = c.prepare("SELECT * FROM users WHERE name = :name")?;
-    /// assert_eq!(stmt.bind_parameter_name(1), Some(":name"));
+    /// assert_eq!(stmt.bind_parameter_name(1), Some(Text::new(":name")));
     /// assert_eq!(stmt.bind_parameter_name(2), None);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
-    pub fn bind_parameter_name(&self, index: c_int) -> Option<&str> {
-        unsafe { c_to_str(ffi::sqlite3_bind_parameter_name(self.raw.as_ptr(), index)) }
+    pub fn bind_parameter_name(&self, index: c_int) -> Option<&Text> {
+        unsafe { c_to_text(ffi::sqlite3_bind_parameter_name(self.raw.as_ptr(), index)) }
     }
 
     /// Get a single value from a column through [`FromColumn`].
@@ -1034,8 +1035,8 @@ impl Statement {
     where
         T: FromColumn<'stmt>,
     {
-        let prepare = T::Check::check(self, index)?;
-        T::load(self, prepare)
+        let prepare = T::Type::check(self, index)?;
+        T::from_column(self, prepare)
     }
 
     /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
@@ -1074,8 +1075,8 @@ impl Statement {
     where
         T: ?Sized + FromUnsizedColumn,
     {
-        let prepare = T::CheckUnsized::check(self, index)?;
-        T::load_unsized(self, prepare)
+        let index = T::UnsizedType::check(self, index)?;
+        T::from_unsized_column(self, index)
     }
 
     /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
@@ -1177,7 +1178,7 @@ pub struct ColumnNames<'a> {
 }
 
 impl<'a> Iterator for ColumnNames<'a> {
-    type Item = &'a str;
+    type Item = &'a Text;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {

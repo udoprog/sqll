@@ -1,5 +1,7 @@
 use core::ffi::CStr;
 
+use crate::Text;
+
 /// Helper to evaluate sqlite3 statements.
 macro_rules! __sqlite3_try {
     ($db:expr, $expr:expr) => {{
@@ -43,19 +45,19 @@ pub(crate) use __repeat as repeat;
 
 /// Coerce a null-terminated string into UTF-8, returning `None` if the pointer
 /// is null.
-pub(crate) unsafe fn c_to_str<'a>(ptr: *const i8) -> Option<&'a str> {
+pub(crate) unsafe fn c_to_text<'a>(ptr: *const i8) -> Option<&'a Text> {
     if ptr.is_null() {
         return None;
     }
 
-    unsafe {
-        let c_str = CStr::from_ptr(ptr);
-        Some(str::from_utf8_unchecked(c_str.to_bytes()))
-    }
+    // SAFETY: The one assumption we are allowed to make about strings is that
+    // they are null-terminated.
+    let c_str = unsafe { CStr::from_ptr(ptr) };
+    Some(Text::new(c_str.to_bytes()))
 }
 
-pub(crate) unsafe fn c_to_errstr(ptr: *const i8) -> &'static str {
+pub(crate) unsafe fn c_to_errstr(ptr: *const i8) -> &'static Text {
     // NB: This is the same message as set by sqlite.
-    static DEFAULT_MESSAGE: &str = "not an error";
-    unsafe { c_to_str(ptr).unwrap_or(DEFAULT_MESSAGE) }
+    static DEFAULT_MESSAGE: &Text = Text::from_bytes(b"not an error");
+    unsafe { c_to_text(ptr).unwrap_or(DEFAULT_MESSAGE) }
 }

@@ -23,6 +23,7 @@ use anyhow::{Context, Result, anyhow};
 use bindgen::Builder;
 use bindgen::callbacks::{IntKind, ParseCallbacks};
 use clap::Parser;
+use regex::Captures;
 use regex::Regex;
 use regex::RegexSet;
 use relative_path::Component;
@@ -158,7 +159,8 @@ async fn entry(opts: &Opts) -> Result<()> {
     let version = fs::read_to_string(&versions_file)
         .with_context(|| anyhow!("{}", versions_file.display()))?;
 
-    let (minimum, mut bundled) = parse_versions(&version)?;
+    let (minimum, mut bundled) =
+        parse_versions(&version).with_context(|| anyhow!("parsing versions file"))?;
 
     if opts.update {
         let Some(version) = download_latest_version(3).await? else {
@@ -171,7 +173,7 @@ async fn entry(opts: &Opts) -> Result<()> {
 
             replace_in_path(
                 &versions_file,
-                r#"bundled: [^\n]+"#,
+                r#"(?m)^bundled:.+$"#,
                 format!("bundled: {version}"),
             )?;
 
@@ -272,6 +274,7 @@ async fn entry(opts: &Opts) -> Result<()> {
         .context("generating bindings")?;
 
     let build_rs = sys_root.join("build.rs");
+    let cargo_toml = sys_root.join("Cargo.toml");
 
     replace_in_path(
         &build_rs,
@@ -281,6 +284,10 @@ async fn entry(opts: &Opts) -> Result<()> {
         ),
     )
     .with_context(|| anyhow!("updating {}", build_rs.display()))?;
+
+    println!("Updating Cargo.toml metadata version to {bundled}");
+    replace_version_in(&cargo_toml, &bundled)
+        .with_context(|| anyhow!("updating {}", cargo_toml.display()))?;
 
     cmd!(in ".", "cargo", "check", "-p", "sqll", "--features", "bundled");
     Ok(())
@@ -342,8 +349,8 @@ fn parse_versions(versions: &str) -> Result<(Version, Version)> {
             continue;
         }
 
-        let Some((key, value)) = line.split_once(": ") else {
-            return Err(anyhow!("invalid versions file: missing ': ' separator"));
+        let Some((key, value)) = line.split_once(":") else {
+            return Err(anyhow!("missing ':' separator"));
         };
 
         let key = key.trim();
@@ -352,20 +359,20 @@ fn parse_versions(versions: &str) -> Result<(Version, Version)> {
         let out = match key {
             "minimum" => &mut minimum,
             "bundled" => &mut bundled,
-            _ => return Err(anyhow!("invalid versions file: unknown key {key}")),
+            _ => return Err(anyhow!("unknown key {key}")),
         };
 
         *out = Some(value);
     }
 
-    let minimum = minimum.context("invalid versions file: missing minimum version")?;
-    let bundled = bundled.context("invalid versions file: missing bundled version")?;
+    let minimum = minimum.context("missing minimum version")?;
+    let bundled = bundled.context("missing bundled version")?;
 
-    let minimum = Version::parse(&minimum)
-        .with_context(|| anyhow!("invalid versions file: invalid minimum version {minimum}"))?;
+    let minimum =
+        Version::parse(&minimum).with_context(|| anyhow!("invalid minimum version {minimum}"))?;
 
-    let bundled = Version::parse(&bundled)
-        .with_context(|| anyhow!("invalid versions file: invalid bundled version {bundled}"))?;
+    let bundled =
+        Version::parse(&bundled).with_context(|| anyhow!("invalid bundled version {bundled}"))?;
 
     Ok((minimum, bundled))
 }
@@ -451,6 +458,23 @@ fn replace_in_path(
 
     fs::write(build_rs, new_contents.as_bytes())
         .with_context(|| format!("writing {}", build_rs.display()))?;
+
+    Ok(())
+}
+
+fn replace_version_in(cargo_toml: &Path, version: &Version) -> Result<()> {
+    let contents = fs::read_to_string(cargo_toml)
+        .with_context(|| format!("reading {}", cargo_toml.display()))?;
+
+    let re = Regex::new(r#"(?m)^version = "([^"+]+)(\+[^\n"]*)?""#)?;
+
+    let new_contents = re.replace_all(&contents, |caps: &Captures| {
+        let base = caps.get(1).unwrap().as_str();
+        format!("version = \"{base}+sqlite{version}\"")
+    });
+
+    fs::write(cargo_toml, new_contents.as_bytes())
+        .with_context(|| format!("writing {}", cargo_toml.display()))?;
 
     Ok(())
 }

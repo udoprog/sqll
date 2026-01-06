@@ -7,7 +7,7 @@ use crate::bytes;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
-use crate::{Code, Error, FixedBlob, FixedText, Null, Result, Statement, Value};
+use crate::{Code, Error, FixedBlob, FixedText, Null, Result, Statement, Text, Value};
 
 /// A type suitable for binding to a prepared statement.
 ///
@@ -531,6 +531,35 @@ lossy!(u128, "value {} cannot be converted to sqlite integer");
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for str {
+    #[inline]
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        Text::new(self).bind_value(stmt, index)
+    }
+}
+
+/// [`BindValue`] implementation for [`Text`] slices.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, Text};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
+/// stmt.bind_value(1, Text::new(b"Alice"))?;
+///
+/// assert_eq!(stmt.next::<i64>()?, Some(42));
+/// assert_eq!(stmt.next::<i64>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl BindValue for Text {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         let (data, len, dealloc) = bytes::alloc(self.as_bytes())?;

@@ -1,11 +1,11 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::check::CheckValueKind;
 use crate::ffi;
+use crate::ty::DynamicKind;
 use crate::{
-    Check, CheckBytes, CheckPrimitive, CheckValue, Code, Error, FixedBlob, FixedText,
-    FromUnsizedColumn, Null, Result, Statement, Value,
+    Code, Dynamic, Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Primitive, Result,
+    Statement, Text, Unsized, Value, ValueType,
 };
 
 /// A type suitable for reading a single value from a prepared statement.
@@ -19,31 +19,26 @@ use crate::{
 /// # Safe implementation
 ///
 /// Note that column loading is separated into two stages: checking and loading.
+/// By separating reading a column into two stages in the underlying row API we
+/// can hopefully load references directly from the database.
 ///
-/// During checking, we do all the necessary work to ensure that the underlying
-/// statement doesn't change when loading which could invalidate any references
-/// we take into it. This typically happens during something called
-/// auto-conversion which happens for example when the stored data is UTF-16 but
-/// we ask for a string which we expect to be UTF-8.
-///
-/// We provide a safe API for this by ensuring that the underlying type is
-/// idempotently converted and strictly type-checked. As in we only permit
-/// string to string conversions, but deny integer to string conversions.
+/// The [`ValueType`] trait is response for checking, see it for more
+/// information.
 pub trait FromColumn<'stmt>
 where
     Self: Sized,
 {
-    /// The prepared check for reading the column.
+    /// The type of a column.
     ///
     /// This must designate one of the database-primitive types as checks, like:
-    /// * [`CheckPrimitive<T>`] where `T` is a primitive type like [`i64`],
+    /// * [`Primitive<T>`] where `T` is a primitive type like [`i64`],
     ///   [`f64`], or [`Null`].
-    /// * [`CheckBytes<T>`] where `T` is a slice type like `[u8]` or `str`.
-    /// * [`CheckValue`] for dynamically typed values.
+    /// * [`Unsized<T>`] where `T` is a slice type like `[u8]` or `str`.
+    /// * [`Dynamic`] for dynamically typed values.
     ///
-    /// When this value is received in [`FromColumn::load`] it can be used to
-    /// actually load the a value of the underlying type.
-    type Check: Check;
+    /// When this value is received in [`FromColumn::from_column`] it can be
+    /// used to actually load the a value of the underlying type.
+    type Type: ValueType;
 
     /// Read a value from the specified column.
     ///
@@ -55,7 +50,7 @@ where
     /// ```
     /// use core::ffi::c_int;
     ///
-    /// use sqll::{Connection, FromColumn, Result, Statement, CheckBytes};
+    /// use sqll::{Connection, FromColumn, Result, Statement, Unsized};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -63,11 +58,11 @@ where
     /// struct Id(Vec<u8>);
     ///
     /// impl FromColumn<'_> for Id {
-    ///     type Check = CheckBytes<[u8]>;
+    ///     type Type = Unsized<[u8]>;
     ///
     ///     #[inline]
-    ///     fn load(stmt: &Statement, checked: CheckBytes<[u8]>) -> Result<Self> {
-    ///         Ok(Id(<_>::load(stmt, checked)?))
+    ///     fn from_column(stmt: &Statement, checked: Unsized<[u8]>) -> Result<Self> {
+    ///         Ok(Id(<_>::from_column(stmt, checked)?))
     ///     }
     /// }
     ///
@@ -83,7 +78,7 @@ where
     /// assert_eq!(select.get::<Id>(0)?, Id(vec![0xab, 0xcd, 0xab, 0xcd]));
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    fn load(stmt: &'stmt Statement, check: Self::Check) -> Result<Self>;
+    fn from_column(stmt: &'stmt Statement, index: Self::Type) -> Result<Self>;
 }
 
 /// [`FromColumn`] implementation for [`Null`].
@@ -114,26 +109,26 @@ where
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Null {
-    type Check = CheckPrimitive<Null>;
+    type Type = Primitive<Null>;
 
     #[inline]
-    fn load(_: &Statement, _: Self::Check) -> Result<Self> {
+    fn from_column(_: &Statement, _: Self::Type) -> Result<Self> {
         Ok(Null)
     }
 }
 
 /// [`FromColumn`] implementation for [`Value`].
 impl FromColumn<'_> for Value {
-    type Check = CheckValue;
+    type Type = Dynamic;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckValue) -> Result<Self> {
-        match check.kind {
-            CheckValueKind::Blob(check) => Ok(Value::blob(Vec::<u8>::load(stmt, check)?)),
-            CheckValueKind::Text(check) => Ok(Value::text(String::load(stmt, check)?)),
-            CheckValueKind::Float(check) => Ok(Value::float(f64::load(stmt, check)?)),
-            CheckValueKind::Integer(check) => Ok(Value::integer(i64::load(stmt, check)?)),
-            CheckValueKind::Null(CheckPrimitive { .. }) => Ok(Value::null()),
+    fn from_column(stmt: &Statement, index: Dynamic) -> Result<Self> {
+        match index.kind {
+            DynamicKind::Blob(index) => Ok(Value::blob(Vec::<u8>::from_column(stmt, index)?)),
+            DynamicKind::Text(index) => Ok(Value::text(String::from_column(stmt, index)?)),
+            DynamicKind::Float(index) => Ok(Value::float(f64::from_column(stmt, index)?)),
+            DynamicKind::Integer(index) => Ok(Value::integer(i64::from_column(stmt, index)?)),
+            DynamicKind::Null(Primitive { .. }) => Ok(Value::null()),
         }
     }
 }
@@ -183,11 +178,11 @@ impl FromColumn<'_> for Value {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for f64 {
-    type Check = CheckPrimitive<f64>;
+    type Type = Primitive<f64>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive<f64>) -> Result<Self> {
-        Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), check.index) })
+    fn from_column(stmt: &Statement, index: Primitive<f64>) -> Result<Self> {
+        Ok(unsafe { ffi::sqlite3_column_double(stmt.as_ptr(), index.index) })
     }
 }
 
@@ -239,11 +234,11 @@ impl FromColumn<'_> for f64 {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for f32 {
-    type Check = CheckPrimitive<f64>;
+    type Type = Primitive<f64>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive<f64>) -> Result<Self> {
-        let value = f64::load(stmt, check)?;
+    fn from_column(stmt: &Statement, index: Primitive<f64>) -> Result<Self> {
+        let value = f64::from_column(stmt, index)?;
         Ok(value as f32)
     }
 }
@@ -293,11 +288,11 @@ impl FromColumn<'_> for f32 {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for i64 {
-    type Check = CheckPrimitive<i64>;
+    type Type = Primitive<i64>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
-        Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), check.index) })
+    fn from_column(stmt: &Statement, index: Primitive<i64>) -> Result<Self> {
+        Ok(unsafe { ffi::sqlite3_column_int64(stmt.as_ptr(), index.index) })
     }
 }
 
@@ -348,11 +343,11 @@ macro_rules! lossless {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Check = CheckPrimitive<i64>;
+            type Type = Primitive<i64>;
 
             #[inline]
-            fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
-                let value = i64::load(stmt, check)?;
+            fn from_column(stmt: &Statement, index: Primitive<i64>) -> Result<Self> {
+                let value = i64::from_column(stmt, index)?;
                 Ok(value as $ty)
             }
         }
@@ -430,11 +425,11 @@ macro_rules! lossy {
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl FromColumn<'_> for $ty {
-            type Check = CheckPrimitive<i64>;
+            type Type = Primitive<i64>;
 
             #[inline]
-            fn load(stmt: &Statement, check: CheckPrimitive<i64>) -> Result<Self> {
-                let value = i64::load(stmt, check)?;
+            fn from_column(stmt: &Statement, index: Primitive<i64>) -> Result<Self> {
+                let value = i64::from_column(stmt, index)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
                     return Err(Error::new(Code::MISMATCH, format_args!($conversion, value)));
@@ -456,6 +451,57 @@ lossy!(u64, "integer {} cannot be converted to u64");
 lossy!(u128, "integer {} cannot be converted to u128");
 lossless!(i128);
 
+/// [`FromColumn`] implementation which returns a borrowed [`Text`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, Text};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+///
+/// assert_eq!(stmt.next::<&Text>()?, Some(Text::new(b"Alice")));
+/// assert_eq!(stmt.next::<&Text>()?, Some(Text::new(b"Bob")));
+/// assert_eq!(stmt.next::<&Text>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code, Text};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM users")?;
+///
+/// let e = stmt.next::<&Text>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl<'stmt> FromColumn<'stmt> for &'stmt Text {
+    type Type = Unsized<Text>;
+
+    #[inline]
+    fn from_column(stmt: &'stmt Statement, index: Unsized<Text>) -> Result<Self> {
+        <_>::from_unsized_column(stmt, index)
+    }
+}
+
 /// [`FromColumn`] implementation which returns a borrowed [`str`].
 ///
 /// # Examples
@@ -473,9 +519,9 @@ lossless!(i128);
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let Some(name) = stmt.next::<String>()? {
-///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
-/// }
+/// assert_eq!(stmt.next::<&str>()?, Some("Alice"));
+/// assert_eq!(stmt.next::<&str>()?, Some("Bob"));
+/// assert_eq!(stmt.next::<&str>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -494,18 +540,16 @@ lossless!(i128);
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while stmt.step()?.is_row() {
-///     let e = stmt.get::<&str>(0).unwrap_err();
-///     assert_eq!(e.code(), Code::MISMATCH);
-/// }
+/// let e = stmt.next::<&str>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt str {
-    type Check = CheckBytes<str>;
+    type Type = Unsized<Text>;
 
     #[inline]
-    fn load(stmt: &'stmt Statement, check: CheckBytes<str>) -> Result<Self> {
-        str::load_unsized(stmt, check)
+    fn from_column(stmt: &'stmt Statement, index: Unsized<Text>) -> Result<Self> {
+        <_>::from_unsized_column(stmt, index)
     }
 }
 
@@ -529,9 +573,9 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users")?;
 ///
-/// while let Some(name) = stmt.next::<String>()? {
-///     assert!(matches!(name.as_str(), "Alice" | "Bob"));
-/// }
+/// assert_eq!(stmt.next::<String>()?, Some(String::from("Alice")));
+/// assert_eq!(stmt.next::<String>()?, Some(String::from("Bob")));
+/// assert_eq!(stmt.next::<String>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -550,19 +594,17 @@ impl<'stmt> FromColumn<'stmt> for &'stmt str {
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while stmt.step()?.is_row() {
-///     let e = stmt.get::<String>(0).unwrap_err();
-///     assert_eq!(e.code(), Code::MISMATCH);
-/// }
+/// let e = stmt.next::<String>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for String {
-    type Check = CheckBytes<str>;
+    type Type = Unsized<Text>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes<str>) -> Result<Self> {
-        let mut s = String::with_capacity(check.len());
-        s.push_str(str::load_unsized(stmt, check)?);
+    fn from_column(stmt: &Statement, index: Unsized<Text>) -> Result<Self> {
+        let mut s = String::with_capacity(index.len());
+        s.push_str(<_>::from_unsized_column(stmt, index)?);
         Ok(s)
     }
 }
@@ -587,9 +629,9 @@ impl FromColumn<'_> for String {
 ///
 /// let mut stmt = c.prepare("SELECT blob FROM users")?;
 ///
-/// while let Some(value) = stmt.next::<Vec<u8>>()? {
-///     assert!(matches!(value.as_slice(), b"\xaa\xbb" | b"\xbb\xcc"));
-/// }
+/// assert_eq!(stmt.next::<Vec<u8>>()?, Some(vec![0xaa, 0xbb]));
+/// assert_eq!(stmt.next::<Vec<u8>>()?, Some(vec![0xbb, 0xcc]));
+/// assert_eq!(stmt.next::<Vec<u8>>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -608,19 +650,17 @@ impl FromColumn<'_> for String {
 ///
 /// let mut stmt = c.prepare("SELECT id FROM users")?;
 ///
-/// while stmt.step()?.is_row() {
-///     let e = stmt.get::<Vec::<u8>>(0).unwrap_err();
-///     assert_eq!(e.code(), Code::MISMATCH);
-/// }
+/// let e = stmt.next::<Vec::<u8>>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Vec<u8> {
-    type Check = CheckBytes<[u8]>;
+    type Type = Unsized<[u8]>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<Self> {
-        let mut buf = Vec::with_capacity(check.len());
-        buf.extend_from_slice(<[u8]>::load_unsized(stmt, check)?);
+    fn from_column(stmt: &Statement, index: Unsized<[u8]>) -> Result<Self> {
+        let mut buf = Vec::with_capacity(index.len());
+        buf.extend_from_slice(<_>::from_unsized_column(stmt, index)?);
         Ok(buf)
     }
 }
@@ -670,11 +710,11 @@ impl FromColumn<'_> for Vec<u8> {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
-    type Check = CheckBytes<[u8]>;
+    type Type = Unsized<[u8]>;
 
     #[inline]
-    fn load(stmt: &'stmt Statement, check: CheckBytes<[u8]>) -> Result<Self> {
-        FromUnsizedColumn::load_unsized(stmt, check)
+    fn from_column(stmt: &'stmt Statement, index: Unsized<[u8]>) -> Result<Self> {
+        <_>::from_unsized_column(stmt, index)
     }
 }
 
@@ -712,11 +752,11 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
-    type Check = CheckBytes<[u8]>;
+    type Type = Unsized<[u8]>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<Self> {
-        match FixedBlob::try_from(<[u8]>::load_unsized(stmt, check)?) {
+    fn from_column(stmt: &Statement, index: Unsized<[u8]>) -> Result<Self> {
+        match FixedBlob::try_from(<[u8]>::from_unsized_column(stmt, index)?) {
             Ok(bytes) => Ok(bytes),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
         }
@@ -757,11 +797,11 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<const N: usize> FromColumn<'_> for FixedText<N> {
-    type Check = CheckBytes<str>;
+    type Type = Unsized<Text>;
 
     #[inline]
-    fn load(stmt: &Statement, check: CheckBytes<str>) -> Result<Self> {
-        match FixedText::try_from(str::load_unsized(stmt, check)?) {
+    fn from_column(stmt: &Statement, index: Unsized<Text>) -> Result<Self> {
+        match FixedText::try_from(str::from_unsized_column(stmt, index)?) {
             Ok(s) => Ok(s),
             Err(err) => Err(Error::new(Code::MISMATCH, err)),
         }
@@ -809,12 +849,12 @@ impl<'stmt, T> FromColumn<'stmt> for Option<T>
 where
     T: FromColumn<'stmt>,
 {
-    type Check = Option<T::Check>;
+    type Type = Option<T::Type>;
 
     #[inline]
-    fn load(stmt: &'stmt Statement, check: Option<T::Check>) -> Result<Self> {
-        match check {
-            Some(check) => Ok(Some(T::load(stmt, check)?)),
+    fn from_column(stmt: &'stmt Statement, index: Option<T::Type>) -> Result<Self> {
+        match index {
+            Some(index) => Ok(Some(T::from_column(stmt, index)?)),
             None => Ok(None),
         }
     }

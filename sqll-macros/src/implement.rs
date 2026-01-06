@@ -29,8 +29,8 @@ impl What {
 struct Tokens<'a> {
     bind_t: TypePath<'a, 1>,
     bind_value_t: TypePath<'a, 1>,
-    check_t: TypePath<'a, 1>,
     code: TypePath<'a, 1>,
+    column_type_t: TypePath<'a, 1>,
     error: TypePath<'a, 1>,
     from_column_t: TypePath<'a, 1>,
     result: TypePath<'a, 2>,
@@ -70,8 +70,8 @@ impl<'a> Tokens<'a> {
         Self {
             bind_t: TypePath::new(crate_path, ["Bind"]),
             bind_value_t: TypePath::new(crate_path, ["BindValue"]),
-            check_t: TypePath::new(crate_path, ["Check"]),
             code: TypePath::new(crate_path, ["Code"]),
+            column_type_t: TypePath::new(crate_path, ["ValueType"]),
             error: TypePath::new(crate_path, ["Error"]),
             from_column_t: TypePath::new(crate_path, ["FromColumn"]),
             result: TypePath::new(core_path, ["result", "Result"]),
@@ -189,8 +189,8 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
     let Tokens {
         bind_t,
         bind_value_t,
-        check_t,
         code,
+        column_type_t,
         error,
         from_column_t,
         result,
@@ -275,7 +275,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                 let c = quote::format_ident!("v{i}");
 
                 setup.push(quote! {
-                    let #c = <<#ty as #from_column_t::<#lt>>::Check as #check_t>::check(stmt, #index)?;
+                    let #c = <<#ty as #from_column_t::<#lt>>::Type as #column_type_t>::check(stmt, #index)?;
                 });
 
                 checked.push(c);
@@ -283,7 +283,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
 
             let fields = fields.iter().zip(checked.iter()).map(|(m, c)| {
                 quote! {
-                    #m: #from_column_t::<#lt>::load(stmt, #c)?
+                    #m: #from_column_t::<#lt>::from_column(stmt, #c)?
                 }
             });
 

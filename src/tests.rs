@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use anyhow::{Context, Result};
 
-use crate::{Code, Connection, Null, OpenOptions, Value};
+use crate::{Code, Connection, Null, OpenOptions, Text, Value};
 
 // Test cases copied from https://github.com/stainless-steel/sqlite under the
 // MIT license.
@@ -161,7 +161,7 @@ fn statement_column_name() -> Result<()> {
 
     let names = stmt.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
-    assert_eq!(stmt.column_name(3), Some("user_photo"));
+    assert_eq!(stmt.column_name(3), Some(Text::new("user_photo")));
     Ok(())
 }
 
@@ -254,7 +254,7 @@ fn test_dropped_connection() -> Result<()> {
 
     let names = stmt.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
-    assert_eq!(stmt.column_name(3), Some("user_photo"));
+    assert_eq!(stmt.column_name(3), Some(Text::new("user_photo")));
     Ok(())
 }
 

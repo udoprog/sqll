@@ -1,7 +1,7 @@
 use core::slice;
 
 use crate::ffi;
-use crate::{Check, CheckBytes, Result, Statement};
+use crate::{Result, Statement, Text, Unsized, ValueType};
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
@@ -21,14 +21,14 @@ use crate::{Check, CheckBytes, Result, Statement};
 /// idempotently converted and strictly type-checked. As in we only permit
 /// string to string conversions, but deny integer to string conversions.
 pub trait FromUnsizedColumn {
-    /// The prepared check for reading the column.
+    /// The prepared index for reading the column.
     //
     /// This must designate one of the database-primitive types as checks, like:
-    /// * [`CheckBytes<T>`] where `T` is a slice type like `[u8]` or `str`.
+    /// * [`Unsized<T>`] where `T` is a slice type like `[u8]` or `str`.
     ///
-    /// When this value is received in [`FromUnsizedColumn::load_unsized`] it
+    /// When this value is received in [`FromUnsizedColumn::from_unsized_column`] it
     /// can be used to actually load the a value of the underlying type.
-    type CheckUnsized: Check;
+    type UnsizedType: ValueType;
 
     /// Read an unsized value from the specified column.
     ///
@@ -37,7 +37,7 @@ pub trait FromUnsizedColumn {
     /// ```
     /// use core::ffi::c_int;
     ///
-    /// use sqll::{Connection, FromUnsizedColumn, Result, Statement, CheckBytes};
+    /// use sqll::{Connection, FromUnsizedColumn, Result, Statement, Unsized};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -53,11 +53,11 @@ pub trait FromUnsizedColumn {
     /// }
     ///
     /// impl FromUnsizedColumn for Id {
-    ///     type CheckUnsized = CheckBytes<[u8]>;
+    ///     type UnsizedType = Unsized<[u8]>;
     ///
     ///     #[inline]
-    ///     fn load_unsized(stmt: &Statement, check: CheckBytes<[u8]>) -> Result<&Self> {
-    ///         Ok(Id::new(<_>::load_unsized(stmt, check)?))
+    ///     fn from_unsized_column(stmt: &Statement, index: Unsized<[u8]>) -> Result<&Self> {
+    ///         Ok(Id::new(<_>::from_unsized_column(stmt, index)?))
     ///     }
     /// }
     ///
@@ -73,7 +73,78 @@ pub trait FromUnsizedColumn {
     /// assert_eq!(select.get_unsized::<Id>(0)?, Id::new(b"\xab\xcd\xab\xcd"));
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    fn load_unsized(stmt: &Statement, check: Self::CheckUnsized) -> Result<&Self>;
+    fn from_unsized_column(stmt: &Statement, index: Self::UnsizedType) -> Result<&Self>;
+}
+
+/// [`FromUnsizedColumn`] implementation for [`Text`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, Text};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+///
+/// assert!(stmt.step()?.is_row());
+/// let name = stmt.get_unsized::<Text>(0)?;
+/// assert_eq!(name, "Alice");
+///
+/// assert!(stmt.step()?.is_row());
+/// let name = stmt.get_unsized::<Text>(0)?;
+/// assert_eq!(name, "Bob");
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM users")?;
+/// let mut name = String::new();
+///
+/// while stmt.step()?.is_row() {
+///     let e = stmt.get_unsized::<str>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl FromUnsizedColumn for Text {
+    type UnsizedType = Unsized<Text>;
+
+    #[inline]
+    fn from_unsized_column(
+        stmt: &Statement,
+        Unsized { index, len, .. }: Self::UnsizedType,
+    ) -> Result<&Self> {
+        unsafe {
+            if len == 0 {
+                return Ok(Text::from_bytes(b""));
+            }
+
+            // SAFETY: Documentation guaranteeds this always returns a valid UTF-8 by sqlite.
+            let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index);
+            debug_assert!(!ptr.is_null(), "sqlite3_column_bytes returned null pointer");
+            let text = slice::from_raw_parts(ptr, len);
+            Ok(Text::from_bytes(text))
+        }
+    }
 }
 
 /// [`FromUnsizedColumn`] implementation for [`str`].
@@ -123,25 +194,18 @@ pub trait FromUnsizedColumn {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for str {
-    type CheckUnsized = CheckBytes<str>;
+    type UnsizedType = Unsized<Text>;
 
     #[inline]
-    fn load_unsized(
-        stmt: &Statement,
-        CheckBytes { index, len, .. }: Self::CheckUnsized,
-    ) -> Result<&Self> {
-        unsafe {
-            if len == 0 {
-                return Ok("");
-            }
+    fn from_unsized_column(stmt: &Statement, index: Self::UnsizedType) -> Result<&Self> {
+        let Ok(string) = Text::from_unsized_column(stmt, index)?.to_str() else {
+            return Err(crate::Error::new(
+                crate::Code::MISMATCH,
+                "column is not valid UTF-8",
+            ));
+        };
 
-            // SAFETY: Documentation guaranteeds this always returns a valid UTF-8 by sqlite.
-            let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index);
-            debug_assert!(!ptr.is_null(), "sqlite3_column_bytes returned null pointer");
-            let bytes = slice::from_raw_parts(ptr, len);
-            let string = str::from_utf8_unchecked(bytes);
-            Ok(string)
-        }
+        Ok(string)
     }
 }
 
@@ -191,12 +255,12 @@ impl FromUnsizedColumn for str {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromUnsizedColumn for [u8] {
-    type CheckUnsized = CheckBytes<[u8]>;
+    type UnsizedType = Unsized<[u8]>;
 
     #[inline]
-    fn load_unsized(
+    fn from_unsized_column(
         stmt: &Statement,
-        CheckBytes { index, len, .. }: Self::CheckUnsized,
+        Unsized { index, len, .. }: Self::UnsizedType,
     ) -> Result<&Self> {
         unsafe {
             let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index);
