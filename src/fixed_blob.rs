@@ -1,10 +1,11 @@
-use core::error::Error;
 use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::ptr;
 use core::slice;
+
+use crate::CapacityError;
 
 /// A helper to read at most a fixed number of `N` bytes from a column. This
 /// allocates the storage for the bytes read on the stack.
@@ -142,6 +143,17 @@ impl<const N: usize> FixedBlob<N> {
     }
 }
 
+/// Coerce into a byte slice.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::from(*b"ABCD");
+/// assert!(blob.eq_ignore_ascii_case(b"ABCD"));
+/// assert!(blob.eq_ignore_ascii_case(b"ABcd"));
+/// ```
 impl<const N: usize> Deref for FixedBlob<N> {
     type Target = [u8];
 
@@ -151,6 +163,16 @@ impl<const N: usize> Deref for FixedBlob<N> {
     }
 }
 
+/// Format as a byte slice.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::from(*b"abcde");
+/// assert_eq!(format!("{:?}", blob), r#"[97, 98, 99, 100, 101]"#);
+/// ```
 impl<const N: usize> fmt::Debug for FixedBlob<N> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -158,6 +180,16 @@ impl<const N: usize> fmt::Debug for FixedBlob<N> {
     }
 }
 
+/// Coerce into a byte slice.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::from(*b"abcde");
+/// assert_eq!(blob.as_ref(), b"abcde");
+/// ```
 impl<const N: usize> AsRef<[u8]> for FixedBlob<N> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
@@ -165,6 +197,20 @@ impl<const N: usize> AsRef<[u8]> for FixedBlob<N> {
     }
 }
 
+/// Compare for equality.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob1 = FixedBlob::from(*b"abcde");
+/// let blob2 = FixedBlob::from(*b"abcde");
+/// let blob3 = FixedBlob::from(*b"abcdx");
+///
+/// assert_eq!(blob1, blob2);
+/// assert_ne!(blob1, blob3);
+/// ```
 impl<const N: usize> PartialEq for FixedBlob<N> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -174,6 +220,17 @@ impl<const N: usize> PartialEq for FixedBlob<N> {
 
 impl<const N: usize> Eq for FixedBlob<N> {}
 
+/// Compare for ordering.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob1 = FixedBlob::from(*b"abcde");
+/// let blob2 = FixedBlob::from(*b"abcdx");
+/// assert!(blob1 < blob2);
+/// ```
 impl<const N: usize> PartialOrd for FixedBlob<N> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
@@ -181,6 +238,20 @@ impl<const N: usize> PartialOrd for FixedBlob<N> {
     }
 }
 
+/// Compare for ordering.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+/// use std::collections::BTreeSet;
+///
+/// let a = FixedBlob::<16>::try_from(&b"Apple"[..])?;
+/// let b = FixedBlob::<16>::try_from(&b"Banana"[..])?;
+///
+/// let set = BTreeSet::from([a, b]);
+/// # Ok::<_, sqll::CapacityError>(())
+/// ```
 impl<const N: usize> Ord for FixedBlob<N> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
@@ -188,6 +259,24 @@ impl<const N: usize> Ord for FixedBlob<N> {
     }
 }
 
+/// Compute a hash of the `FixedBlob<N>`.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+/// use std::collections::HashSet;
+///
+/// let a = FixedBlob::<16>::try_from(&b"Apple"[..])?;
+/// let b = FixedBlob::<16>::try_from(&b"Banana"[..])?;
+///
+/// let mut set = HashSet::from([a, b]);
+///
+/// let c = FixedBlob::<16>::try_from(&b"Banana"[..])?;
+/// assert!(set.contains(&c));
+/// assert!(!set.insert(c));
+/// # Ok::<_, sqll::CapacityError>(())
+/// ```
 impl<const N: usize> Hash for FixedBlob<N> {
     #[inline]
     fn hash<H>(&self, state: &mut H)
@@ -198,6 +287,17 @@ impl<const N: usize> Hash for FixedBlob<N> {
     }
 }
 
+/// Clone the `FixedBlob<N>`.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let blob = FixedBlob::from(b"abcde");
+/// let clone = blob.clone();
+/// assert_eq!(blob, clone);
+/// ```
 impl<const N: usize> Clone for FixedBlob<N> {
     #[inline]
     fn clone(&self) -> Self {
@@ -206,45 +306,6 @@ impl<const N: usize> Clone for FixedBlob<N> {
             data: self.data,
         }
     }
-}
-
-/// Error raised when failing to convert a string into a `FixedBlob`.
-///
-/// # Examples
-///
-/// ```
-/// use sqll::FixedBlob;
-///
-/// let e = FixedBlob::<3>::try_from(&b"abcd"[..]).unwrap_err();
-/// assert_eq!(e.to_string(), "size 4 exceeds fixed buffer size 3");
-/// ```
-pub struct CapacityError {
-    kind: CapacityErrorKind,
-}
-
-impl fmt::Display for CapacityError {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            CapacityErrorKind::Capacity { len, max } => {
-                write!(f, "size {len} exceeds fixed buffer size {max}")
-            }
-        }
-    }
-}
-
-impl fmt::Debug for CapacityError {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.kind.fmt(f)
-    }
-}
-
-impl Error for CapacityError {}
-
-#[derive(Debug)]
-enum CapacityErrorKind {
-    Capacity { len: usize, max: usize },
 }
 
 /// Convert an array into a `FixedBlob<N>`.
@@ -301,12 +362,7 @@ impl<const N: usize> TryFrom<&[u8]> for FixedBlob<N> {
             let mut string = FixedBlob::<N>::new();
 
             if value.len() > N {
-                return Err(CapacityError {
-                    kind: CapacityErrorKind::Capacity {
-                        len: value.len(),
-                        max: N,
-                    },
-                });
+                return Err(CapacityError::capacity(value.len(), N));
             }
 
             ptr::copy_nonoverlapping(value.as_ptr(), string.as_mut_ptr(), value.len());

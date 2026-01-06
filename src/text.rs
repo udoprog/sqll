@@ -141,7 +141,7 @@ impl Text {
 /// assert_eq!(t1, t2);
 /// assert_ne!(t1, t3);
 /// ```
-impl PartialEq<Text> for Text {
+impl PartialEq for Text {
     #[inline]
     fn eq(&self, other: &Text) -> bool {
         self.bytes == other.bytes
@@ -181,6 +181,23 @@ impl PartialOrd for Text {
     }
 }
 
+/// Compare for ordering.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Text;
+/// use std::collections::BTreeSet;
+///
+/// let a = Text::new("Apple");
+/// let b = Text::new("Banana");
+///
+/// let mut set = BTreeSet::from([a, b]);
+///
+/// let c = Text::new("Banana");
+/// assert!(set.contains(&c));
+/// assert!(!set.insert(c));
+/// ```
 impl Ord for Text {
     #[inline]
     fn cmp(&self, other: &Text) -> Ordering {
@@ -194,7 +211,6 @@ impl Ord for Text {
 ///
 /// ```
 /// use sqll::Text;
-///
 /// use std::collections::hash_map::DefaultHasher;
 /// use std::hash::{Hash, Hasher};
 ///
@@ -208,6 +224,22 @@ impl Ord for Text {
 /// t2.hash(&mut hasher2);
 ///
 /// assert_eq!(hasher1.finish(), hasher2.finish());
+/// ```
+///
+/// Inserting into a has set:
+///
+/// ```
+/// use sqll::Text;
+/// use std::collections::HashSet;
+///
+/// let a = Text::new("Apple");
+/// let b = Text::new("Banana");
+///
+/// let mut set = HashSet::from([a, b]);
+///
+/// let c = Text::new("Banana");
+/// assert!(set.contains(&c));
+/// assert!(!set.insert(c));
 /// ```
 impl Hash for Text {
     #[inline]
@@ -225,7 +257,6 @@ impl Hash for Text {
 ///
 /// ```
 /// use sqll::Text;
-///
 /// use core::borrow::Borrow;
 ///
 /// let t = Text::new(b"example");
@@ -285,14 +316,11 @@ impl PartialEq<str> for Text {
 /// ```
 /// use sqll::Text;
 ///
-/// assert_eq! {
-///     Text::new(b"before\xF0\x90\x80after").to_string(),
-///     "before�after"
-/// };
-/// assert_eq! {
-///     Text::new(b"before\xF0\x90\x80\xF0\x90\x80").to_string(),
-///     "before��"
-/// };
+/// let text = Text::new(b"before\xF0\x90\x80after");
+/// assert_eq!(text.to_string(), "before�after");
+///
+/// let text = Text::new(b"before\xF0\x90\x80\xF0\x90\x80");
+/// assert_eq!(text.to_string(), "before��");
 /// ```
 impl fmt::Display for Text {
     #[inline]

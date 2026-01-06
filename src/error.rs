@@ -72,3 +72,52 @@ impl fmt::Display for DatabaseNotFound {
 }
 
 impl core::error::Error for DatabaseNotFound {}
+
+/// Error raised when failing to convert a string into a `FixedBlob`.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedBlob;
+///
+/// let e = FixedBlob::<3>::try_from(&b"abcd"[..]).unwrap_err();
+/// assert_eq!(e.to_string(), "size 4 exceeds fixed buffer size 3");
+/// ```
+pub struct CapacityError {
+    kind: CapacityErrorKind,
+}
+
+#[derive(Debug)]
+enum CapacityErrorKind {
+    Capacity { len: usize, max: usize },
+}
+
+impl CapacityError {
+    /// Construct a new capacity error.
+    #[inline]
+    pub(super) fn capacity(len: usize, max: usize) -> Self {
+        Self {
+            kind: CapacityErrorKind::Capacity { len, max },
+        }
+    }
+}
+
+impl fmt::Display for CapacityError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            CapacityErrorKind::Capacity { len, max } => {
+                write!(f, "size {len} exceeds fixed buffer size {max}")
+            }
+        }
+    }
+}
+
+impl fmt::Debug for CapacityError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.kind.fmt(f)
+    }
+}
+
+impl core::error::Error for CapacityError {}

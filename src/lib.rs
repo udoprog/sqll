@@ -306,9 +306,9 @@ pub use self::code::Code;
 #[doc(inline)]
 pub use self::connection::{Connection, OpenOptions, Prepare};
 #[doc(inline)]
-pub use self::error::{DatabaseNotFound, Error, Result};
+pub use self::error::{CapacityError, DatabaseNotFound, Error, Result};
 #[doc(inline)]
-pub use self::fixed_blob::{CapacityError, FixedBlob};
+pub use self::fixed_blob::FixedBlob;
 #[doc(inline)]
 pub use self::fixed_text::FixedText;
 #[doc(inline)]
