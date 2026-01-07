@@ -89,12 +89,14 @@ use crate::{Code, Connection, Error, Result};
 ///
 /// The [`sqlite3_config` function] is a way that allows for users of sqlite to
 /// globally configure the library. Any use of this mechanism is out of scope of
-/// this library. In particular it can be used to forcibly disable thread safety
-/// by setting the `SQLITE_CONFIG_SINGLETHREAD` option.
+/// this library. In particular it can be used to forcibly disable the effect of
+/// [`full_mutex`] by setting the the [`SQLITE_CONFIG_SINGLETHREAD`] option.
 ///
 /// We cannot guard against this. Any use of the `sqlite3_config` mechanism is
 /// considered to be the responsibility of the user of this library.
 ///
+/// [`full_mutex`]: Self::full_mutex
+/// [`SQLITE_CONFIG_SINGLETHREAD`]: https://sqlite.org/c3ref/c_config_covering_index_scan.html#sqliteconfigsinglethread
 /// [`sqlite3_config` function]: https://www.sqlite.org/c3ref/config.html
 #[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
