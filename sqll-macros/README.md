@@ -7,4 +7,8 @@
 
 Macros for the [`sqll` crate].
 
+```rust
+#[derive(Row, Bind)]
+```
+
 [`sqll` crate]: https://docs.rs/sqll

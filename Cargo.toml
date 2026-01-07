@@ -1,6 +1,6 @@
 [package]
 name = "sqll"
-version = "0.10.2"
+version = "0.10.3"
 authors = [
     "John-John Tedro <udoprog@tedro.se>"
 ]
@@ -25,8 +25,8 @@ threadsafe = ["sqll-sys/threadsafe"]
 strict = ["sqll-sys/strict"]
 
 [dependencies]
-sqll-sys = { version = "0.10.2", path = "sqll-sys", default-features = false }
-sqll-macros = { version = "0.10.2", path = "sqll-macros", optional = true }
+sqll-sys = { version = "0.10.3", path = "sqll-sys", default-features = false }
+sqll-macros = { version = "0.10.3", path = "sqll-macros", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.100"
