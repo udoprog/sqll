@@ -23,26 +23,33 @@ mod sealed {
     impl<T> Sealed for Nullable<T> where T: NotNull {}
 }
 
-/// A trait which defines the underlying static value type that is supported by
+/// A trait which defines the underlying static column type that is supported by
 /// a value that implements [`FromColumn`] or [`FromUnsizedColumn`].
+///
+/// The runtime value contains sufficient data which allows [`FromColumn`] and
+/// [`FromUnsizedColumn`] to safetly load values from a particular column.
 ///
 /// This type exists in contrast to [`ValueType`], which is a runtime value
 /// defining a particular value.
 ///
-/// One thing worth noting about SQLite is that tables are dynamically typed.
-/// Any column of any type can contain any value. If there is a discrepancy
-/// during loading, a process known as auto-conversion will be attempted. This
-/// however can cause problems, since pointers, which are subseqeuently used to
-/// construct references in Rust may be invalidated.
+/// # Background
 ///
-/// We carefully provide an API to ensure that references loaded from sqlite
-/// remain valid. This type is a key component to that. We break loading up into
-/// two steps on of them being checking which is done through [`check`].
+/// In SQLite, columns inside of table rows are dynamically typed. Any column of
+/// any type can contain any value. If there is a difference between the type
+/// being requested through the API and the actual value, a process known as
+/// auto-conversion will be transparently performed. This can cause issues for
+/// API users, because any pointers which have been loaded through the API may
+/// become invalidated.
 ///
-/// We ensure that the type conversion is idempotent by sealing this unsafe
-/// trait and requiring it to be used when loading a column of a particular
-/// type. This way, we can hopefully ensures that pointers remain valid for the
-/// lifetime of the column being loaded.
+/// To work around this so that we can support references, we carefully provide
+/// an API to ensure that references loaded from SQLite remain valid. This type
+/// is a key component to that contract. We break loading up into two steps on
+/// of them being checking which is done through [`check`] that warms up the
+/// statement by ensuring that any type conversion is performed ahead of time.
+///
+/// After this, the type encodes all the necessary information to load the value
+/// *without* any type conversion being triggered, ensuring that it remains
+/// valid for the lifetime of the statement from which it was derived.
 ///
 /// [`FromColumn`]: crate::FromColumn
 /// [`FromUnsizedColumn`]: crate::FromUnsizedColumn
