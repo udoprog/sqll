@@ -185,9 +185,6 @@ impl Connection {
     /// }
     ///
     /// fn setup_database() -> Result<Database> {
-    ///     // SAFETY: We set up an unsynchronized connection which is unsafe, but we
-    ///     // provide external syncrhonization so it is fine. This avoids the overhead
-    ///     // of sqlite using internal locks.
     ///     let c = OpenOptions::new()
     ///         .create()
     ///         .read_write()
@@ -202,6 +199,7 @@ impl Connection {
     ///         "#,
     ///     )?;
     ///
+    ///     // SAFETY: We serialize all accesses to the connection behind a mutex.
     ///     let c = unsafe {
     ///         c.into_send()
     ///     };

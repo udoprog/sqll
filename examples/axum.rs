@@ -23,10 +23,7 @@ struct Database {
     stmts: Arc<Mutex<Statements>>,
 }
 
-fn setup_db() -> Result<Database> {
-    // SAFETY: We set up an unsynchronized connection which is unsafe, but we
-    // provide external syncrhonization so it is fine. This avoids the overhead
-    // of sqlite using internal locks.
+fn setup_database() -> Result<Database> {
     let c = OpenOptions::new()
         .create()
         .read_write()
@@ -43,6 +40,7 @@ fn setup_db() -> Result<Database> {
 
     let select = c.prepare_with("SELECT name, age FROM users", Prepare::PERSISTENT)?;
 
+    // SAFETY: We serialize all accesses to the statements behind a mutex.
     let inner = unsafe {
         Statements {
             select: select.into_send(),
@@ -112,7 +110,7 @@ impl From<JoinError> for WebError {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db = setup_db()?;
+    let db = setup_database()?;
 
     let app = Router::new().route("/", get(get_user)).layer(Extension(db));
     let listener = TcpListener::bind("127.0.0.1:3000").await?;

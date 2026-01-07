@@ -304,9 +304,6 @@ impl Statement {
     /// }
     ///
     /// fn setup_database() -> Result<Database> {
-    ///     // SAFETY: We set up an unsynchronized connection which is unsafe, but we
-    ///     // provide external syncrhonization so it is fine. This avoids the overhead
-    ///     // of sqlite using internal locks.
     ///     let c = OpenOptions::new()
     ///         .create()
     ///         .read_write()
@@ -324,6 +321,7 @@ impl Statement {
     ///     let select = c.prepare_with("SELECT age FROM users ORDER BY age", Prepare::PERSISTENT)?;
     ///     let update = c.prepare_with("UPDATE users SET age = age + ?", Prepare::PERSISTENT)?;
     ///
+    ///     // SAFETY: We serialize all accesses to the statements behind a mutex.
     ///     let inner = unsafe {
     ///         Statements {
     ///             select: select.into_send(),
