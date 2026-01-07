@@ -299,7 +299,7 @@ pub struct Integer {
 /// ```
 unsafe impl Type for Integer {
     #[inline]
-    fn check(stmt: &'_ mut Statement, index: c_int) -> Result<Self> {
+    fn check(stmt: &mut Statement, index: c_int) -> Result<Self> {
         type_check(stmt, index, ValueType::INTEGER)?;
         Ok(Self { index })
     }
@@ -385,7 +385,7 @@ pub struct Float {
 /// ```
 unsafe impl Type for Float {
     #[inline]
-    fn check(stmt: &'_ mut Statement, index: c_int) -> Result<Self> {
+    fn check(stmt: &mut Statement, index: c_int) -> Result<Self> {
         type_check(stmt, index, ValueType::FLOAT)?;
         Ok(Self { index })
     }
