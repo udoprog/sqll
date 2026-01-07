@@ -141,14 +141,17 @@ impl OpenOptions {
     /// ```
     /// use sqll::{OpenOptions, Code};
     ///
-    /// let mut open = OpenOptions::new()
-    ///     .create();
+    /// let e = OpenOptions::new()
+    ///     .create()
+    ///     .open_in_memory()
+    ///     .unwrap_err();
     ///
-    /// let e = open.open_in_memory().unwrap_err();
     /// assert_eq!(e.code(), Code::MISUSE);
     ///
-    /// opts.read_write();
-    /// let c = opts.open_in_memory()?;
+    /// let c = OpenOptions::new()
+    ///     .create()
+    ///     .read_write()
+    ///     .open_in_memory()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///

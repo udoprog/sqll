@@ -10,7 +10,7 @@ struct Person<'stmt> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut c = OpenOptions::new()
+    let c = OpenOptions::new()
         .create()
         .read_write()
         .no_mutex()

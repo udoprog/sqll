@@ -3,7 +3,7 @@ use core::fmt;
 
 use crate::ffi;
 
-/// The type of a column.
+/// The type of a value.
 ///
 /// This type exists in contrast to [`Type`], which is a compile-time trait
 /// defining a particular value type.

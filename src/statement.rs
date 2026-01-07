@@ -262,8 +262,8 @@ impl Statement {
     ///
     /// # Panics
     ///
-    /// If neither [`full_mutex`] nor [`no_mutex`] was set when opening the
-    /// connection calling this will panic.
+    /// This will panic if neither [`full_mutex`] or [`no_mutex`] are set, or if
+    /// the `threadsafe` feature is not set.
     ///
     /// [`full_mutex`]: crate::OpenOptions::full_mutex
     /// [`no_mutex`]: crate::OpenOptions::no_mutex

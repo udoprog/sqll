@@ -22,17 +22,24 @@ use crate::{Code, Error, Result, Statement, Text};
 /// idempotently converted and strictly type-checked. As in we only permit
 /// string to string conversions, but deny integer to string conversions.
 pub trait FromUnsizedColumn {
-    /// The prepared index for reading the column.
-    //
-    /// This must designate one of the database-primitive types as checks that
-    /// are unsized like [`Text`] or [`Blob`].
+    /// The type of a column.
     ///
-    /// When this value is received in
-    /// [`FromUnsizedColumn::from_unsized_column`] it can be used to actually
-    /// load the a value of the underlying type.
+    /// This must designate one of the database-primitive types as checks, like:
+    /// * [`Integer`] or [`Float`].
+    /// * [`Blob`] or [`Text`].
+    /// * [`Any`] for dynamically typed column.
+    /// * [`Nullable<T>`] for nullable types.
     ///
-    /// [`Text`]: crate::ty::Text
+    /// When this value is received in [`from_unsized_column`] it can be used to
+    /// actually load the a value of the underlying type.
+    ///
+    /// [`Integer`]: crate::ty::Integer
+    /// [`Float`]: crate::ty::Float
     /// [`Blob`]: crate::ty::Blob
+    /// [`Text`]: crate::ty::Text
+    /// [`Any`]: crate::ty::Any
+    /// [`Nullable<T>`]: crate::ty::Nullable
+    /// [`from_unsized_column`]: FromUnsizedColumn::from_unsized_column
     type Type: Type;
 
     /// Read an unsized value from the specified column.

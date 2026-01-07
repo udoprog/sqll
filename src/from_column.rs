@@ -83,8 +83,8 @@ where
     /// * [`Any`] for dynamically typed column.
     /// * [`Nullable<T>`] for nullable types.
     ///
-    /// When this value is received in [`FromColumn::from_column`] it can be
-    /// used to actually load the a value of the underlying type.
+    /// When this value is received in [`from_column`] it can be used to
+    /// actually load the a value of the underlying type.
     ///
     /// [`Integer`]: crate::ty::Integer
     /// [`Float`]: crate::ty::Float
@@ -92,6 +92,7 @@ where
     /// [`Text`]: crate::ty::Text
     /// [`Any`]: crate::ty::Any
     /// [`Nullable<T>`]: crate::ty::Nullable
+    /// [`from_column`]: FromColumn::from_column
     type Type: Type;
 
     /// Read a value from the specified column.

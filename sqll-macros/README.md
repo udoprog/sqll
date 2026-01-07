@@ -6,3 +6,5 @@
 [<img alt="build status" src="https://img.shields.io/github/actions/workflow/status/udoprog/sqll/ci.yml?branch=main&style=for-the-badge" height="20">](https://github.com/udoprog/sqll/actions?query=branch%3Amain)
 
 Macros for the [`sqll` crate].
+
+[`sqll` crate]: https://docs.rs/sqll

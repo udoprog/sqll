@@ -56,20 +56,9 @@ impl BitOr for Prepare {
 ///
 /// # Thread safety
 ///
-/// The [`Connection`] implements `Send` when the `threadsafe` feature is
-/// enabled and it is safe to use one [`Connection`] and [`Statement`] instances
-/// per thread unless [`OpenOptions::no_mutex`] is used during opening. If
-/// [`OpenOptions::no_mutex`] is set, then all database objects like
-/// [`Statement`] can only be used by a single thread at a time.
-///
-/// If the `threadsafe` feature is not enabled, it is not valid to use any
-/// [`Connection`] instances across multiple threads *in any capacity*. Doing so
-/// would be undefined behavior. This is typically because the SQLite library
-/// might use static data internally. This is typically only relevant in
-/// single-threaded environments.
-///
-/// By default the connection is set up using the serialized threading mode
-/// which performs internal locking through [`OpenOptions::full_mutex`].
+/// By default a [`Connection`] is assumed to not be thread safe. See
+/// [`Connection::into_send`] and [`Statement::into_send`] for ways to use
+/// connections and statements across multiple threads.
 ///
 /// # Database locking
 ///
@@ -152,8 +141,8 @@ impl Connection {
     ///
     /// # Panics
     ///
-    /// If neither [`full_mutex`] nor [`no_mutex`] was set when opening the
-    /// connection calling this will panic.
+    /// This will panic if neither [`full_mutex`] or [`no_mutex`] are set, or if
+    /// the `threadsafe` feature is not set.
     ///
     /// [`full_mutex`]: crate::OpenOptions::full_mutex
     /// [`no_mutex`]: crate::OpenOptions::no_mutex
