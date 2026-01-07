@@ -593,6 +593,26 @@ pub use sqll_macros::Bind;
 ///
 /// Note that it's also not uncommon for column names to simply *not* have a
 /// name, such as when computing expressions like `COUNT(*)` or `column + 1`.
+///
+/// # Errors
+///
+/// Trying to use the same index multiple times results in an error. This is to
+/// ensure that the implementation follows the safety requirements of the [`Row`
+/// trait].
+///
+/// ```compile_fail
+/// use sqll::Row;
+///
+/// #[derive(Row)]
+/// struct InvalidRow {
+///     #[sql(index = 0)]
+///     a: u32,
+///     #[sql(index = 0)]
+///     b: u32,
+/// }
+/// ```
+///
+/// [`Row` trait]: crate::Row
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use sqll_macros::Row;

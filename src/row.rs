@@ -12,6 +12,16 @@ use crate::{Error, FromColumn, Statement};
 /// [`row`]: Statement::row
 /// [`Row` derive]: derive@crate::Row
 ///
+/// # Safety
+///
+/// The caller must ensure that the implementation of `from_row` only reads
+/// distinct rows. Attempting to read the same row multiple times may lead to
+/// invalidation of the column value leading to undefined behavior.
+///
+/// This is guaranteed by the [`Row` derive] and any internal implementations.
+///
+/// [`Row` derive]: derive@crate::Row
+///
 /// # Examples
 ///
 /// The simplest implementation for [`Row`] is provided by tuples.
@@ -107,7 +117,7 @@ use crate::{Error, FromColumn, Statement};
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```
-pub trait Row<'stmt>
+pub unsafe trait Row<'stmt>
 where
     Self: Sized,
 {
@@ -115,7 +125,7 @@ where
     fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error>;
 }
 
-impl<'stmt, T> Row<'stmt> for T
+unsafe impl<'stmt, T> Row<'stmt> for T
 where
     T: FromColumn<'stmt>,
 {
@@ -160,7 +170,7 @@ macro_rules! implement_tuple {
         /// }
         /// # Ok::<_, sqll::Error>(())
         /// ```
-        impl<'stmt, $ty0, $($ty,)*> Row<'stmt> for ($ty0, $($ty,)*)
+        unsafe impl<'stmt, $ty0, $($ty,)*> Row<'stmt> for ($ty0, $($ty,)*)
         where
             $ty0: FromColumn<'stmt>,
             $($ty: FromColumn<'stmt>,)*

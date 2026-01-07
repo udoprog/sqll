@@ -1,6 +1,8 @@
 use core::cell::RefCell;
 use core::ffi::c_int;
 use core::fmt;
+
+use std::collections::HashSet;
 use std::ffi::CString;
 
 use proc_macro2::{Span, TokenStream};
@@ -258,9 +260,21 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                 }
             };
 
+            let mut indexes = HashSet::new();
+
             for binding in &bindings {
-                if let Binding::Name(name) = binding {
-                    cx.spanned(name, "cannot use named bindings when deriving Row");
+                match binding {
+                    Binding::Index(n) => {
+                        if !indexes.insert(*n) {
+                            cx.spanned(
+                                &input.ident,
+                                format_args!("duplicate index {n} used in row"),
+                            );
+                        }
+                    }
+                    Binding::Name(name) => {
+                        cx.spanned(name, "cannot use named bindings when deriving Row");
+                    }
                 }
             }
 
@@ -292,7 +306,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
 
             let expanded = quote! {
                 #[automatically_derived]
-                impl #impl_generics #row_t<#lt> for #ident #ty_generics #where_clause {
+                unsafe impl #impl_generics #row_t<#lt> for #ident #ty_generics #where_clause {
                     #[inline]
                     fn from_row(stmt: &#lt mut #statement) -> #result<Self, #error> {
                         #(#setup)*
