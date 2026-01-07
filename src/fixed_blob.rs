@@ -7,8 +7,30 @@ use core::slice;
 
 use crate::CapacityError;
 
-/// A helper to read at most a fixed number of `N` bytes from a column. This
-/// allocates the storage for the bytes read on the stack.
+/// A byte slice type which can store at most `N` bytes from a column.
+///
+/// The data is stored inline the type which typically means on the stack.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FixedBlob, Result};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id BLOB);
+///
+///     INSERT INTO users (id) VALUES (X'01020304'), (X'0506070809');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM users")?;
+///
+/// let ids = stmt.iter::<FixedBlob<10>>().collect::<Result<Vec<_>>>()?;
+/// assert_eq!(ids[0].as_slice(), &[1, 2, 3, 4]);
+/// assert_eq!(ids[1].as_slice(), &[5, 6, 7, 8, 9]);
+/// # Ok::<_, sqll::Error>(())
+/// ```
 pub struct FixedBlob<const N: usize> {
     /// Storage to read to.
     data: [MaybeUninit<u8>; N],

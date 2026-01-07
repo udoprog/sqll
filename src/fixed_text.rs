@@ -5,8 +5,30 @@ use core::str;
 
 use crate::{CapacityError, FixedBlob, Text};
 
-/// A helper to read at most a fixed number of `N` bytes from a column. This
-/// allocates the storage for the bytes read on the stack.
+/// A [`Text`] type which can store at most `N` bytes from a column.
+///
+/// The data is stored inline the type without any heap allocation.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FixedText, Result};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+///
+/// let ids = stmt.iter::<FixedText<10>>().collect::<Result<Vec<_>>>()?;
+/// assert_eq!(&ids[0], "Alice");
+/// assert_eq!(&ids[1], "Bob");
+/// # Ok::<_, sqll::Error>(())
+/// ```
 pub struct FixedText<const N: usize> {
     inner: FixedBlob<N>,
 }
@@ -175,6 +197,50 @@ impl<const N: usize, const U: usize> PartialEq<FixedText<U>> for FixedText<N> {
 }
 
 impl<const N: usize> Eq for FixedText<N> {}
+
+/// Compare the text for equality with a `str`. This performs a byte-wise
+/// comparison.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::FixedText;
+///
+/// let t1 = FixedText::from(*b"example");
+/// let t2 = "example";
+/// let t3 = "different";
+///
+/// assert_eq!(t1, *t2);
+/// assert_ne!(t1, *t3);
+/// ```
+impl<const N: usize> PartialEq<str> for FixedText<N> {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        self.as_text() == other
+    }
+}
+
+/// Compare the text for equality with a `Text`. This performs a byte-wise
+/// comparison.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{FixedText, Text};
+///
+/// let t1 = FixedText::from(*b"example");
+/// let t2 = Text::new("example");
+/// let t3 = Text::new("different");
+///
+/// assert_eq!(t1, *t2);
+/// assert_ne!(t1, *t3);
+/// ```
+impl<const N: usize> PartialEq<Text> for FixedText<N> {
+    #[inline]
+    fn eq(&self, other: &Text) -> bool {
+        self.as_text() == other
+    }
+}
 
 /// Compare for ordering.
 ///
