@@ -119,6 +119,42 @@ pub(crate) enum AnyKind {
     Integer(Integer),
 }
 
+/// [`Type`] implementation for any non-null value.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FromColumn, Result, Statement, Value};
+/// use sqll::ty;
+///
+/// #[derive(Debug, PartialEq)]
+/// struct MyValue<'stmt>(Value<'stmt>);
+///
+/// impl<'stmt> FromColumn<'stmt> for MyValue<'stmt> {
+///     type Type = ty::Any;
+///
+///     #[inline]
+///     fn from_column(stmt: &'stmt Statement, index: ty::Any) -> Result<Self> {
+///         Ok(MyValue(<_>::from_column(stmt, index)?))
+///     }
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (value);
+///
+///     INSERT INTO test (value) VALUES ('Hello, world!'), (42), (3.14), (X'DEADBEEF');
+/// "#)?;
+///
+/// let mut select = c.prepare("SELECT value FROM test")?;
+/// assert_eq!(select.next::<MyValue<'_>>()?, Some(MyValue(Value::text("Hello, world!"))));
+/// assert_eq!(select.next::<MyValue<'_>>()?, Some(MyValue(Value::integer(42))));
+/// assert_eq!(select.next::<MyValue<'_>>()?, Some(MyValue(Value::float(3.14))));
+/// assert_eq!(select.next::<MyValue<'_>>()?, Some(MyValue(Value::blob(&[0xDE, 0xAD, 0xBE, 0xEF]))));
+/// assert_eq!(select.next::<MyValue<'_>>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
 unsafe impl Type for Any {
     #[inline]
     fn check(stmt: &mut Statement, index: c_int) -> Result<Self> {
@@ -604,14 +640,25 @@ unsafe impl Type for Blob {
 /// [`Type`] implementation for a nullable column.
 ///
 /// The `T` parameter must be a [`NotNull`] type marker. This constraint
-/// prevents assymetric types like `Nullable<Nullable<Integer>>` from being
-/// used.
+/// prevents assymetric types from being defined.
 ///
-/// ```no_compile
-/// use sqll::ty;
+/// So something like this is supported:
 ///
-/// // This will not compile because Nullable cannot be nested.
-/// type BadType = ty::Nullable<ty::Nullable<ty::Integer>>;
+/// ```
+/// # use sqll::ty;
+/// # fn ret() ->
+/// ty::Nullable<ty::Integer>
+/// # { todo!() }
+/// ```
+///
+/// While something like this is denied at compile time:
+///
+/// ```compile_fail
+/// # use sqll::ty;
+/// # fn ret() ->
+/// // This will not compile because Nullable does not implement `NotNull`.
+/// ty::Nullable<ty::Nullable<ty::Integer>>;
+/// # { todo!() }
 /// ```
 ///
 /// # Examples
@@ -654,6 +701,41 @@ where
     pub(crate) inner: Option<T>,
 }
 
+/// [`Type`] implementation for a nullable column.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{Connection, FromColumn, Result, Statement};
+/// use sqll::ty;
+///
+/// #[derive(Debug, PartialEq, Eq)]
+/// struct MyOptional(Option<u32>);
+///
+/// impl FromColumn<'_> for MyOptional {
+///     type Type = ty::Nullable<ty::Integer>;
+///
+///     #[inline]
+///     fn from_column(stmt: &Statement, index: ty::Nullable<ty::Integer>) -> Result<Self> {
+///         Ok(MyOptional(<_>::from_column(stmt, index)?))
+///     }
+/// }
+///
+/// let mut c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (value INTEGER);
+///
+///     INSERT INTO test (value) VALUES (42), (NULL);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM test")?;
+///
+/// assert_eq!(stmt.next::<MyOptional>()?, Some(MyOptional(Some(42))));
+/// assert_eq!(stmt.next::<MyOptional>()?, Some(MyOptional(None)));
+/// assert_eq!(stmt.next::<MyOptional>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
 unsafe impl<T> Type for Nullable<T>
 where
     T: NotNull,

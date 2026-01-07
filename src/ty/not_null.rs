@@ -95,6 +95,13 @@ where
 
 /// [`Any`] values cannot be null.
 ///
+/// ```
+/// # use sqll::ty;
+/// # fn ret() ->
+/// ty::Nullable<ty::Any>
+/// # { todo!() }
+/// ```
+///
 /// # Examples
 ///
 /// ```
@@ -116,6 +123,13 @@ where
 impl NotNull for Any {}
 
 /// [`Integer`] values cannot be null.
+///
+/// ```
+/// # use sqll::ty;
+/// # fn ret() ->
+/// ty::Nullable<ty::Integer>
+/// # { todo!() }
+/// ```
 ///
 /// # Examples
 ///
@@ -139,6 +153,13 @@ impl NotNull for Integer {}
 
 /// [`Float`] values cannot be null.
 ///
+/// ```
+/// # use sqll::ty;
+/// # fn ret() ->
+/// ty::Nullable<ty::Float>
+/// # { todo!() }
+/// ```
+///
 /// # Examples
 ///
 /// ```
@@ -161,6 +182,13 @@ impl NotNull for Float {}
 
 /// [`Text`] values cannot be null.
 ///
+/// ```
+/// # use sqll::ty;
+/// # fn ret() ->
+/// ty::Nullable<ty::Text>
+/// # { todo!() }
+/// ```
+///
 /// # Examples
 ///
 /// ```
@@ -182,6 +210,13 @@ impl NotNull for Float {}
 impl NotNull for Text {}
 
 /// [`Blob`] values cannot be null.
+///
+/// ```
+/// # use sqll::ty;
+/// # fn ret() ->
+/// ty::Nullable<ty::Blob>
+/// # { todo!() }
+/// ```
 ///
 /// # Examples
 ///

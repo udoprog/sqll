@@ -79,6 +79,25 @@ where
     }
 }
 
+/// [`Bind`] implementation for an empty binding.
+///
+/// Calling something with this argument causes no parameters to be bound.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE config (key TEXT, value TEXT);
+/// "#)?;
+///
+/// let mut insert = c.prepare("INSERT INTO config VALUES ('version', '1.0.0')")?;
+/// insert.execute(())?;
+/// # Ok::<_, sqll::Error>(())
+/// ```
 impl Bind for () {
     #[inline]
     fn bind(&self, _stmt: &mut Statement) -> Result<(), Error> {

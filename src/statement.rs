@@ -592,15 +592,14 @@ impl Statement {
         }
     }
 
-    /// In one call,  [`reset`] the statement, [`bind`] the specified values,
-    /// and [`step`] until the current statement reports [`State::is_done`].
+    /// In one call [`bind`] the specified values, and [`step`] until the
+    /// current statement reports [`State::is_done`].
     ///
-    /// This is a convenience wrapper around the these three operations since
-    /// they are commonly used together.
+    /// This is a convenience wrapper around those operations since they are
+    /// commonly used together.
     ///
     /// To not bind anything, use `()` as the argument.
     ///
-    /// [`reset`]: Self::reset
     /// [`bind`]: Self::bind
     /// [`step`]: Self::step
     ///
@@ -628,7 +627,6 @@ impl Statement {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn execute(&mut self, bind: impl Bind) -> Result<()> {
-        self.reset()?;
         self.bind(bind)?;
         while !self.step()?.is_done() {}
         Ok(())
@@ -842,14 +840,20 @@ impl Statement {
 
     /// Reset the statement and bind values to parameters.
     ///
+    /// Note that this does not clear the bindings for any previous parameters
+    /// unless they are overriden. To clear any previous bindings, use
+    /// [`clear_bindings`].
+    ///
     /// This always binds to the first index, to specify a custom index use
-    /// [`Statement::bind_value`] or configure the [`Bind` derive] with
-    /// `#[sqll(index = ..)]`.
+    /// [`bind_value`] or configure the [`Bind` derive] with `#[sqll(index =
+    /// ..)]`.
     ///
     /// If a statement is stepped without a parameter being bound, the parameter
     /// is bound by sqlite to `NULL` by default.
     ///
+    /// [`clear_bindings`]: Self::clear_bindings
     /// [`Bind` derive]: derive@crate::Bind
+    /// [`bind_value`]: Self::bind_value
     ///
     /// # Examples
     ///
