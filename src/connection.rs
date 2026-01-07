@@ -11,7 +11,7 @@ use std::path::Path;
 use crate::ffi;
 use crate::owned::Owned;
 use crate::utils::{c_to_error_text, sqlite3_try};
-use crate::{Code, DatabaseNotFound, Error, OpenOptions, Result, Statement, Text};
+use crate::{Code, DatabaseNotFound, Error, NotThreadSafe, OpenOptions, Result, Statement, Text};
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -54,39 +54,9 @@ impl BitOr for Prepare {
 
 /// A SQLite database connection.
 ///
-/// # Thread safety
-///
-/// By default a [`Connection`] is assumed to not be thread safe. See
-/// [`Connection::into_send`] and [`Statement::into_send`] for ways to use
-/// connections and statements across multiple threads.
-///
-/// # Database locking
-///
-/// Certain operations over the database require that it is exclusively held.
-/// This can manifest itself as errors when performing certain operations like
-/// dropping a table that has a prepared statement associated with it.
-///
-/// ```
-/// use sqll::{Connection, Code};
-///
-/// let c = Connection::open_in_memory()?;
-///
-/// c.execute(r#"
-///    CREATE TABLE users (name TEXT);
-///
-///    INSERT INTO users (name) VALUES ('Alice'), ('Bob');
-/// "#)?;
-///
-/// let mut stmt = c.prepare("SELECT name FROM users")?;
-/// assert!(stmt.step()?.is_row());
-///
-/// let e = c.execute("DROP TABLE users").unwrap_err();
-/// assert_eq!(e.code(), Code::LOCKED);
-///
-/// drop(stmt);
-/// c.execute("DROP TABLE users")?;
-/// # Ok::<_, sqll::Error>(())
-/// ```
+/// For detailed information on how to safetly use a connection, including
+/// complex topics such as *Thread Safety* and asynchronous use, see
+/// [`OpenOptions`].
 ///
 /// # Examples
 ///
@@ -139,10 +109,23 @@ impl Connection {
     /// Coerce this statement into a [`SendConnection`] which can be sent across
     /// threads.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This will panic if neither [`full_mutex`] or [`no_mutex`] are set, or if
-    /// the `threadsafe` feature is not set.
+    /// This return an error if neither [`full_mutex`] or [`no_mutex`] are set,
+    /// or if the sqlite library is not configured to be thread safe.
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let mut c = OpenOptions::new()
+    ///     .create()
+    ///     .read_write()
+    ///     .open_in_memory()?;
+    ///
+    /// let e = unsafe { c.into_send().unwrap_err() };
+    /// assert!(matches!(e, sqll::NotThreadSafe { .. }));
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     ///
     /// [`full_mutex`]: crate::OpenOptions::full_mutex
     /// [`no_mutex`]: crate::OpenOptions::no_mutex
@@ -201,7 +184,7 @@ impl Connection {
     ///
     ///     // SAFETY: We serialize all accesses to the connection behind a mutex.
     ///     let c = unsafe {
-    ///         c.into_send()
+    ///         c.into_send()?
     ///     };
     ///
     ///     Ok(Database {
@@ -257,12 +240,12 @@ impl Connection {
     ///     Ok(())
     /// }
     /// ```
-    pub unsafe fn into_send(self) -> SendConnection {
+    pub unsafe fn into_send(self) -> Result<SendConnection, NotThreadSafe> {
         if !self.is_thread_safe {
-            panic!("Database objects are not thread safe");
+            return Err(NotThreadSafe::connection());
         }
 
-        SendConnection { inner: self }
+        Ok(SendConnection { inner: self })
     }
 
     /// Open a database to the given path.
@@ -944,7 +927,9 @@ impl Connection {
 impl fmt::Debug for Connection {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Connection").finish_non_exhaustive()
+        f.debug_struct("Connection")
+            .field("is_thread_safe", &self.is_thread_safe)
+            .finish_non_exhaustive()
     }
 }
 
@@ -984,5 +969,12 @@ impl DerefMut for SendConnection {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+
+impl fmt::Debug for SendConnection {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
     }
 }

@@ -13,10 +13,17 @@ use crate::ffi;
 use crate::utils::c_to_error_text;
 use crate::{Code, Connection, Error, Result};
 
-/// Options that can be used to customize the opening of a SQLite database.
+/// Opening an SQLite connection.
 ///
-/// When using [`new`] the database is opened with [`extended_result_codes`]
-/// options set.
+/// When using [`new`] by default only the [`extended_result_codes`] option is
+/// set. There is currently no known reason to disable the default options, but
+/// if you really want to you can use [`empty`] instead.
+///
+/// [`new`]: Self::new
+/// [`empty`]: Self::empty
+/// [`extended_result_codes`]: Self::extended_result_codes
+///
+/// # Thread safety
 ///
 /// To support [`Connection::into_send`] and similar methods, either
 /// [`no_mutex`] or [`full_mutex`] has to be set.
@@ -28,10 +35,67 @@ use crate::{Code, Connection, Error, Result};
 /// without synchronization but might block with respect to other threads
 /// accessing the database simultaenously.
 ///
-/// [`new`]: Self::new
+/// By default a [`Connection`] is not **not be thread safe**. And therefore it
+/// does not implement `Send`. Because thread safety is a configuration option
+/// in sqlite you have to make use of the `unsafe` [`Connection::into_send`] and
+/// [`Statement::into_send`] functions to convert the objects into ones which
+/// can be sent across threads.
+///
 /// [`full_mutex`]: Self::full_mutex
 /// [`no_mutex`]: Self::no_mutex
-/// [`extended_result_codes`]: Self::extended_result_codes
+/// [`Statement::into_send`]: crate::Statement::into_send
+///
+/// # Asynchronous usage
+///
+/// A SQLite connection is synchronous. There is no getting away from that. What
+/// that means for use in asynchronous contexts is that you must make use of
+/// mechanisms such as Tokio's [`spawn_blocking`] to ensure any database
+/// operations are run on dedicated worker threads.
+///
+/// For examples on how to do this, see [`into_send`].
+///
+/// [`into_send`]: crate::Statement::into_send
+/// [`spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
+///
+/// # Database locking
+///
+/// Certain operations over the database require that it is exclusively held.
+/// This can manifest itself as errors when performing certain operations like
+/// dropping a table that has a prepared statement associated with it.
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///    CREATE TABLE users (name TEXT);
+///
+///    INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+/// assert!(stmt.step()?.is_row());
+///
+/// let e = c.execute("DROP TABLE users").unwrap_err();
+/// assert_eq!(e.code(), Code::LOCKED);
+///
+/// drop(stmt);
+/// c.execute("DROP TABLE users")?;
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// # Using `sqlite3_config` is not supported
+///
+/// The [`sqlite3_config` function] is a way that allows for users of sqlite to
+/// globally configure the library. Any use of this mechanism is out of scope of
+/// this library. In particular it can be used to forcibly disable thread safety
+/// by setting the `SQLITE_CONFIG_SINGLETHREAD` option.
+///
+/// We cannot guard against this. Any use of the `sqlite3_config` mechanism is
+/// considered to be the responsibility of the user of this library.
+///
+/// [`sqlite3_config` function]: https://www.sqlite.org/c3ref/config.html
 #[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
     raw: c_int,
@@ -386,7 +450,7 @@ impl OpenOptions {
                 return Err(error);
             }
 
-            let is_thread_safe = cfg!(feature = "threadsafe")
+            let is_thread_safe = ffi::sqlite3_threadsafe() != 0
                 && (self.raw & (ffi::SQLITE_OPEN_NOMUTEX | ffi::SQLITE_OPEN_FULLMUTEX)) != 0;
 
             Ok(Connection::from_raw(

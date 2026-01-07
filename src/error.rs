@@ -73,6 +73,62 @@ impl fmt::Display for DatabaseNotFound {
 
 impl core::error::Error for DatabaseNotFound {}
 
+/// Error raised when attempting to convert a database object into a thread-safe
+/// container, but the database is not configured to be thread-safe.
+pub struct NotThreadSafe {
+    kind: NotThreadSafeKind,
+}
+
+impl NotThreadSafe {
+    /// Construct a new not thread safe error for a connection.
+    #[inline]
+    pub(super) const fn connection() -> Self {
+        Self {
+            kind: NotThreadSafeKind::Connection,
+        }
+    }
+
+    /// Construct a new not thread safe error for a statement.
+    #[inline]
+    pub(super) const fn statement() -> Self {
+        Self {
+            kind: NotThreadSafeKind::Statement,
+        }
+    }
+}
+
+impl fmt::Debug for NotThreadSafe {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.kind.fmt(f)
+    }
+}
+
+impl fmt::Display for NotThreadSafe {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "a {} object is not thread safe", self.kind)
+    }
+}
+
+impl core::error::Error for NotThreadSafe {}
+
+#[derive(Debug)]
+enum NotThreadSafeKind {
+    Connection,
+    Statement,
+}
+
+impl fmt::Display for NotThreadSafeKind {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NotThreadSafeKind::Connection => write!(f, "connection"),
+            NotThreadSafeKind::Statement => write!(f, "statement"),
+        }
+    }
+}
+
 /// Error raised when failing to convert a string into a `FixedBlob`.
 ///
 /// # Examples

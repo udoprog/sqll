@@ -26,6 +26,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn sqlite3_libversion_number() -> ::core::ffi::c_int;
 }
+unsafe extern "C" {
+    pub fn sqlite3_threadsafe() -> ::core::ffi::c_int;
+}
 #[repr(C)]
 pub struct sqlite3 {
     _unused: [u8; 0],

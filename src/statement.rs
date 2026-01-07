@@ -8,7 +8,8 @@ use crate::ffi;
 use crate::ty::Type;
 use crate::utils::{c_to_error_text, c_to_text};
 use crate::{
-    Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, Result, Row, Text, ValueType,
+    Bind, BindValue, Code, Error, FromColumn, FromUnsizedColumn, NotThreadSafe, Result, Row, Text,
+    ValueType,
 };
 
 /// A marker type representing NULL.
@@ -222,7 +223,9 @@ pub struct Statement {
 impl fmt::Debug for Statement {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Statement").finish_non_exhaustive()
+        f.debug_struct("Statement")
+            .field("is_thread_safe", &self.is_thread_safe)
+            .finish_non_exhaustive()
     }
 }
 
@@ -260,10 +263,25 @@ impl Statement {
     /// Coerce this statement into a [`SendStatement`] which can be sent across
     /// threads.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This will panic if neither [`full_mutex`] or [`no_mutex`] are set, or if
-    /// the `threadsafe` feature is not set.
+    /// This return an error if neither [`full_mutex`] or [`no_mutex`] are set,
+    /// or if the sqlite library is not configured to be thread safe.
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// let mut c = OpenOptions::new()
+    ///     .create()
+    ///     .read_write()
+    ///     .open_in_memory()?;
+    ///
+    /// let mut s = c.prepare("SELECT 1")?;
+    ///
+    /// let e = unsafe { s.into_send().unwrap_err() };
+    /// assert!(matches!(e, sqll::NotThreadSafe { .. }));
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
     ///
     /// [`full_mutex`]: crate::OpenOptions::full_mutex
     /// [`no_mutex`]: crate::OpenOptions::no_mutex
@@ -324,8 +342,8 @@ impl Statement {
     ///     // SAFETY: We serialize all accesses to the statements behind a mutex.
     ///     let inner = unsafe {
     ///         Statements {
-    ///             select: select.into_send(),
-    ///             update: update.into_send(),
+    ///             select: select.into_send()?,
+    ///             update: update.into_send()?,
     ///         }
     ///     };
     ///
@@ -377,12 +395,12 @@ impl Statement {
     ///     Ok(())
     /// }
     /// ```
-    pub unsafe fn into_send(self) -> SendStatement {
+    pub unsafe fn into_send(self) -> Result<SendStatement, NotThreadSafe> {
         if !self.is_thread_safe {
-            panic!("Database objects are not thread safe");
+            return Err(NotThreadSafe::statement());
         }
 
-        SendStatement { inner: self }
+        Ok(SendStatement { inner: self })
     }
 
     /// Get and read the next row from the statement using the [`Row`]
@@ -1501,5 +1519,12 @@ impl DerefMut for SendStatement {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+
+impl fmt::Debug for SendStatement {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
     }
 }

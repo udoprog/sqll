@@ -43,7 +43,7 @@ fn setup_database() -> Result<Database> {
     // SAFETY: We serialize all accesses to the statements behind a mutex.
     let inner = unsafe {
         Statements {
-            select: select.into_send(),
+            select: select.into_send()?,
         }
     };
 

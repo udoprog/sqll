@@ -257,7 +257,7 @@ async fn entry(opts: &Opts) -> Result<()> {
         builder = builder
             .allowlist_item(format!("SQLITE_({constants})"))
             .allowlist_item("SQLITE_PREPARE_.*")
-            .allowlist_item("sqlite3_(libversion_number|libversion)")
+            .allowlist_item("sqlite3_(libversion_number|libversion|threadsafe)")
             .allowlist_item("sqlite3_(reset|step|open_v2|close_v2|prepare_v3|finalize)")
             .allowlist_item("sqlite3_db_(readonly|handle)")
             .allowlist_item("sqlite3_(errstr|errmsg|extended_result_codes)")
@@ -270,7 +270,7 @@ async fn entry(opts: &Opts) -> Result<()> {
 
     builder
         .generate()?
-        .write_to_file(root.join("src/ffi.rs"))
+        .write_to_file(sys_root.join("src/base.rs"))
         .context("generating bindings")?;
 
     let build_rs = sys_root.join("build.rs");
