@@ -289,6 +289,7 @@ mod fixed_blob;
 mod fixed_text;
 mod from_column;
 mod from_unsized_column;
+mod open_options;
 mod owned;
 mod row;
 mod statement;
@@ -306,7 +307,7 @@ pub use self::bind_value::BindValue;
 #[doc(inline)]
 pub use self::code::Code;
 #[doc(inline)]
-pub use self::connection::{Connection, OpenOptions, Prepare};
+pub use self::connection::{Connection, Prepare, SendConnection};
 #[doc(inline)]
 pub use self::error::{CapacityError, DatabaseNotFound, Error, Result};
 #[doc(inline)]
@@ -318,9 +319,11 @@ pub use self::from_column::FromColumn;
 #[doc(inline)]
 pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
+pub use self::open_options::OpenOptions;
+#[doc(inline)]
 pub use self::row::Row;
 #[doc(inline)]
-pub use self::statement::{Null, State, Statement};
+pub use self::statement::{Null, SendStatement, State, Statement};
 #[doc(inline)]
 pub use self::text::Text;
 #[doc(inline)]

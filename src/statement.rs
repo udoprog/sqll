@@ -1,7 +1,7 @@
 use core::ffi::{CStr, c_int};
 use core::fmt;
 use core::marker::PhantomData;
-use core::ops::Range;
+use core::ops::{Deref, DerefMut, Range};
 use core::ptr::NonNull;
 
 use crate::ffi;
@@ -214,9 +214,9 @@ impl State {
 /// assert_eq!(query.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-#[repr(transparent)]
 pub struct Statement {
     raw: NonNull<ffi::sqlite3_stmt>,
+    is_thread_safe: bool,
 }
 
 impl fmt::Debug for Statement {
@@ -226,15 +226,14 @@ impl fmt::Debug for Statement {
     }
 }
 
-/// A prepared statement is `Send`.
-#[cfg(feature = "threadsafe")]
-unsafe impl Send for Statement {}
-
 impl Statement {
     /// Construct a statement from a raw pointer.
     #[inline]
-    pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3_stmt>) -> Statement {
-        Statement { raw }
+    pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3_stmt>, is_thread_safe: bool) -> Statement {
+        Statement {
+            raw,
+            is_thread_safe,
+        }
     }
 
     /// Return the raw pointer.
@@ -256,6 +255,136 @@ impl Statement {
             let msg_ptr = ffi::sqlite3_errmsg(db);
             c_to_error_text(msg_ptr)
         }
+    }
+
+    /// Coerce this statement into a [`SendStatement`] which can be sent across
+    /// threads.
+    ///
+    /// # Panics
+    ///
+    /// If neither [`full_mutex`] nor [`no_mutex`] was set when opening the
+    /// connection calling this will panic.
+    ///
+    /// [`full_mutex`]: crate::OpenOptions::full_mutex
+    /// [`no_mutex`]: crate::OpenOptions::no_mutex
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe because it required that the caller ensures that any
+    /// database objects are synchronized. The exact level of synchronization
+    /// depends on how the connection was opened:
+    /// * If [`full_mutex`] was set and [`no_mutex`] was not set, no external
+    ///   synchronization is necessary, but calls to the statement might block
+    ///   if it's busy.
+    /// * If [`no_mutex`] was set, the caller must ensure that the [`Statement`]
+    ///   is fully synchronized with respect to the connection that constructed
+    ///   it. One way to achieve this is to wrap all the statements behind a
+    ///   single mutex.
+    ///
+    /// [`full_mutex`]: crate::OpenOptions::full_mutex
+    /// [`no_mutex`]: crate::OpenOptions::no_mutex
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use sqll::{OpenOptions, Prepare, SendStatement};
+    /// use anyhow::Result;
+    /// use tokio::task;
+    /// use tokio::sync::Mutex;
+    ///
+    /// struct Statements {
+    ///     select: SendStatement,
+    ///     update: SendStatement,
+    /// }
+    ///
+    /// #[derive(Clone)]
+    /// struct Database {
+    ///     stmts: Arc<Mutex<Statements>>,
+    /// }
+    ///
+    /// fn setup_database() -> Result<Database> {
+    ///     // SAFETY: We set up an unsynchronized connection which is unsafe, but we
+    ///     // provide external syncrhonization so it is fine. This avoids the overhead
+    ///     // of sqlite using internal locks.
+    ///     let c = OpenOptions::new()
+    ///         .create()
+    ///         .read_write()
+    ///         .no_mutex()
+    ///         .open_in_memory()?;
+    ///
+    ///     c.execute(
+    ///         r#"
+    ///         CREATE TABLE users (name TEXT PRIMARY KEY NOT NULL, age INTEGER);
+    ///
+    ///         INSERT INTO users VALUES ('Alice', 60), ('Bob', 70), ('Charlie', 20);
+    ///         "#,
+    ///     )?;
+    ///
+    ///     let select = c.prepare_with("SELECT age FROM users ORDER BY age", Prepare::PERSISTENT)?;
+    ///     let update = c.prepare_with("UPDATE users SET age = age + ?", Prepare::PERSISTENT)?;
+    ///
+    ///     let inner = unsafe {
+    ///         Statements {
+    ///             select: select.into_send(),
+    ///             update: update.into_send(),
+    ///         }
+    ///     };
+    ///
+    ///     Ok(Database {
+    ///         stmts: Arc::new(Mutex::new(inner)),
+    ///     })
+    /// }
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<()> {
+    ///     let db = setup_database()?;
+    ///
+    ///     let mut tasks = Vec::new();
+    ///
+    ///     for _ in 0..10 {
+    ///         _ = task::spawn({
+    ///             let db = db.clone();
+    ///
+    ///             async move {
+    ///                 let mut stmts = db.stmts.lock_owned().await;
+    ///                 let task = task::spawn_blocking(move || stmts.update.execute(2));
+    ///                 Ok::<_, anyhow::Error>(task.await??)
+    ///             }
+    ///         });
+    ///
+    ///         let t = task::spawn({
+    ///             let db = db.clone();
+    ///
+    ///             async move {
+    ///                 let mut stmts = db.stmts.lock_owned().await;
+    ///
+    ///                 let task = task::spawn_blocking(move || -> Result<Option<i64>> {
+    ///                     stmts.select.reset()?;
+    ///                     Ok(stmts.select.next::<i64>()?)
+    ///                 });
+    ///
+    ///                 task.await?
+    ///             }
+    ///         });
+    ///
+    ///         tasks.push(t);
+    ///     }
+    ///
+    ///     for t in tasks {
+    ///         let first = t.await??;
+    ///         assert!(matches!(first, Some(20..=40)));
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub unsafe fn into_send(self) -> SendStatement {
+        if !self.is_thread_safe {
+            panic!("Database objects are not thread safe");
+        }
+
+        SendStatement { inner: self }
     }
 
     /// Get and read the next row from the statement using the [`Row`]
@@ -1349,5 +1478,30 @@ impl DoubleEndedIterator for Columns {
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         self.range.nth_back(n)
+    }
+}
+
+/// A [`Statement`] that can be sent between threads.
+///
+/// Constructed using [`Statement::into_send`].
+pub struct SendStatement {
+    inner: Statement,
+}
+
+unsafe impl Send for SendStatement {}
+
+impl Deref for SendStatement {
+    type Target = Statement;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for SendStatement {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }

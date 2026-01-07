@@ -2,11 +2,8 @@ use core::ffi::CStr;
 use core::ffi::{c_int, c_uint, c_void};
 use core::fmt;
 use core::mem::MaybeUninit;
-use core::ops::BitOr;
-use core::ptr::{self, NonNull};
-
-#[cfg(feature = "std")]
-use alloc::ffi::CString;
+use core::ops::{BitOr, Deref, DerefMut};
+use core::ptr::{NonNull, null_mut};
 
 #[cfg(feature = "std")]
 use std::path::Path;
@@ -14,7 +11,7 @@ use std::path::Path;
 use crate::ffi;
 use crate::owned::Owned;
 use crate::utils::{c_to_error_text, sqlite3_try};
-use crate::{Code, DatabaseNotFound, Error, Result, State, Statement, Text};
+use crate::{Code, DatabaseNotFound, Error, OpenOptions, Result, Statement, Text};
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -132,6 +129,7 @@ impl BitOr for Prepare {
 pub struct Connection {
     raw: NonNull<ffi::sqlite3>,
     busy_callback: Option<Owned>,
+    is_thread_safe: bool,
 }
 
 /// Connection is `Send`.
@@ -139,6 +137,147 @@ pub struct Connection {
 unsafe impl Send for Connection {}
 
 impl Connection {
+    /// Construct a connection from a raw pointer.
+    #[inline]
+    pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3>, is_thread_safe: bool) -> Self {
+        Self {
+            raw,
+            busy_callback: None,
+            is_thread_safe,
+        }
+    }
+
+    /// Coerce this statement into a [`SendConnection`] which can be sent across
+    /// threads.
+    ///
+    /// # Panics
+    ///
+    /// If neither [`full_mutex`] nor [`no_mutex`] was set when opening the
+    /// connection calling this will panic.
+    ///
+    /// [`full_mutex`]: crate::OpenOptions::full_mutex
+    /// [`no_mutex`]: crate::OpenOptions::no_mutex
+    ///
+    /// # Safety
+    ///
+    /// This is unsafe because it required that the caller ensures that any
+    /// database objects are synchronized. The exact level of synchronization
+    /// depends on how the connection was opened:
+    /// * If [`full_mutex`] was set and [`no_mutex`] was not set, no external
+    ///   synchronization is necessary, but calls to the statement might block
+    ///   if it's busy.
+    /// * If [`no_mutex`] was set, the caller must ensure that the [`Statement`]
+    ///   is fully synchronized with respect to the connection that constructed
+    ///   it. One way to achieve this is to wrap all the statements behind a
+    ///   single mutex.
+    ///
+    /// [`full_mutex`]: crate::OpenOptions::full_mutex
+    /// [`no_mutex`]: crate::OpenOptions::no_mutex
+    ///
+    /// # Examples
+    ///
+    /// The following example showcases how you can share a single connection in
+    /// a multi-threaded asynchronous application.
+    ///
+    /// > In this example, statements are compiled and executed on-the-fly. See
+    /// > [`Statement::into_send`] for an example which is more idiomatic and
+    /// > uses prepared statement.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use sqll::{OpenOptions, Prepare, SendConnection};
+    /// use anyhow::Result;
+    /// use tokio::task;
+    /// use tokio::sync::Mutex;
+    ///
+    /// #[derive(Clone)]
+    /// struct Database {
+    ///     c: Arc<Mutex<SendConnection>>,
+    /// }
+    ///
+    /// fn setup_database() -> Result<Database> {
+    ///     // SAFETY: We set up an unsynchronized connection which is unsafe, but we
+    ///     // provide external syncrhonization so it is fine. This avoids the overhead
+    ///     // of sqlite using internal locks.
+    ///     let c = OpenOptions::new()
+    ///         .create()
+    ///         .read_write()
+    ///         .no_mutex()
+    ///         .open_in_memory()?;
+    ///
+    ///     c.execute(
+    ///         r#"
+    ///         CREATE TABLE users (name TEXT PRIMARY KEY NOT NULL, age INTEGER);
+    ///
+    ///         INSERT INTO users VALUES ('Alice', 60), ('Bob', 70), ('Charlie', 20);
+    ///         "#,
+    ///     )?;
+    ///
+    ///     let c = unsafe {
+    ///         c.into_send()
+    ///     };
+    ///
+    ///     Ok(Database {
+    ///         c: Arc::new(Mutex::new(c)),
+    ///     })
+    /// }
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<()> {
+    ///     let db = setup_database()?;
+    ///
+    ///     let mut tasks = Vec::new();
+    ///
+    ///     for _ in 0..10 {
+    ///         _ = task::spawn({
+    ///             let db = db.clone();
+    ///
+    ///             async move {
+    ///                 let mut c = db.c.lock_owned().await;
+    ///
+    ///                 let task = task::spawn_blocking(move || {
+    ///                     let mut update = c.prepare("UPDATE users SET age = age + ?")?;
+    ///                     update.execute(2)
+    ///                 });
+    ///
+    ///                 Ok::<_, anyhow::Error>(task.await??)
+    ///             }
+    ///         });
+    ///
+    ///         let t = task::spawn({
+    ///             let db = db.clone();
+    ///
+    ///             async move {
+    ///                 let mut c = db.c.lock_owned().await;
+    ///
+    ///                 let task = task::spawn_blocking(move || -> Result<Option<i64>> {
+    ///                     let mut select = c.prepare("SELECT age FROM users ORDER BY age")?;
+    ///                     Ok(select.next::<i64>()?)
+    ///                 });
+    ///
+    ///                 task.await?
+    ///             }
+    ///         });
+    ///
+    ///         tasks.push(t);
+    ///     }
+    ///
+    ///     for t in tasks {
+    ///         let first = t.await??;
+    ///         assert!(matches!(first, Some(20..=40)));
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub unsafe fn into_send(self) -> SendConnection {
+        if !self.is_thread_safe {
+            panic!("Database objects are not thread safe");
+        }
+
+        SendConnection { inner: self }
+    }
+
     /// Open a database to the given path.
     ///
     /// Note that it is possible to open an in-memory database by passing
@@ -336,8 +475,8 @@ impl Connection {
                 // If statement is null then it's simply empty, so we can safely
                 // skip it, otherwise iterate over all rows.
                 if let Some(raw) = NonNull::new(raw.assume_init()) {
-                    let mut statement = Statement::from_raw(raw);
-                    while let State::Row = statement.step()? {}
+                    let mut statement = Statement::from_raw(raw, self.is_thread_safe);
+                    while statement.step()?.is_row() {}
                 }
 
                 // Skip over empty statements.
@@ -560,8 +699,8 @@ impl Connection {
                 ));
             }
 
-            let raw = ptr::NonNull::new_unchecked(raw.assume_init());
-            Ok(Statement::from_raw(raw))
+            let raw = NonNull::new_unchecked(raw.assume_init());
+            Ok(Statement::from_raw(raw, self.is_thread_safe))
         }
     }
 
@@ -777,7 +916,7 @@ impl Connection {
                 ffi::sqlite3_busy_handler(
                     self.raw.as_ptr(),
                     None,
-                    ptr::null_mut()
+                    null_mut()
                 )
             };
         }
@@ -836,386 +975,27 @@ impl Drop for Connection {
     }
 }
 
-/// Convert a filesystem path to a c-string.
+/// A [`Connection`] that can be sent between threads.
 ///
-/// This used to have a platform-specific implementation, particularly unix is
-/// guaranteed to have a byte-sequence representation.
-///
-/// However, we realized that the behavior is identical to simply calling
-/// `to_str`, with the addition that we check that the string is valid UTF-8.
-#[cfg(feature = "std")]
-pub(crate) fn path_to_cstring(p: &Path) -> Result<CString> {
-    let Some(bytes) = p.to_str() else {
-        return Err(Error::new(Code::MISUSE, "path is not valid utf-8"));
-    };
-
-    let Ok(string) = CString::new(bytes) else {
-        return Err(Error::new(
-            Code::MISUSE,
-            "path utf-8 contains internal null",
-        ));
-    };
-
-    Ok(string)
+/// Constructed using [`Connection::into_send`].
+pub struct SendConnection {
+    inner: Connection,
 }
 
-/// Options that can be used to customize the opening of a SQLite database.
-///
-/// When using [`new`] the database is opened with the [`full_mutex`] and
-/// [`extended_result_codes`] options set which makes [`Connection`] and related
-/// database objects thread-safe by serializing access.
-///
-/// This can be disabled at runtime through [`no_mutex`], but is unsafe since if
-/// set the caller has to guarantee that access to *all* database objects are
-/// synchronized with the connection. Even with [`no_mutex`] long as the
-/// `threadsafe` feature is set, you can correctly use one [`Connection`] per
-/// thread as long as they are distinct instances and they don't reference the
-/// same database.
-///
-/// [`new`]: Self::new
-/// [`full_mutex`]: Self::full_mutex
-/// [`no_mutex`]: Self::no_mutex
-/// [`extended_result_codes`]: Self::extended_result_codes
-#[derive(Clone, Copy, Debug)]
-pub struct OpenOptions {
-    raw: c_int,
+unsafe impl Send for SendConnection {}
+
+impl Deref for SendConnection {
+    type Target = Connection;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
-impl OpenOptions {
-    /// Create flags for opening a database connection with no options set.
-    ///
-    /// # Safety
-    ///
-    /// This is unsafe since the [`full_mutex`] option is not set, meaning the
-    /// `Send` implementations for [`Connection`] and [`Statement`] are not
-    /// valid leaving it up to the caller to ensure proper synchronization.
-    ///
-    /// [`full_mutex`]: Self::full_mutex
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = unsafe {
-    ///     OpenOptions::empty().read_write().create().open_in_memory()?
-    /// };
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
+impl DerefMut for SendConnection {
     #[inline]
-    pub unsafe fn empty() -> Self {
-        Self { raw: 0 }
-    }
-
-    /// Create flags for opening a database connection with default safe
-    /// options.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = OpenOptions::new().read_write().create().open_in_memory()?;
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            raw: ffi::SQLITE_OPEN_FULLMUTEX | ffi::SQLITE_OPEN_EXRESCODE,
-        }
-    }
-
-    /// The database is opened in read-only mode. If the database does not
-    /// already exist, an error is returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = OpenOptions::new().read_only().open_in_memory()?;
-    ///
-    /// assert!(c.database_read_only(c"main")?);
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn read_only(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_READONLY;
-        self
-    }
-
-    /// The database is opened for reading and writing if possible, or reading
-    /// only if the file is write protected by the operating system.
-    ///
-    /// In either case the database must already exist, otherwise an error is
-    /// returned. For historical reasons, if opening in read-write mode fails
-    /// due to OS-level permissions, an attempt is made to open it in read-only
-    /// mode. [`Connection::database_read_only`] can be used to determine
-    /// whether the database is actually read-write.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = OpenOptions::new().read_write().open_in_memory()?;
-    ///
-    /// assert!(!c.database_read_only(c"main")?);
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn read_write(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_READWRITE;
-        self
-    }
-
-    /// The database is opened for reading and writing, and is created if it
-    /// does not already exist.
-    ///
-    /// # Errors
-    ///
-    /// Note that a mode option like [`read_write`] must be set, otherwise this
-    /// will cause an error when opening.
-    ///
-    /// ```
-    /// use sqll::{OpenOptions, Code};
-    ///
-    /// let mut opts = OpenOptions::new();
-    /// opts.create();
-    ///
-    /// let e = opts.open_in_memory().unwrap_err();
-    /// assert_eq!(e.code(), Code::MISUSE);
-    ///
-    /// opts.read_write();
-    /// let c = opts.open_in_memory()?;
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    ///
-    /// [`read_write`]: Self::read_write
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = OpenOptions::new().read_write().create().open_in_memory()?;
-    ///
-    /// assert!(!c.database_read_only(c"main")?);
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn create(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_CREATE;
-        self
-    }
-
-    /// The filename can be interpreted as a URI if this flag is set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = OpenOptions::new().read_write().create().uri().open("file:memorydb?mode=memory")?;
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn uri(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_URI;
-        self
-    }
-
-    /// The database will be opened as an in-memory database. The database is
-    /// named by the "filename" argument for the purposes of cache-sharing, if
-    /// shared cache mode is enabled, but the "filename" is otherwise ignored.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::{OpenOptions, Code};
-    ///
-    /// let c1 = OpenOptions::new().read_write().memory().open("database")?;
-    /// let c2 = OpenOptions::new().read_write().memory().open("database")?;
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn memory(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_MEMORY;
-        self
-    }
-
-    /// The new database connection will use the "multi-thread" [threading
-    /// mode]. This means that separate threads are allowed to use SQLite at the
-    /// same time, as long as each thread is using a different database
-    /// connection.
-    ///
-    /// [threading mode]: https://www.sqlite.org/threadsafe.html
-    ///
-    /// # Safety
-    ///
-    /// This is unsafe, since it requires that the caller ensures that access to
-    /// the any objects associated with the connection such as [`Statement`] is
-    /// synchronized with the connection that constructed them.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = unsafe {
-    ///     OpenOptions::new()
-    ///         .no_mutex()
-    ///         .read_write()
-    ///         .create()
-    ///         .open_in_memory()?
-    /// };
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub unsafe fn no_mutex(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
-        self
-    }
-
-    /// The new database connection will use the "serialized" [threading mode].
-    /// This means the multiple threads can safely attempt to use the same
-    /// database connection at the same time. Mutexes will block any actual
-    /// concurrency, but in this mode there is no harm in trying.
-    ///
-    /// [threading mode]: https://sqlite.org/threadsafe.html
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::OpenOptions;
-    ///
-    /// let c = OpenOptions::new().full_mutex().read_write().create().open_in_memory()?;
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn full_mutex(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_FULLMUTEX;
-        self
-    }
-
-    /// The database is opened with shared cache enabled, overriding the default
-    /// shared cache setting provided. The use of shared cache mode is
-    /// discouraged and hence shared cache capabilities may be omitted from many
-    /// builds of SQLite. In such cases, this option is a no-op.
-    #[inline]
-    pub fn shared_cache(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_SHAREDCACHE;
-        self
-    }
-
-    /// The database is opened with shared cache disabled, overriding the
-    /// default shared cache setting provided.
-    #[inline]
-    pub fn private_cache(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_PRIVATECACHE;
-        self
-    }
-
-    /// The database filename is not allowed to contain a symbolic link.
-    #[inline]
-    pub fn no_follow(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_NOFOLLOW;
-        self
-    }
-
-    /// The database connection comes up in "extended result code mode". In
-    /// other words, the database behaves as if
-    /// [`Connection::extended_result_codes`] were called on the database
-    /// connection as soon as the connection is created. In addition to setting
-    /// the extended result code mode.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sqll::{OpenOptions, Code};
-    ///
-    /// let mut c = unsafe {
-    ///     OpenOptions::empty()
-    ///         .extended_result_codes()
-    ///         .create()
-    ///         .read_write()
-    ///         .open_in_memory()?
-    /// };
-    ///
-    /// let e = c.execute("
-    ///     CREATE TABLE users (name TEXT);
-    ///     CREATE UNIQUE INDEX idx_users_name ON users (name);
-    ///
-    ///     INSERT INTO users VALUES ('Bob');
-    /// ");
-    ///
-    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
-    /// assert_eq!(e.code(), Code::CONSTRAINT_UNIQUE);
-    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
-    ///
-    /// c.extended_result_codes(false)?;
-    /// let e = c.execute("INSERT INTO users VALUES ('Bob')").unwrap_err();
-    /// assert_eq!(e.code(), Code::CONSTRAINT);
-    /// assert_eq!(c.error_message(), "UNIQUE constraint failed: users.name");
-    /// # Ok::<_, sqll::Error>(())
-    /// ```
-    #[inline]
-    pub fn extended_result_codes(&mut self) -> &mut Self {
-        self.raw |= ffi::SQLITE_OPEN_EXRESCODE;
-        self
-    }
-
-    /// Open a database to the given path.
-    ///
-    /// Note that it is possible to open an in-memory database by passing
-    /// `":memory:"` here, this call might require allocating depending on the
-    /// platform, so it should be avoided in favor of using [`open_in_memory`]. To avoid
-    /// allocating for regular paths, you can use [`open_c_str`], however you
-    /// are responsible for ensuring the c-string is a valid path.
-    ///
-    /// [`open_in_memory`]: Self::open_in_memory
-    /// [`open_c_str`]: Self::open_c_str
-    #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, cfg(feature = "std"))]
-    #[inline]
-    pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
-        let path = path_to_cstring(path.as_ref())?;
-        self._open(&path)
-    }
-
-    /// Open a database connection with a raw c-string.
-    ///
-    /// This can be used to open in-memory databases by passing `c":memory:"` or
-    /// a regular open call with a filesystem path like
-    /// `c"/path/to/database.sql"`.
-    #[inline]
-    pub fn open_c_str(&self, name: &CStr) -> Result<Connection> {
-        self._open(name)
-    }
-
-    /// Open an in-memory database.
-    #[inline]
-    pub fn open_in_memory(&self) -> Result<Connection> {
-        self._open(c":memory:")
-    }
-
-    fn _open(&self, name: &CStr) -> Result<Connection> {
-        unsafe {
-            let mut raw = MaybeUninit::uninit();
-
-            let code = ffi::sqlite3_open_v2(name.as_ptr(), raw.as_mut_ptr(), self.raw, ptr::null());
-            let raw = raw.assume_init();
-
-            if code != ffi::SQLITE_OK {
-                let error = Error::new(Code::new(code), c_to_error_text(ffi::sqlite3_errmsg(raw)));
-                ffi::sqlite3_close_v2(raw);
-                return Err(error);
-            }
-
-            Ok(Connection {
-                raw: NonNull::new_unchecked(raw),
-                busy_callback: None,
-            })
-        }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }

@@ -10,17 +10,13 @@ struct Person<'stmt> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut conn = OpenOptions::new();
+    let mut c = OpenOptions::new()
+        .create()
+        .read_write()
+        .no_mutex()
+        .open_in_memory()?;
 
-    conn.create().read_write();
-
-    unsafe {
-        conn.no_mutex();
-    }
-
-    let conn = conn.open_in_memory()?;
-
-    conn.execute(
+    c.execute(
         r#"
         CREATE TABLE IF NOT EXISTS persons (
             id INTEGER PRIMARY KEY,
@@ -29,13 +25,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "#,
     )?;
 
-    let mut stmt = conn.prepare("INSERT INTO persons (name) VALUES (?1), (?2), (?3)")?;
-    stmt.bind_value(1, "Steven")?;
-    stmt.bind_value(2, "John")?;
-    stmt.bind_value(3, "Alex")?;
-    assert!(stmt.step()?.is_done());
+    let mut stmt = c.prepare("INSERT INTO persons (name) VALUES (?), (?), (?)")?;
+    stmt.execute(("Steven", "John", "Alex"))?;
 
-    let mut stmt = conn.prepare_with("SELECT id, name FROM persons", Prepare::PERSISTENT)?;
+    let mut stmt = c.prepare_with("SELECT id, name FROM persons", Prepare::PERSISTENT)?;
 
     let mut o = io::sink();
 

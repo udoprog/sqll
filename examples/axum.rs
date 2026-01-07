@@ -9,51 +9,48 @@ use anyhow::Result;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::{Extension, Router};
-use sqll::{OpenOptions, Prepare, Statement};
+use sqll::{OpenOptions, Prepare, SendStatement};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::task::{self, JoinError};
 
-struct Inner {
-    select_users: Statement,
+struct Statements {
+    select: SendStatement,
 }
 
 #[derive(Clone)]
 struct Database {
-    inner: Arc<Mutex<Inner>>,
+    stmts: Arc<Mutex<Statements>>,
 }
 
 fn setup_db() -> Result<Database> {
     // SAFETY: We set up an unsynchronized connection which is unsafe, but we
     // provide external syncrhonization so it is fine. This avoids the overhead
     // of sqlite using internal locks.
-    let conn = unsafe {
-        OpenOptions::new()
-            .create()
-            .read_write()
-            .no_mutex()
-            .open_in_memory()?
-    };
+    let c = OpenOptions::new()
+        .create()
+        .read_write()
+        .no_mutex()
+        .open_in_memory()?;
 
-    conn.execute(
+    c.execute(
         r#"
-        CREATE TABLE users (
-            name TEXT PRIMARY KEY NOT NULL,
-            age INTEGER
-        );
+        CREATE TABLE users (name TEXT PRIMARY KEY NOT NULL, age INTEGER);
 
-        INSERT INTO users VALUES ('Alice', 42);
-        INSERT INTO users VALUES ('Bob', 69);
-        INSERT INTO users VALUES ('Charlie', 21);
+        INSERT INTO users VALUES ('Alice', 42), ('Bob', 69), ('Charlie', 21);
         "#,
     )?;
 
-    let select_users = conn.prepare_with("SELECT name, age FROM users", Prepare::PERSISTENT)?;
+    let select = c.prepare_with("SELECT name, age FROM users", Prepare::PERSISTENT)?;
 
-    let inner = Inner { select_users };
+    let inner = unsafe {
+        Statements {
+            select: select.into_send(),
+        }
+    };
 
     Ok(Database {
-        inner: Arc::new(Mutex::new(inner)),
+        stmts: Arc::new(Mutex::new(inner)),
     })
 }
 
@@ -125,18 +122,18 @@ async fn main() -> Result<()> {
 }
 
 async fn get_user(Extension(db): Extension<Database>) -> Result<Html<String>, WebError> {
-    let mut db = db.inner.lock_owned().await;
+    let mut db = db.stmts.lock_owned().await;
 
     let task = task::spawn_blocking(move || {
         let mut out = String::with_capacity(1024);
-        db.select_users.reset()?;
+        db.select.reset()?;
 
         writeln!(out, "<!DOCTYPE html>")?;
         writeln!(out, "<html>")?;
         writeln!(out, "<head><title>User List</title></head>")?;
         writeln!(out, "<body>")?;
 
-        while let Some((name, age)) = db.select_users.next::<(&str, i64)>()? {
+        while let Some((name, age)) = db.select.next::<(&str, i64)>()? {
             writeln!(out, "<div>Name: {name}, Age: {age}</div>")?;
         }
 
