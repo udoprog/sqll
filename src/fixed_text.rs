@@ -7,7 +7,7 @@ use crate::{CapacityError, FixedBlob, Text};
 
 /// A [`Text`] type which can store at most `N` bytes from a column.
 ///
-/// The data is stored inline the type without any heap allocation.
+/// The data is stored inline the type which typically means on the stack.
 ///
 /// # Examples
 ///
