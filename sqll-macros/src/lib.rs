@@ -4,23 +4,21 @@
 //!
 //! Macros for the [`sqll` crate].
 //!
+//! ```
+//! # use sqll_macros::{Row, Bind};
+//! #[derive(Row, Bind)]
+//! # struct S;
+//! ```
+//!
 //! [`sqll` crate]: https://docs.rs/sqll
 
 mod implement;
 
-/// See [`Row`] in the [`sqll` crate].
-///
-/// [`Row`]: https://docs.rs/sqll/latest/sqll/trait.Row.html
-/// [`sqll` crate]: https://docs.rs/sqll
 #[proc_macro_derive(Row, attributes(sql))]
 pub fn row(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     implement::expand(input.into(), implement::What::Row).into()
 }
 
-/// See [`Bind`] in the [`sqll` crate].
-///
-/// [`Bind`]: https://docs.rs/sqll/latest/sqll/trait.Bind.html
-/// [`sqll` crate]: https://docs.rs/sqll
 #[proc_macro_derive(Bind, attributes(sql))]
 pub fn bind(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     implement::expand(input.into(), implement::What::Bind).into()
