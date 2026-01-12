@@ -1,7 +1,7 @@
-use core::ffi::c_int;
+#[cfg(feature = "alloc")]
+mod alloc;
 
-use alloc::string::String;
-use alloc::vec::Vec;
+use core::ffi::c_int;
 
 use crate::bytes;
 use crate::ffi;
@@ -175,39 +175,6 @@ impl BindValue for [u8] {
         }
 
         Ok(())
-    }
-}
-
-/// [`BindValue`] implementation for a [`Vec<u8>`] byte array.
-///
-/// # Examples
-///
-/// ```
-/// use sqll::Connection;
-///
-/// let c = Connection::open_in_memory()?;
-///
-/// c.execute(r#"
-///     CREATE TABLE files (id INTEGER, data BLOB);
-///
-///     INSERT INTO files (id, data) VALUES (0, X'48656C6C6F20576F726C6421');
-///     INSERT INTO files (id, data) VALUES (1, X'48656C6C6F');
-///     INSERT INTO files (id, data) VALUES (2, X'');
-/// "#)?;
-///
-/// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
-///
-/// stmt.bind(vec![b'H', b'e', b'l', b'l', b'o'])?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
-///
-/// stmt.bind(vec![])?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
-/// # Ok::<_, sqll::Error>(())
-/// ```
-impl BindValue for Vec<u8> {
-    #[inline]
-    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        self.as_slice().bind_value(stmt, index)
     }
 }
 
@@ -585,34 +552,6 @@ impl BindValue for Text {
         }
 
         Ok(())
-    }
-}
-
-/// [`BindValue`] implementation for a [`String`].
-///
-/// # Examples
-///
-/// ```
-/// use sqll::Connection;
-///
-/// let c = Connection::open_in_memory()?;
-///
-/// c.execute(r#"
-///     CREATE TABLE users (name TEXT, age INTEGER);
-///
-///     INSERT INTO users (name, age) VALUES ('Alice', 42), ('Bob', 30);
-/// "#)?;
-///
-/// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
-///
-/// stmt.bind(String::from("Alice"))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
-/// # Ok::<_, sqll::Error>(())
-/// ```
-impl BindValue for String {
-    #[inline]
-    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
-        self.as_str().bind_value(stmt, index)
     }
 }
 

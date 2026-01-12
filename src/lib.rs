@@ -272,9 +272,6 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(not(feature = "alloc"))]
-compile_error!("The `alloc` feature must be enabled to use this crate.");
-
 #[cfg(test)]
 mod tests;
 
@@ -290,6 +287,7 @@ mod fixed_text;
 mod from_column;
 mod from_unsized_column;
 mod open_options;
+#[cfg(feature = "alloc")]
 mod owned;
 mod row;
 mod statement;

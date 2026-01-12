@@ -1,5 +1,7 @@
 use core::ffi::CStr;
-use core::ffi::{c_int, c_uint, c_void};
+#[cfg(feature = "alloc")]
+use core::ffi::c_void;
+use core::ffi::{c_int, c_uint};
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::{BitOr, Deref, DerefMut};
@@ -9,6 +11,7 @@ use core::ptr::{NonNull, null_mut};
 use std::path::Path;
 
 use crate::ffi;
+#[cfg(feature = "alloc")]
 use crate::owned::Owned;
 use crate::utils::{c_to_error_text, sqlite3_try};
 use crate::{Code, DatabaseNotFound, Error, NotThreadSafe, OpenOptions, Result, Statement, Text};
@@ -87,6 +90,7 @@ impl BitOr for Prepare {
 /// ```
 pub struct Connection {
     raw: NonNull<ffi::sqlite3>,
+    #[cfg(feature = "alloc")]
     busy_callback: Option<Owned>,
     is_thread_safe: bool,
 }
@@ -101,6 +105,7 @@ impl Connection {
     pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3>, is_thread_safe: bool) -> Self {
         Self {
             raw,
+            #[cfg(feature = "alloc")]
             busy_callback: None,
             is_thread_safe,
         }
@@ -813,6 +818,9 @@ impl Connection {
     /// connection that invoked the busy handler. In other words, the busy
     /// handler is not reentrant. Any such actions result in undefined behavior.
     ///
+    /// Since this needs to allocate space to store the closure the `alloc`
+    /// feature has to be enabled.
+    ///
     /// # Examples
     ///
     /// ```
@@ -826,6 +834,8 @@ impl Connection {
     /// })?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, cfg(feature = "alloc"))]
     pub fn busy_handler<F>(&mut self, callback: F) -> Result<()>
     where
         F: FnMut(usize) -> bool + Send + 'static,
@@ -891,7 +901,11 @@ impl Connection {
             };
         }
 
-        self.busy_callback = None;
+        #[cfg(feature = "alloc")]
+        {
+            self.busy_callback = None;
+        }
+
         Ok(())
     }
 

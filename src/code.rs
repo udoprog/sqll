@@ -1,6 +1,13 @@
 use core::ffi::c_int;
 use core::fmt;
 
+#[cfg(not(feature = "alloc"))]
+use crate::Text;
+#[cfg(not(feature = "alloc"))]
+use crate::ffi;
+#[cfg(not(feature = "alloc"))]
+use crate::utils::c_to_error_text;
+
 /// Error code.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -34,6 +41,12 @@ impl Code {
     #[inline]
     pub fn base(self) -> Self {
         Self::new(self.raw & 0xff)
+    }
+
+    /// Get the error message associated with this code.
+    #[cfg(not(feature = "alloc"))]
+    pub(crate) fn message(&self) -> &Text {
+        unsafe { c_to_error_text(ffi::sqlite3_errstr(self.raw)) }
     }
 }
 
