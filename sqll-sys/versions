@@ -7,4 +7,4 @@
 minimum: 3.37.0
 # The bundled version of sqlite to use when the `bundled`
 # feature is used.
-bundled: 3.51.1
+bundled: 3.51.2

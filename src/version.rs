@@ -5,13 +5,13 @@ use crate::ffi;
 
 /// Return the version string of the SQLite library in use.
 ///
-/// This may return a version string like `"3.51.1"`.
+/// This may return a version string like `"3.51.2"`.
 ///
 /// # Examples
 ///
 /// ```
 /// # #[cfg(feature = "bundled")]
-/// assert_eq!(sqll::lib_version(), "3.51.1");
+/// assert_eq!(sqll::lib_version(), "3.51.2");
 /// # #[cfg(not(feature = "bundled"))]
 /// # assert!(sqll::lib_version().starts_with("3."));
 /// ```
@@ -26,14 +26,14 @@ pub fn lib_version() -> &'static str {
 
 /// Return the version number of the SQLite library in use.
 ///
-/// The version `3.51.1` as returned by [`lib_version`] would correspond to the
-/// integer `3051001`.
+/// The version `3.51.2` as returned by [`lib_version`] would correspond to the
+/// integer `3051002`.
 ///
 /// # Examples
 ///
 /// ```
 /// # #[cfg(feature = "bundled")]
-/// assert_eq!(sqll::lib_version_number(), 3051001);
+/// assert_eq!(sqll::lib_version_number(), 3051002);
 /// assert!(matches!(sqll::lib_version_number(), 3000000..4000000));
 /// ```
 #[inline]
