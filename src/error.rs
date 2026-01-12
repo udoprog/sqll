@@ -1,7 +1,9 @@
 use core::error;
 use core::fmt;
 
+#[cfg(feature = "alloc")]
 use alloc::format;
+#[cfg(feature = "alloc")]
 use alloc::string::String;
 
 use crate::Code;
@@ -14,15 +16,20 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 pub struct Error {
     /// Error code.
     code: Code,
+    #[cfg(feature = "alloc")]
     message: String,
 }
 
 impl Error {
     /// Construct a new error from the specified code and message.
     #[inline]
-    pub fn new(code: Code, message: impl fmt::Display) -> Self {
+    pub fn new(
+        code: Code,
+        #[cfg_attr(not(feature = "alloc"), allow(unused_variables))] message: impl fmt::Display,
+    ) -> Self {
         Self {
             code,
+            #[cfg(feature = "alloc")]
             message: format!("{message}"),
         }
     }
@@ -45,15 +52,27 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut st = f.debug_struct("Error");
         st.field("code", &self.code);
+        #[cfg(feature = "alloc")]
         st.field("message", &self.message);
+        #[cfg(not(feature = "alloc"))]
+        st.field("message", &self.code.message());
         st.finish()
     }
 }
 
+#[cfg(feature = "alloc")]
 impl fmt::Display for Error {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.message.fmt(f)
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
+impl fmt::Display for Error {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.code.message().fmt(f)
     }
 }
 
