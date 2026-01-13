@@ -317,6 +317,64 @@ impl FromColumn<'_> for f32 {
     }
 }
 
+/// [`FromColumn`] implementation for [`bool`].
+///
+/// This corresponds exactly with the internal SQLite [`INTEGER`][value-type] or
+/// [`Integer`][type] types where `0` is false and any non-zero value is true.
+/// It is supported by SQLite as the `BOOLEAN` data type.
+///
+/// [value-type]: crate::ValueType::INTEGER
+/// [type]: crate::ty::Integer
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE booleans (value BOOLEAN);
+///
+///     INSERT INTO booleans (value) VALUES (TRUE), (FALSE);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM booleans")?;
+/// let values = stmt.iter::<bool>().collect::<Vec<_>>();
+/// assert_eq!(values, vec![Ok(true), Ok(false)]);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE booleans (value BLOB);
+///
+///     INSERT INTO booleans (value) VALUES (X'01'), (X'00');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM booleans")?;
+///
+/// while stmt.step()?.is_row() {
+///     let e = stmt.column::<bool>(0).unwrap_err();
+///     assert_eq!(e.code(), Code::MISMATCH);
+/// }
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl FromColumn<'_> for bool {
+    type Type = ty::Integer;
+
+    #[inline]
+    fn from_column(stmt: &Statement, index: ty::Integer) -> Result<Self> {
+        i64::from_column(stmt, index).map(|v| v != 0)
+    }
+}
+
 /// [`FromColumn`] implementation for [`i64`].
 ///
 /// This corresponds exactly with the internal SQLite [`INTEGER`][value-type] or
