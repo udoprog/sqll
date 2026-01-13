@@ -441,6 +441,51 @@ impl Bind for i64 {
     }
 }
 
+/// [`BindValue`] implementation for [`i64`].
+///
+/// This corresponds exactly with the internal SQLite [`INTEGER`][value-type] or
+/// [`Integer`][type] types where `0` is false and any non-zero value is true.
+/// It is supported by SQLite as the `BOOLEAN` data type.
+///
+/// [value-type]: crate::ValueType::INTEGER
+/// [type]: crate::ty::Integer
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE booleans (value BOOLEAN);
+///
+///     INSERT INTO booleans (value) VALUES (TRUE), (FALSE), (FALSE);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT value FROM booleans WHERE value != ?")?;
+///
+/// stmt.bind(true)?;
+/// assert_eq!(stmt.iter::<bool>().collect::<Vec<_>>(), [Ok(false), Ok(false)]);
+///
+/// stmt.bind(false)?;
+/// assert_eq!(stmt.iter::<bool>().collect::<Vec<_>>(), [Ok(true)]);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+impl BindValue for bool {
+    #[inline]
+    fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
+        i64::from(*self).bind_value(stmt, index)
+    }
+}
+
+impl Bind for bool {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 macro_rules! lossless {
     ($ty:ty) => {
         #[doc = concat!("[`BindValue`] implementation for `", stringify!($ty), "`.")]
