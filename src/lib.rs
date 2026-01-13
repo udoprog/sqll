@@ -299,7 +299,7 @@ mod value_type;
 mod version;
 
 #[doc(inline)]
-pub use self::bind::Bind;
+pub use self::bind::{BIND_INDEX, Bind};
 #[doc(inline)]
 pub use self::bind_value::BindValue;
 #[doc(inline)]

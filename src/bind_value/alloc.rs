@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{Result, Statement};
+use crate::{BIND_INDEX, Bind, Result, Statement};
 
 use super::BindValue;
 
@@ -41,6 +41,13 @@ impl BindValue for Vec<u8> {
     }
 }
 
+impl Bind for Vec<u8> {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 /// [`BindValue`] implementation for a [`String`].
 ///
 /// # Examples
@@ -66,6 +73,13 @@ impl BindValue for String {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         self.as_str().bind_value(stmt, index)
+    }
+}
+
+impl Bind for String {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -124,5 +138,15 @@ where
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         self.as_ref().bind_value(stmt, index)
+    }
+}
+
+impl<T> Bind for Box<T>
+where
+    T: ?Sized + BindValue,
+{
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }

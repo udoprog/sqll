@@ -7,7 +7,9 @@ use crate::bytes;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
-use crate::{Code, Error, FixedBlob, FixedText, Null, Result, Statement, Text, Value};
+use crate::{
+    BIND_INDEX, Bind, Code, Error, FixedBlob, FixedText, Null, Result, Statement, Text, Value,
+};
 
 /// A type suitable for binding to a prepared statement.
 ///
@@ -28,7 +30,7 @@ pub trait BindValue {
     /// ```
     /// use core::ffi::c_int;
     ///
-    /// use sqll::{BindValue, Connection, Result, Statement};
+    /// use sqll::{Bind, BindValue, Connection, Result, Statement, BIND_INDEX};
     ///
     /// let c = Connection::open_in_memory()?;
     ///
@@ -38,6 +40,13 @@ pub trait BindValue {
     ///     #[inline]
     ///     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
     ///         self.0.bind_value(stmt, index)
+    ///     }
+    /// }
+    ///
+    /// impl Bind for Id {
+    ///     #[inline]
+    ///     fn bind(&self, stmt: &mut Statement) -> Result<()> {
+    ///         self.bind_value(stmt, BIND_INDEX)
     ///     }
     /// }
     ///
@@ -73,6 +82,7 @@ where
 ///
 /// c.execute(r#"
 ///     CREATE TABLE users (name TEXT, age INTEGER);
+///
 ///     INSERT INTO users (name, age) VALUES ('Alice', NULL), ('Bob', 30);
 /// "#)?;
 ///
@@ -93,6 +103,13 @@ impl BindValue for Null {
         }
 
         Ok(())
+    }
+}
+
+impl Bind for Null {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -127,6 +144,13 @@ impl BindValue for Value<'_> {
             Kind::Integer(value) => value.bind_value(stmt, index),
             Kind::Text(value) => value.bind_value(stmt, index),
         }
+    }
+}
+
+impl Bind for Value<'_> {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -178,6 +202,13 @@ impl BindValue for [u8] {
     }
 }
 
+impl Bind for [u8] {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 /// [`BindValue`] implementation for [`FixedBlob`].
 ///
 /// # Examples
@@ -211,6 +242,13 @@ impl<const N: usize> BindValue for FixedBlob<N> {
     }
 }
 
+impl<const N: usize> Bind for FixedBlob<N> {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 /// [`BindValue`] implementation for byte arrays.
 ///
 /// # Examples
@@ -240,6 +278,13 @@ impl<const N: usize> BindValue for [u8; N] {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         self.as_slice().bind_value(stmt, index)
+    }
+}
+
+impl<const N: usize> Bind for [u8; N] {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -287,6 +332,13 @@ impl BindValue for f64 {
     }
 }
 
+impl Bind for f64 {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 /// [`BindValue`] implementation for [`f32`].
 ///
 /// Binding this type requires conversion and might be subject to precision
@@ -327,6 +379,13 @@ impl BindValue for f32 {
         }
 
         Ok(())
+    }
+}
+
+impl Bind for f32 {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -375,6 +434,13 @@ impl BindValue for i64 {
     }
 }
 
+impl Bind for i64 {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 macro_rules! lossless {
     ($ty:ty) => {
         #[doc = concat!("[`BindValue`] implementation for `", stringify!($ty), "`.")]
@@ -402,6 +468,13 @@ macro_rules! lossless {
             fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
                 let value = *self as i64;
                 value.bind_value(stmt, index)
+            }
+        }
+
+        impl Bind for $ty {
+            #[inline]
+            fn bind(&self, stmt: &mut Statement) -> Result<()> {
+                self.bind_value(stmt, BIND_INDEX)
             }
         }
     };
@@ -462,6 +535,13 @@ macro_rules! lossy {
                 value.bind_value(stmt, index)
             }
         }
+
+        impl Bind for $ty {
+            #[inline]
+            fn bind(&self, stmt: &mut Statement) -> Result<()> {
+                self.bind_value(stmt, BIND_INDEX)
+            }
+        }
     };
 }
 
@@ -503,6 +583,13 @@ impl BindValue for str {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         Text::new(self).bind_value(stmt, index)
+    }
+}
+
+impl Bind for str {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -555,6 +642,13 @@ impl BindValue for Text {
     }
 }
 
+impl Bind for Text {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
+    }
+}
+
 /// [`BindValue`] implementation for [`FixedText`].
 ///
 /// # Examples
@@ -579,6 +673,13 @@ impl<const N: usize> BindValue for FixedText<N> {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: c_int) -> Result<()> {
         self.as_text().bind_value(stmt, index)
+    }
+}
+
+impl<const N: usize> Bind for FixedText<N> {
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }
 
@@ -636,5 +737,15 @@ where
             Some(inner) => inner.bind_value(stmt, index),
             None => Null.bind_value(stmt, index),
         }
+    }
+}
+
+impl<T> Bind for Option<T>
+where
+    T: BindValue,
+{
+    #[inline]
+    fn bind(&self, stmt: &mut Statement) -> Result<()> {
+        self.bind_value(stmt, BIND_INDEX)
     }
 }

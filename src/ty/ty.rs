@@ -770,7 +770,7 @@ fn type_check(stmt: &Statement, index: c_int, expected: ValueType) -> Result<()>
         return Err(Error::new(
             Code::MISMATCH,
             format_args!(
-                "expected column type {expected} but found found {}",
+                "expected column type {expected} but found {}",
                 stmt.column_type(index)
             ),
         ));

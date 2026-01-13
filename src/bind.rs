@@ -1,5 +1,13 @@
+use core::ffi::c_int;
+
 use crate::utils::repeat;
 use crate::{BindValue, Error, Statement};
+
+/// The first index used when binding parameters into a [`Statement`].
+///
+/// This is useful when implementing [`Bind`] for a primitive type which
+/// implements [`BindValue`].
+pub const BIND_INDEX: c_int = 1;
 
 /// This allows a type to be used for structured binding of multiple parameters
 /// into a [`Statement`] using [`bind`].
@@ -42,40 +50,43 @@ pub trait Bind {
     fn bind(&self, stmt: &mut Statement) -> Result<(), Error>;
 }
 
-/// [`Bind`] implementation for a single value.
-///
-/// A single value binds to the first index.
-///
-/// See [`Statement::bind_value`].
+/// [`Bind`] implementation for references.
 ///
 /// # Examples
 ///
 /// ```
-/// use sqll::Connection;
+/// use sqll::{Connection, Bind};
 ///
-/// let c = Connection::open_in_memory()?;
+/// #[derive(Bind)]
+/// struct Binding<'a> {
+///     name: &'a str,
+///     age: u32,
+///     order_by: &'a str,
+/// }
+///
+/// let mut c = Connection::open_in_memory()?;
 ///
 /// c.execute(r#"
-///     CREATE TABLE users (id INTEGER);
-///     INSERT INTO users VALUES (1);
+///     CREATE TABLE users (name TEXT, age INTEGER);
+///
+///     INSERT INTO users VALUES ('Alice', 42);
+///     INSERT INTO users VALUES ('Bob', 72);
 /// "#)?;
 ///
-/// let mut stmt = c.prepare("SELECT id FROM users WHERE id = ?")?;
-/// stmt.bind(1)?;
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// let mut stmt = c.prepare("SELECT name, age FROM users WHERE name = ? AND age = ? ORDER BY ?")?;
+/// stmt.bind(&Binding { name: "Bob", age: 72, order_by: "age" })?;
 ///
-/// stmt.bind((1,))?;
-/// assert_eq!(stmt.next::<i64>()?, Some(1));
+/// assert_eq!(stmt.next::<(String, u32)>()?, Some(("Bob".to_string(), 72)));
+/// assert_eq!(stmt.next::<(String, u32)>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
-impl<T> Bind for T
+impl<T> Bind for &T
 where
-    T: BindValue,
+    T: ?Sized + Bind,
 {
     #[inline]
     fn bind(&self, stmt: &mut Statement) -> Result<(), Error> {
-        BindValue::bind_value(self, stmt, 1)?;
-        Ok(())
+        (*self).bind(stmt)
     }
 }
 
