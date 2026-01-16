@@ -123,7 +123,7 @@ macro_rules! ty {
 }
 
 macro_rules! implement_tuple {
-    ($ty0:ident $var0:ident $value0:literal $value1:literal $(, $ty:ident $var:ident $value0n:literal $value1n:literal)* $(,)? ) => {
+    ($ty0:ident $var0:ident $v0:literal $v1:literal $(, $ty:ident $var:ident $v0n:literal $v1n:literal)* $(,)? ) => {
         /// [`Bind`] implementation for a tuple.
         ///
         /// A tuple binds elements one after another starting from the first index.
@@ -137,13 +137,13 @@ macro_rules! implement_tuple {
         ///
         /// let c = Connection::open_in_memory()?;
         #[doc = concat!("c.execute(\"CREATE TABLE users (", stringify!($var0), " INTEGER" $(, ", ", stringify!($var), " INTEGER")*, ")\")?;")]
-        #[doc = concat!("c.execute(\"INSERT INTO users VALUES (", stringify!($value0) $(, ", ", stringify!($value0n))*, ")\")?;")]
+        #[doc = concat!("c.execute(\"INSERT INTO users VALUES (", stringify!($v0) $(, ", ", stringify!($v0n))*, ")\")?;")]
         ///
         #[doc = concat!("let mut stmt = c.prepare(\"SELECT * FROM users WHERE ", stringify!($var0), " = ?" $(, " AND ", stringify!($var), " = ?")*, "\")?;")]
-        #[doc = concat!("stmt.bind((", stringify!($value0), "," $(, " ", stringify!($value0n), ",")*, "))?;")]
+        #[doc = concat!("stmt.bind((", stringify!($v0), "," $(, " ", stringify!($v0n), ",")*, "))?;")]
         #[doc = concat!("let v = stmt.next::<(", ty!($ty0), ",", $(" ", ty!($ty), ",",)* ")>()?.expect(\"missing\");")]
         /// assert_eq!(v.0, 0);
-        $(#[doc = concat!("assert_eq!(v.", stringify!($value0n), ", ", stringify!($value0n), ");")])*
+        $(#[doc = concat!("assert_eq!(v.", stringify!($v0n), ", ", stringify!($v0n), ");")])*
         ///
         #[doc = concat!("assert!(stmt.step()?.is_done());")]
         /// # Ok::<_, sqll::Error>(())
@@ -156,8 +156,8 @@ macro_rules! implement_tuple {
             #[inline]
             fn bind(&self, stmt: &mut Statement) -> Result<(), Error> {
                 let ($var0, $($var,)*) = self;
-                BindValue::bind_value($var0, stmt, $value1)?;
-                $(BindValue::bind_value($var, stmt, $value1n)?;)*
+                BindValue::bind_value($var0, stmt, $v1)?;
+                $(BindValue::bind_value($var, stmt, $v1n)?;)*
                 Ok(())
             }
         }
