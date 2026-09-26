@@ -965,6 +965,13 @@ impl Connection {
             };
         }
 
+        // NB: The built-in handler replaced any previously installed callback,
+        // so it is no longer referenced by sqlite and can be freed.
+        #[cfg(feature = "alloc")]
+        {
+            self.busy_callback = None;
+        }
+
         Ok(())
     }
 
@@ -1203,7 +1210,17 @@ impl Drop for Connection {
     #[inline]
     #[allow(unused_must_use)]
     fn drop(&mut self) {
-        self.clear_busy_handler();
+        // A busy handler backed by a Rust closure must be cleared since the
+        // callback state is freed below while sqlite might keep the database
+        // alive as a zombie until all prepared statements are finalized.
+        //
+        // Built-in handlers such as the one installed by `busy_timeout` hold no
+        // Rust state, so they are left in place for any outstanding statements
+        // to keep using.
+        #[cfg(feature = "alloc")]
+        if self.busy_callback.is_some() {
+            self.clear_busy_handler();
+        }
 
         // Will close the connection unconditionally. The database will stay
         // alive until all associated prepared statements have been closed since
