@@ -137,7 +137,7 @@ async fn entry(opts: &Opts) -> Result<()> {
     let mut blocklist = Vec::new();
 
     for req in BLOCKLIST {
-        blocklist.push(VersionReq::parse(*req)?);
+        blocklist.push(VersionReq::parse(req)?);
     }
 
     for &e in EXCLUDE {

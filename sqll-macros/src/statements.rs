@@ -172,29 +172,27 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
 
         let ty = &f.ty;
 
-        let read_only_method;
-        let member;
-        let prepare_failed;
-        let not_thread_safe;
-        let build_failed;
+        let (read_only_method, prepare_failed, not_thread_safe, build_failed, member) =
+            match f.ident {
+                Some(ref name) => {
+                    let message = name.to_string();
 
-        match f.ident {
-            Some(ref name) => {
-                let message = name.to_string();
-                read_only_method = Ident::new("field_not_read_only", Span::call_site());
-                prepare_failed = Ident::new("field_prepare_failed", Span::call_site());
-                not_thread_safe = Ident::new("field_not_thread_safe", Span::call_site());
-                build_failed = Ident::new("field_build_failed", Span::call_site());
-                member = quote!(#message);
-            }
-            None => {
-                read_only_method = Ident::new("index_not_read_only", Span::call_site());
-                prepare_failed = Ident::new("index_prepare_failed", Span::call_site());
-                not_thread_safe = Ident::new("index_not_thread_safe", Span::call_site());
-                build_failed = Ident::new("index_build_failed", Span::call_site());
-                member = quote!(#index);
-            }
-        };
+                    (
+                        Ident::new("field_not_read_only", Span::call_site()),
+                        Ident::new("field_prepare_failed", Span::call_site()),
+                        Ident::new("field_not_thread_safe", Span::call_site()),
+                        Ident::new("field_build_failed", Span::call_site()),
+                        quote!(#message),
+                    )
+                }
+                None => (
+                    Ident::new("index_not_read_only", Span::call_site()),
+                    Ident::new("index_prepare_failed", Span::call_site()),
+                    Ident::new("index_not_thread_safe", Span::call_site()),
+                    Ident::new("index_build_failed", Span::call_site()),
+                    quote!(#index),
+                ),
+            };
 
         let read_only_check = read_only.then(|| {
             quote! {
