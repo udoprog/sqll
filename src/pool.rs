@@ -483,9 +483,10 @@ where
     /// opened in the "serialized" threading mode, so [`no_mutex`] has no
     /// effect. Since the pool only ever hands each connection to one guard at a
     /// time, the per-connection mutex can be avoided with the unsafe
-    /// [`no_mutex_unchecked`], as long as the setup hooks do not keep the
-    /// connection or any statement prepared from it around. See the [thread
-    /// safety] section of [`OpenOptions`].
+    /// [`no_mutex_unchecked`], as long as no statement prepared from a pooled
+    /// connection, whether by the setup hooks or through a guard, is used or
+    /// dropped on another thread than the one currently holding its guard. See
+    /// the [thread safety] section of [`OpenOptions`].
     ///
     /// [`no_mutex`]: OpenOptions::no_mutex
     /// [`no_mutex_unchecked`]: OpenOptions::no_mutex_unchecked
