@@ -395,10 +395,16 @@ impl<I, O> BoundStatement<'_, I, O> {
         self.stmt.next()
     }
 
-    /// Consume the bound statement and reset the underlying statement,
-    /// surfacing any error. Unlike `Drop` (which resets silently), this lets a
-    /// caller release the statement between sequential uses without a scope and
-    /// still propagate a reset error.
+    /// Consume the bound statement and reset the underlying statement. This
+    /// lets a caller release the statement between sequential uses without a
+    /// scope.
+    ///
+    /// # Errors
+    ///
+    /// This forwards the result of [`Statement::reset`], which currently always
+    /// succeeds. See its documentation for why.
+    ///
+    /// [`Statement::reset`]: crate::Statement::reset
     ///
     /// # Examples
     ///
@@ -424,14 +430,15 @@ impl<I, O> BoundStatement<'_, I, O> {
     ///
     /// let mut stmt = read.all.query()?;
     /// assert_eq!(stmt.next()?, Some(("Alice".to_string(), 25)));
-    /// stmt.reset()?; // stop early and surface any reset error
+    /// stmt.reset()?; // stop early so the statement can be reused
     ///
     /// // The statement replays from the top on the next bind.
     /// assert_eq!(read.all.query()?.first()?, Some(("Alice".to_string(), 25)));
     /// # Ok::<(), Box<dyn core::error::Error>>(())
     /// ```
     pub fn reset(self) -> Result<(), Error> {
-        // Skip the `Drop` reset: we reset here and surface the error instead.
+        // Skip the `Drop` reset since we reset here. `Statement::reset`
+        // currently never fails, but its `Result` is forwarded in case it does.
         let mut this = ManuallyDrop::new(self);
         this.stmt.reset()?;
         Ok(())
