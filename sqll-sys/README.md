@@ -27,30 +27,34 @@ is provided *if* the `bundled` feature is enabled, like `+sqlite-3.53.4`.
 ## Building
 
 When linking to a system sqlite library there is a minimum required version.
-This is specified in the [`sqlite3-version`] file and is checked at build
-time.
+This is specified as `minimum` in the [`versions`] file.
 
 If the `bundled` feature is not set, this will attempt to find the native
-sqlite3 bindings using the following methods:
-* Calling `vcpkg`, this can be disabled by setting the `NO_VCPKG` or
+sqlite3 library using the following methods, in order:
+* Finding the library through `pkg-config`. This also checks that the found
+  library is at least the minimum required version. It can be disabled by
+  setting the `SQLITE3_NO_PKG_CONFIG` environment variable.
+* Calling `vcpkg`. The version of a library found this way is not checked.
+  It can be disabled by setting the `VCPKGRS_DISABLE`, `NO_VCPKG` or
   `SQLITE3_NO_VCPKG` environment variables.
-* Finding the library through `pkg-config`, this can be disabled by setting
-  or by setting the `SQLITE3_NO_PKG_CONFIG` environment variables.
 
 <br>
 
 ## Building under WASM
 
-If the target is is `wasm`, you can set the `SDK_PATH_ENV` to specify an SDK
-path to a particular compiler to use when building the wasm bindings. This
-is only supported when the `bundled` feature is enabled.
+This is only supported when the `bundled` feature is enabled. When the
+target family is `wasm`, sqlite is always built with `SQLITE_THREADSAFE=0`
+and `SQLITE_OMIT_LOAD_EXTENSION=1`.
 
-The following environment variables can be set to modify this behavior:
-* `SQLL_TARGET` or `TARGET` to specify the build target. You probably want
-  to set this to something like `wasm32-wasi-unknown`.
-* `SQLL_CLANG_PATH` or `CLANG_PATH` to specify a custom path to a clang
-  compiler installation.
+The following environment variables can be set to modify how the bundled
+sqlite is compiled:
+* `SQLL_TARGET` or `TARGET` to specify the target passed to the C compiler.
+  Cargo sets `TARGET` to the target being built, so `SQLL_TARGET` is only
+  needed to override it, such as with `wasm32-wasip1`.
+* `SQLL_CLANG_PATH` or `CLANG_PATH` to specify the root of a custom clang
+  installation, such as a WASI SDK. The compiler used is `bin/clang` under
+  that path.
 
-[`sqlite3-version`]: https://github.com/udoprog/sqll/blob/main/sqll-sys/sqlite3-version
+[`versions`]: https://github.com/udoprog/sqll/blob/main/sqll-sys/versions
 [sqlite]: https://www.sqlite.org
 [sqll]: https://docs.rs/sqll
