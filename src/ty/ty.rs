@@ -442,7 +442,10 @@ pub struct Text {
 }
 
 impl Text {
-    /// Returns the length in bytes text column.
+    /// Returns the length in bytes of the text column.
+    ///
+    /// This is the length at the time the column was checked. Reading the
+    /// column loads its current length, so this is only a hint.
     #[inline]
     pub const fn len(&self) -> usize {
         self.len
@@ -567,6 +570,9 @@ pub struct Blob {
 
 impl Blob {
     /// Returns the length in bytes of the blob column.
+    ///
+    /// This is the length at the time the column was checked. Reading the
+    /// column loads its current length, so this is only a hint.
     #[inline]
     pub const fn len(&self) -> usize {
         self.len

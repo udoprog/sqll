@@ -2,7 +2,7 @@ use core::slice;
 
 use crate::ffi;
 use crate::ty::{self, Type};
-use crate::{Code, Error, Result, Statement, Text};
+use crate::{Code, Column, Error, Result, Statement, Text, ValueType};
 
 /// A type suitable for borrow directly out of a prepared statement.
 ///
@@ -149,18 +149,11 @@ impl FromUnsizedColumn for Text {
 
     #[inline]
     fn from_unsized_column(stmt: &Statement, index: ty::Text) -> Result<&Self> {
-        unsafe {
-            if index.is_empty() {
-                return Ok(Text::from_bytes(b""));
-            }
-
-            // SAFETY: Documentation guaranteeds this always returns a valid
-            // UTF-8 by sqlite.
-            let ptr = ffi::sqlite3_column_text(stmt.as_ptr(), index.column().raw());
-            debug_assert!(!ptr.is_null(), "sqlite3_column_bytes returned null pointer");
-            let text = slice::from_raw_parts(ptr, index.len());
-            Ok(Text::from_bytes(text))
-        }
+        // SAFETY: `column_bytes` re-validates the column type before reading
+        // so that a stale or foreign `ty::Text` cannot trigger a conversion
+        // which would invalidate previously borrowed values.
+        let text = unsafe { column_bytes(stmt, index.column(), ValueType::TEXT)? };
+        Ok(Text::from_bytes(text))
     }
 }
 
@@ -281,16 +274,70 @@ impl FromUnsizedColumn for [u8] {
 
     #[inline]
     fn from_unsized_column(stmt: &Statement, index: ty::Blob) -> Result<&Self> {
-        unsafe {
-            let ptr = ffi::sqlite3_column_blob(stmt.as_ptr(), index.column().raw());
+        // SAFETY: See the implementation for `Text`.
+        unsafe { column_bytes(stmt, index.column(), ValueType::BLOB) }
+    }
+}
 
-            // NB: Per documentation, an empty column is null.
-            if ptr.is_null() {
-                return Ok(b"");
+/// Load the bytes of a `TEXT` or `BLOB` column.
+///
+/// This does not trust the length or type captured by [`Type::check`], since
+/// type tokens can be held onto past a call to [`Statement::step`] or used with
+/// a different statement than the one they were checked against. Instead the
+/// column type is checked again and the length is read from the current row.
+///
+/// The type check is what prevents auto-conversion, which could otherwise
+/// invalidate references previously borrowed from the same column. For a
+/// column which has already been checked with [`Type::check`] on the current
+/// row, no conversion takes place.
+///
+/// # Safety
+///
+/// `expected` must be either [`ValueType::TEXT`] or [`ValueType::BLOB`].
+#[inline]
+unsafe fn column_bytes(stmt: &Statement, column: Column, expected: ValueType) -> Result<&[u8]> {
+    let actual = stmt.column_type(column);
+
+    if actual != expected {
+        return Err(Error::new(
+            Code::MISMATCH,
+            format_args!("expected column type {expected} but found {actual}"),
+        ));
+    }
+
+    unsafe {
+        // NB: Per documentation, the pointer must be loaded before the
+        // length, since loading text might cause a conversion of the
+        // underlying representation, like from UTF-16 to UTF-8.
+        let ptr = if expected == ValueType::TEXT {
+            ffi::sqlite3_column_text(stmt.as_ptr(), column.raw())
+        } else {
+            ffi::sqlite3_column_blob(stmt.as_ptr(), column.raw()).cast::<u8>()
+        };
+
+        let len = ffi::sqlite3_column_bytes(stmt.as_ptr(), column.raw());
+
+        let Ok(len) = usize::try_from(len) else {
+            return Err(Error::new(
+                Code::ERROR,
+                format_args!("column size {len} exceeds addressable memory"),
+            ));
+        };
+
+        if ptr.is_null() {
+            // NB: Per documentation, an empty blob is returned as a null
+            // pointer. A null pointer with a non-zero length would be an
+            // allocation failure.
+            if len == 0 {
+                return Ok(&[]);
             }
 
-            let bytes = slice::from_raw_parts(ptr.cast(), index.len());
-            Ok(bytes)
+            return Err(Error::new(
+                Code::NOMEM,
+                "failed to load column, out of memory",
+            ));
         }
+
+        Ok(slice::from_raw_parts(ptr, len))
     }
 }

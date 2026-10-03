@@ -56,9 +56,8 @@ impl FromColumn<'_> for String {
 
     #[inline]
     fn from_column(stmt: &Statement, index: ty::Text) -> Result<Self> {
-        let mut s = String::with_capacity(index.len());
-        s.push_str(<_>::from_unsized_column(stmt, index)?);
-        Ok(s)
+        let s = <str>::from_unsized_column(stmt, index)?;
+        Ok(String::from(s))
     }
 }
 
@@ -112,8 +111,7 @@ impl FromColumn<'_> for Vec<u8> {
 
     #[inline]
     fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
-        let mut buf = Vec::with_capacity(index.len());
-        buf.extend_from_slice(<_>::from_unsized_column(stmt, index)?);
-        Ok(buf)
+        let buf = <[u8]>::from_unsized_column(stmt, index)?;
+        Ok(Vec::from(buf))
     }
 }
