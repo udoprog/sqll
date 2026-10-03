@@ -788,6 +788,16 @@ impl Statement {
     /// [`Statement::bind_value`]. To do this, use
     /// [`Statement::clear_bindings`].
     ///
+    /// # Errors
+    ///
+    /// This currently always returns `Ok(())`. The return code of
+    /// `sqlite3_reset` is ignored on purpose: it does not report a failure of
+    /// the reset itself, which always takes place, but repeats the error of the
+    /// most recent failed [`Statement::step`], which has already been returned
+    /// from that call. Surfacing it again would make a reset after a failed
+    /// step fail with that same stale error. The `Result` is kept so that
+    /// errors can be reported here in the future without breaking callers.
+    ///
     /// # Examples
     ///
     /// ```
@@ -836,6 +846,12 @@ impl Statement {
     ///
     /// Use this routine to reset all host parameters to NULL.
     ///
+    /// # Errors
+    ///
+    /// This currently always returns `Ok(())`, since `sqlite3_clear_bindings`
+    /// cannot fail on a valid statement. The `Result` is kept so that errors
+    /// can be reported here in the future without breaking callers.
+    ///
     /// # Examples
     ///
     /// ```
@@ -879,7 +895,12 @@ impl Statement {
         Ok(())
     }
 
-    /// Reset the statement and bind values to parameters.
+    /// Bind values to parameters.
+    ///
+    /// This does not reset the statement. If the statement has already been
+    /// stepped, call [`reset`] first so that the next step starts over with
+    /// the new bindings, since sqlite refuses to bind to a statement that is
+    /// in the middle of being executed.
     ///
     /// Note that this does not clear the bindings for any previous parameters
     /// unless they are overriden. To clear any previous bindings, use
@@ -892,6 +913,7 @@ impl Statement {
     /// If a statement is stepped without a parameter being bound, the parameter
     /// is bound by sqlite to `NULL` by default.
     ///
+    /// [`reset`]: Self::reset
     /// [`clear_bindings`]: Self::clear_bindings
     /// [`Bind` derive]: derive@crate::Bind
     /// [`bind_value`]: Self::bind_value

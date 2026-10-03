@@ -208,9 +208,12 @@ See the [`tokio_async` example] for a complete example.
 ## Features
 
 * `std` - Enable usage of the Rust standard library. Enabled by default.
-* `alloc` - Enable usage of the Rust alloc library. This is required and is
-  enabled by default. Disabling this option will currently cause a compile
-  error.
+* `alloc` - Enable usage of the Rust alloc library. Enabled by default
+  through `std`, and also enabled by `pool`. The crate builds without it,
+  but APIs which need to allocate are then unavailable, such as
+  [`OwnedBytes`], [`Connection::serialize`], [`Connection::deserialize`],
+  [`Connection::busy_handler`] and reading columns into `String` or
+  `Vec<u8>`.
 * `derive` - Add a dependency to and re-export of the [`Row` derive]
   macro.
 * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
@@ -233,6 +236,10 @@ See the [`tokio_async` example] for a complete example.
   [`Statements` derive] for declaring reusable collections of prepared
   statements. This pulls in a dependency on the `sync` feature of [`tokio`].
   Enabled by default.
+* `typed` - Enable [`TypedStatement`] and the [`typed`] module, wrappers
+  around statements which encode their bind parameter and column counts in
+  the type system and reset themselves between uses. Used by the
+  [`Statements` derive]. Enabled by default.
 
 [^sqll-sys]: This is a forwarded sqll-sys option, see <https://docs.rs/sqll-sys>.
 
@@ -248,6 +255,9 @@ have been copied under the MIT license.
 [`bind`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.bind
 [`Bind`]: https://docs.rs/sqll/latest/sqll/trait.Bind.html
 [`Connection`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#thread-safety
+[`Connection::busy_handler`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.busy_handler
+[`Connection::deserialize`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.deserialize
+[`Connection::serialize`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.serialize
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
@@ -256,6 +266,7 @@ have been copied under the MIT license.
 [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 [`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked
+[`OwnedBytes`]: https://docs.rs/sqll/latest/sqll/struct.OwnedBytes.html
 [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html
 [`Statements` derive]: https://docs.rs/sqll/latest/sqll/derive.Statements.html
 [`tokio`]: https://docs.rs/tokio
@@ -270,6 +281,8 @@ have been copied under the MIT license.
 [`Statement`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html
 [`tokio_async` example]: https://github.com/udoprog/sqll/blob/main/examples/tokio_async.rs
 [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
+[`TypedStatement`]: https://docs.rs/sqll/latest/sqll/struct.TypedStatement.html
+[`typed`]: https://docs.rs/sqll/latest/sqll/typed/index.html
 [binding query parameters]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.bind
 [calling `execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 [reading rows]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
