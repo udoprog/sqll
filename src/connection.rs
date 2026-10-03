@@ -556,7 +556,12 @@ impl Connection {
     /// # Errors
     ///
     /// If the prepare call contains multiple statements, it will error. To
-    /// execute multiple statements, use [`execute`] instead.
+    /// execute multiple statements, use [`execute`] instead. Trailing
+    /// whitespace, comments and semicolons after a single statement are
+    /// allowed.
+    ///
+    /// If the prepare call contains no statement, such as an empty string or
+    /// only comments, it will error with [`Code::MISUSE`].
     ///
     /// ```
     /// use sqll::{Connection, Code};
@@ -566,6 +571,11 @@ impl Connection {
     /// let e = c.prepare("CREATE TABLE test (id INTEGER) /* test */; INSERT INTO test (id) VALUES (1);").unwrap_err();
     ///
     /// assert_eq!(e.code(), Code::MISUSE);
+    ///
+    /// let e = c.prepare("-- only a comment").unwrap_err();
+    /// assert_eq!(e.code(), Code::MISUSE);
+    ///
+    /// c.prepare("SELECT 1; -- trailing comment\n")?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///
@@ -611,7 +621,12 @@ impl Connection {
     /// # Errors
     ///
     /// If the prepare call contains multiple statements, it will error. To
-    /// execute multiple statements, use [`execute`] instead.
+    /// execute multiple statements, use [`execute`] instead. Trailing
+    /// whitespace, comments and semicolons after a single statement are
+    /// allowed.
+    ///
+    /// If the prepare call contains no statement, such as an empty string or
+    /// only comments, it will error with [`Code::MISUSE`].
     ///
     /// ```
     /// use sqll::{Connection, Code};
@@ -690,19 +705,75 @@ impl Connection {
                 )
             };
 
-            let rest = rest.assume_init();
+            // SQLite returns a NULL statement with SQLITE_OK when the input
+            // only contains whitespace or comments.
+            let Some(raw) = NonNull::new(raw.assume_init()) else {
+                return Err(Error::new(Code::MISUSE, "empty statement"));
+            };
 
+            // Construct the statement first so that it is finalized if we
+            // return early below.
+            let statement = Statement::from_raw(raw, self.is_thread_safe);
+
+            let rest = rest.assume_init();
             let o = rest.offset_from_unsigned(ptr);
 
-            if o != stmt.len() {
+            if !self.is_empty_tail(&stmt[o.min(stmt.len())..]) {
                 return Err(Error::new(
                     Code::MISUSE,
                     "multiple statements in a single prepare are not allowed",
                 ));
             }
 
-            let raw = NonNull::new_unchecked(raw.assume_init());
-            Ok(Statement::from_raw(raw, self.is_thread_safe))
+            Ok(statement)
+        }
+    }
+
+    /// Test if the remaining tail of a prepared statement only consists of
+    /// empty statements, like whitespace, comments and semicolons.
+    fn is_empty_tail(&self, tail: &[u8]) -> bool {
+        unsafe {
+            let mut ptr = tail.as_ptr().cast();
+            let mut len = tail.len();
+
+            while len > 0 {
+                let mut raw = MaybeUninit::uninit();
+                let mut rest = MaybeUninit::uninit();
+
+                let l = i32::try_from(len).unwrap_or(i32::MAX);
+
+                let code = ffi::sqlite3_prepare_v3(
+                    self.raw.as_ptr(),
+                    ptr,
+                    l,
+                    0,
+                    raw.as_mut_ptr(),
+                    rest.as_mut_ptr(),
+                );
+
+                // Anything which fails to prepare is not empty.
+                if code != ffi::SQLITE_OK {
+                    return false;
+                }
+
+                if let Some(raw) = NonNull::new(raw.assume_init()) {
+                    ffi::sqlite3_finalize(raw.as_ptr());
+                    return false;
+                }
+
+                let rest = rest.assume_init();
+                let o = rest.offset_from_unsigned(ptr);
+
+                // Guard against making no progress.
+                if o == 0 {
+                    return false;
+                }
+
+                len -= o.min(len);
+                ptr = rest;
+            }
+
+            true
         }
     }
 

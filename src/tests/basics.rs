@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use anyhow::Result;
 
-use crate::{Connection, Index, Null, Text, Value};
+use crate::{Code, Connection, Index, Null, Text, Value};
 
 use super::data;
 
@@ -186,5 +186,78 @@ fn test_dropped_connection() -> Result<()> {
     let names = stmt.column_names().collect::<Vec<_>>();
     assert_eq!(names, ["id", "name", "age", "user_photo"]);
     assert_eq!(stmt.column_name(3), Some(Text::new("user_photo")));
+    Ok(())
+}
+
+#[test]
+fn prepare_empty() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+
+    for sql in [
+        "",
+        "   ",
+        "\n\t",
+        ";",
+        " ; ;",
+        "-- comment",
+        "/* comment */",
+        "-- a\n/* b */ ;",
+    ] {
+        let Err(e) = c.prepare(sql) else {
+            panic!("expected error for {sql:?}");
+        };
+
+        assert_eq!(e.code(), Code::MISUSE, "{sql:?}");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn prepare_trailing_empty() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+
+    for sql in [
+        "SELECT 1",
+        "SELECT 1;",
+        "SELECT 1;\n",
+        "SELECT 1\n",
+        "SELECT 1; ",
+        "SELECT 1;;",
+        "SELECT 1; ; \n ;",
+        "SELECT 1; -- comment",
+        "SELECT 1 -- comment",
+        "SELECT 1; /* comment */",
+        "SELECT 1; /* comment */\n-- another\n",
+        "SELECT 1; /* unterminated",
+    ] {
+        let mut stmt = c
+            .prepare(sql)
+            .map_err(|e| anyhow::anyhow!("{sql:?}: {e}"))?;
+        assert_eq!(stmt.next::<i64>()?, Some(1), "{sql:?}");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn prepare_multiple_statements() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+
+    for sql in [
+        "SELECT 1; SELECT 2",
+        "SELECT 1; SELECT 2;",
+        "SELECT 1;\n-- comment\nSELECT 2;\n",
+        "SELECT 1; ; SELECT 2",
+        "SELECT 1; SELECT * FROM missing",
+        "SELECT 1; not valid sql",
+    ] {
+        let Err(e) = c.prepare(sql) else {
+            panic!("expected error for {sql:?}");
+        };
+
+        assert_eq!(e.code(), Code::MISUSE, "{sql:?}");
+    }
+
     Ok(())
 }
