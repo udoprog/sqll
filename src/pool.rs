@@ -794,4 +794,9 @@ impl<R, W> DerefMut for ExclusiveGuard<R, W> {
     }
 }
 
-unsafe impl<R, W> Send for ExclusiveGuard<R, W> {}
+unsafe impl<R, W> Send for ExclusiveGuard<R, W>
+where
+    R: Send,
+    W: Send,
+{
+}
