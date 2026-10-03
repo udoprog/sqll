@@ -184,43 +184,86 @@ impl OwnedBytes {
         Self { ptr, len, cap: len }
     }
 
-    fn reserve(&mut self, additional: usize) -> Result<(), AllocError> {
-        fn checked_grow(base: usize, needed: usize) -> Option<usize> {
-            let new_cap = base.checked_add(needed)?.max(16);
-
-            let new_cap = match new_cap.checked_next_power_of_two() {
-                Some(cap) => cap,
-                None if new_cap <= MAX_CAP => new_cap,
-                None => return None,
-            };
-
-            Some(new_cap)
+    /// Ensure that the buffer is backed by an allocation from the sqlite
+    /// allocator, even if it is empty.
+    ///
+    /// An empty buffer otherwise holds a dangling pointer, which must never be
+    /// handed to sqlite for it to free.
+    pub(crate) fn ensure_allocated(&mut self) -> Result<()> {
+        if self.cap == 0
+            && let Err(error) = self.grow_to(1)
+        {
+            return Err(Error::new(Code::NOMEM, error));
         }
 
+        Ok(())
+    }
+
+    fn reserve(&mut self, additional: usize) -> Result<(), AllocError> {
+        let Some(needed) = self.len.checked_add(additional) else {
+            return Err(AllocError);
+        };
+
+        if needed <= self.cap {
+            return Ok(());
+        }
+
+        self.grow_to(needed)
+    }
+
+    /// Grow the allocation so that it can hold at least `needed` bytes, where
+    /// `needed` is larger than the current capacity.
+    fn grow_to(&mut self, needed: usize) -> Result<(), AllocError> {
+        let Some(new_cap) = grown_capacity(needed) else {
+            return Err(AllocError);
+        };
+
+        debug_assert!(new_cap > self.cap);
+
+        // NB: `grown_capacity` bounds the capacity by `MAX_CAP`, which always
+        // fits in a positive `c_int`. Passing a non-positive size to
+        // `sqlite3_realloc` would free the allocation.
+        let Ok(size) = c_int::try_from(new_cap) else {
+            return Err(AllocError);
+        };
+
+        // SAFETY: The pointer is either unallocated (when `cap == 0`) or was
+        // allocated by the sqlite allocator. If reallocation fails the old
+        // allocation is left untouched, as documented for `sqlite3_realloc`.
         unsafe {
-            let Some(new_cap) = checked_grow(self.len, additional) else {
-                return Err(AllocError);
-            };
-
-            if new_cap < self.cap {
-                return Ok(());
-            }
-
             let ptr = if self.cap == 0 {
-                ffi::sqlite3_malloc(new_cap as c_int)
+                ffi::sqlite3_malloc(size)
             } else {
-                ffi::sqlite3_realloc(self.ptr.as_ptr().cast(), new_cap as c_int)
+                ffi::sqlite3_realloc(self.ptr.as_ptr().cast(), size)
             };
 
-            if ptr.is_null() {
+            let Some(ptr) = NonNull::new(ptr) else {
                 return Err(AllocError);
-            }
+            };
 
-            self.ptr = NonNull::new_unchecked(ptr.cast());
+            self.ptr = ptr.cast();
             self.cap = new_cap;
             Ok(())
         }
     }
+}
+
+/// Compute the capacity to grow to so that at least `needed` bytes fit.
+///
+/// This rounds up to the next power of two, but never past [`MAX_CAP`], and
+/// returns `None` if `needed` itself exceeds it.
+fn grown_capacity(needed: usize) -> Option<usize> {
+    if needed > MAX_CAP {
+        return None;
+    }
+
+    let cap = needed
+        .max(16)
+        .checked_next_power_of_two()
+        .unwrap_or(MAX_CAP)
+        .min(MAX_CAP);
+
+    Some(cap)
 }
 
 impl Clone for OwnedBytes {
@@ -319,5 +362,74 @@ impl PartialEq<OwnedBytes> for [u8] {
     #[inline]
     fn eq(&self, other: &OwnedBytes) -> bool {
         self[..] == other[..]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_CAP, OwnedBytes, grown_capacity};
+
+    #[test]
+    fn grown_capacity_is_bounded() {
+        assert_eq!(grown_capacity(0), Some(16));
+        assert_eq!(grown_capacity(17), Some(32));
+        assert_eq!(grown_capacity(1 << 20), Some(1 << 20));
+        assert_eq!(grown_capacity(MAX_CAP), Some(MAX_CAP));
+        assert_eq!(grown_capacity(MAX_CAP + 1), None);
+        assert_eq!(grown_capacity(usize::MAX), None);
+
+        // Crossing 2^30 used to round up to 2^31, which does not fit in a
+        // c_int and was passed to sqlite3_realloc as a negative size.
+        assert_eq!(grown_capacity((1 << 30) + 1), Some(MAX_CAP));
+
+        for needed in [0, 1, 16, 1000, 1 << 30, (1 << 30) + 1, MAX_CAP] {
+            let cap = grown_capacity(needed).unwrap();
+            assert!(cap >= needed);
+            assert!(cap <= MAX_CAP);
+            assert!(i32::try_from(cap).is_ok());
+        }
+    }
+
+    #[test]
+    fn failed_growth_keeps_buffer() {
+        let mut bytes = OwnedBytes::new();
+        bytes.extend_from_slice(b"hello").unwrap();
+        let cap = bytes.capacity();
+
+        // Requesting more than sqlite can allocate must fail without freeing
+        // the existing allocation, which is then dropped normally.
+        assert!(bytes.reserve((1 << 30) + 1).is_err());
+        assert!(bytes.reserve(MAX_CAP).is_err());
+        assert!(bytes.reserve(usize::MAX).is_err());
+
+        assert_eq!(&bytes[..], b"hello");
+        assert_eq!(bytes.capacity(), cap);
+
+        bytes.extend_from_slice(b" world").unwrap();
+        assert_eq!(&bytes[..], b"hello world");
+    }
+
+    #[test]
+    fn extend_within_capacity_does_not_reallocate() {
+        let mut bytes = OwnedBytes::with_capacity(64).unwrap();
+        let ptr = bytes.as_ptr();
+        let cap = bytes.capacity();
+
+        for _ in 0..8 {
+            bytes.extend_from_slice(b"12345678").unwrap();
+        }
+
+        assert_eq!(bytes.len(), 64);
+        assert_eq!(bytes.capacity(), cap);
+        assert_eq!(bytes.as_ptr(), ptr);
+    }
+
+    #[test]
+    fn ensure_allocated() {
+        let mut bytes = OwnedBytes::new();
+        assert_eq!(bytes.capacity(), 0);
+        bytes.ensure_allocated().unwrap();
+        assert!(bytes.capacity() > 0);
+        assert!(bytes.is_empty());
     }
 }

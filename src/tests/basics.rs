@@ -261,3 +261,22 @@ fn prepare_multiple_statements() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn deserialize_empty() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+    c.deserialize(c"main", crate::OwnedBytes::new())?;
+
+    c.execute("CREATE TABLE users (name TEXT); INSERT INTO users VALUES ('Alice')")?;
+
+    let names = c
+        .prepare("SELECT name FROM users")?
+        .iter::<String>()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(names, ["Alice"]);
+
+    // Dropping the connection frees the buffer handed to sqlite.
+    drop(c);
+    Ok(())
+}

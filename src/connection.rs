@@ -1233,8 +1233,10 @@ impl Connection {
     /// ```
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, cfg(feature = "alloc"))]
-    pub fn deserialize(&self, name: &CStr, data: OwnedBytes) -> Result<()> {
-        let data = ManuallyDrop::new(data);
+    pub fn deserialize(&self, name: &CStr, mut data: OwnedBytes) -> Result<()> {
+        // An empty buffer holds a dangling pointer, which sqlite would later
+        // free since ownership is transferred to it.
+        data.ensure_allocated()?;
 
         let Ok(len) = i64::try_from(data.len()) else {
             return Err(Error::new(
@@ -1249,6 +1251,10 @@ impl Connection {
                 "capacity of owned buffer is too large",
             ));
         };
+
+        // NB: From here on sqlite owns the buffer. It is freed by sqlite even
+        // if deserialization fails.
+        let data = ManuallyDrop::new(data);
 
         unsafe {
             sqlite3_try! {

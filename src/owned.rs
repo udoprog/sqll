@@ -1,5 +1,6 @@
 use core::alloc::Layout;
-use core::ptr::NonNull;
+use core::mem;
+use core::ptr::{self, NonNull};
 
 use alloc::alloc;
 
@@ -18,8 +19,12 @@ impl Owned {
         let layout = Layout::new::<T>();
 
         if layout.size() == 0 {
+            // Zero-sized values need no storage, but they may still have drop
+            // glue, which runs when this is dropped.
+            mem::forget(value);
+
             return Ok(Self {
-                ptr: NonNull::dangling(),
+                ptr: NonNull::<T>::dangling().cast(),
                 drop: zero_sized_drop_glue::<T>,
             });
         }
@@ -56,11 +61,69 @@ impl Drop for Owned {
     }
 }
 
-unsafe fn drop_glue<F>(ptr: NonNull<()>) {
+/// # Safety
+///
+/// `ptr` must point to an initialized `T` allocated with the global allocator
+/// using `Layout::new::<T>()`, and must not be used afterwards.
+unsafe fn drop_glue<T>(ptr: NonNull<()>) {
     unsafe {
-        let layout = Layout::new::<F>();
-        alloc::dealloc(ptr.as_ptr().cast(), layout);
+        let ptr = ptr.cast::<T>().as_ptr();
+        ptr::drop_in_place(ptr);
+        alloc::dealloc(ptr.cast(), Layout::new::<T>());
     }
 }
 
-unsafe fn zero_sized_drop_glue<T>(_: NonNull<()>) {}
+/// # Safety
+///
+/// `ptr` must be a well-aligned dangling pointer standing in for a forgotten
+/// zero-sized `T` which must not be used afterwards.
+unsafe fn zero_sized_drop_glue<T>(ptr: NonNull<()>) {
+    unsafe {
+        ptr::drop_in_place(ptr.cast::<T>().as_ptr());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use alloc::sync::Arc;
+
+    use super::Owned;
+
+    struct Counted(Arc<AtomicUsize>);
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn drops_sized_value() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let owned = Owned::new(Counted(drops.clone())).unwrap();
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(owned);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert_eq!(Arc::strong_count(&drops), 1);
+    }
+
+    #[test]
+    fn drops_zero_sized_value() {
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+
+        struct Zst;
+
+        impl Drop for Zst {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let owned = Owned::new(Zst).unwrap();
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0);
+        drop(owned);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+    }
+}

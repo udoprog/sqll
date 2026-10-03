@@ -62,3 +62,44 @@ fn connection_busy_handler() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn connection_busy_handler_drops_closure() -> Result<()> {
+    use alloc::sync::Arc;
+
+    let first = Arc::new(());
+    let second = Arc::new(());
+
+    let mut c = Connection::open_in_memory()?;
+
+    let captured = first.clone();
+    c.busy_handler(move |_| {
+        let _ = &captured;
+        false
+    })?;
+    assert_eq!(Arc::strong_count(&first), 2);
+
+    // Replacing the handler drops the previous closure.
+    let captured = second.clone();
+    c.busy_handler(move |_| {
+        let _ = &captured;
+        false
+    })?;
+    assert_eq!(Arc::strong_count(&first), 1);
+    assert_eq!(Arc::strong_count(&second), 2);
+
+    // Clearing the handler drops the closure.
+    c.clear_busy_handler()?;
+    assert_eq!(Arc::strong_count(&second), 1);
+
+    // Dropping the connection drops the closure.
+    let captured = first.clone();
+    c.busy_handler(move |_| {
+        let _ = &captured;
+        false
+    })?;
+    assert_eq!(Arc::strong_count(&first), 2);
+    drop(c);
+    assert_eq!(Arc::strong_count(&first), 1);
+    Ok(())
+}
