@@ -479,11 +479,17 @@ where
     /// Create a new pool of connections to the database.
     ///
     /// The `open_options` parameter is used to configure the connections to the
-    /// database, and must be configured with the [`no_mutex`] option to allow
-    /// connection to be converted into [`SendConnection`].
+    /// database. With the `threadsafe` feature the connections are always
+    /// opened in the "serialized" threading mode, so [`no_mutex`] has no
+    /// effect. Since the pool only ever hands each connection to one guard at a
+    /// time, the per-connection mutex can be avoided with the unsafe
+    /// [`no_mutex_unchecked`], as long as the setup hooks do not keep the
+    /// connection or any statement prepared from it around. See the [thread
+    /// safety] section of [`OpenOptions`].
     ///
     /// [`no_mutex`]: OpenOptions::no_mutex
-    /// [`SendConnection`]: crate::SendConnection
+    /// [`no_mutex_unchecked`]: OpenOptions::no_mutex_unchecked
+    /// [thread safety]: OpenOptions#thread-safety
     ///
     /// This type implements `Send` and `Sync`, so it can be shared across
     /// threads.

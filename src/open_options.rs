@@ -25,25 +25,34 @@ use crate::{Code, Connection, Error, Result};
 ///
 /// # Thread safety
 ///
-/// To support [`Connection::into_send`] and similar methods, either
-/// [`no_mutex`] or [`full_mutex`] has to be set.
+/// When the `threadsafe` feature is enabled, [`Connection`] implements `Send`.
+/// Since a [`Statement`] does not borrow the connection it was prepared from,
+/// a connection and its statements can end up being used from different
+/// threads at the same time. To keep this sound, every connection opened
+/// through the safe `open*` methods uses the "serialized" [threading mode]:
 ///
-/// Typically you should just set [`no_mutex`], which will allow you to send
-/// database objects across threads but still require synchronization.
+/// * [`full_mutex`] is always set, even if it was not requested.
+/// * [`no_mutex`] has no effect. Use the `unsafe` [`no_mutex_unchecked`] to
+///   opt out of the per-connection mutex.
+/// * Opening fails with [`Code::MISUSE`] if the linked sqlite library was
+///   built without thread safety (`SQLITE_THREADSAFE=0`). The exception is
+///   WebAssembly targets without the `atomics` target feature, which cannot
+///   spawn threads.
 ///
-/// When [`full_mutex`] is set, each individual database object can be used
-/// without synchronization but might block with respect to other threads
-/// accessing the database simultaenously.
+/// Without the `threadsafe` feature, [`Connection`] does not implement `Send`
+/// and [`no_mutex`] and [`full_mutex`] are passed on to sqlite as-is.
 ///
-/// By default a [`Connection`] is not **not be thread safe**. And therefore it
-/// does not implement `Send`. Because thread safety is a configuration option
-/// in sqlite you have to make use of the `unsafe` [`Connection::into_send`] and
-/// [`Statement::into_send`] functions to convert the objects into ones which
-/// can be sent across threads.
+/// To send a [`Statement`] across threads, use the `unsafe`
+/// [`Statement::into_send`]. This requires either [`no_mutex`] or
+/// [`full_mutex`] to be in effect. With the `threadsafe` feature that is
+/// always the case.
 ///
 /// [`full_mutex`]: Self::full_mutex
 /// [`no_mutex`]: Self::no_mutex
+/// [`no_mutex_unchecked`]: Self::no_mutex_unchecked
+/// [`Statement`]: crate::Statement
 /// [`Statement::into_send`]: crate::Statement::into_send
+/// [threading mode]: https://sqlite.org/threadsafe.html
 ///
 /// # Asynchronous usage
 ///
@@ -101,6 +110,9 @@ use crate::{Code, Connection, Error, Result};
 #[derive(Clone, Copy, Debug)]
 pub struct OpenOptions {
     raw: c_int,
+    /// Set by [`OpenOptions::no_mutex_unchecked`], allows `SQLITE_OPEN_NOMUTEX`
+    /// to take effect when the `threadsafe` feature is enabled.
+    unsynchronized: bool,
 }
 
 impl OpenOptions {
@@ -122,6 +134,7 @@ impl OpenOptions {
     pub fn new() -> Self {
         Self {
             raw: ffi::SQLITE_OPEN_EXRESCODE,
+            unsynchronized: false,
         }
     }
 
@@ -145,7 +158,10 @@ impl OpenOptions {
     /// ```
     #[inline]
     pub fn empty() -> Self {
-        Self { raw: 0 }
+        Self {
+            raw: 0,
+            unsynchronized: false,
+        }
     }
 
     /// The database is opened in read-only mode. If the database does not
@@ -302,7 +318,16 @@ impl OpenOptions {
     /// same time, as long as each thread is using a different database
     /// connection.
     ///
+    /// When the `threadsafe` feature is enabled this option has no effect and
+    /// the connection uses the "serialized" threading mode instead, since
+    /// [`Connection`] is `Send` and its statements could otherwise be used
+    /// concurrently with it from another thread. See [`no_mutex_unchecked`] for
+    /// how to opt into the "multi-thread" mode anyway. See the [thread safety]
+    /// section for details.
+    ///
     /// [threading mode]: https://www.sqlite.org/threadsafe.html
+    /// [`no_mutex_unchecked`]: Self::no_mutex_unchecked
+    /// [thread safety]: Self#thread-safety
     ///
     /// # Examples
     ///
@@ -322,12 +347,58 @@ impl OpenOptions {
         self
     }
 
+    /// The new database connection will use the "multi-thread" [threading
+    /// mode], even when the `threadsafe` feature is enabled.
+    ///
+    /// This is the same as [`no_mutex`], except that it also takes effect when
+    /// the `threadsafe` feature is enabled, which avoids the cost of the
+    /// per-connection mutex.
+    ///
+    /// [threading mode]: https://www.sqlite.org/threadsafe.html
+    /// [`no_mutex`]: Self::no_mutex
+    ///
+    /// # Safety
+    ///
+    /// When the `threadsafe` feature is enabled, [`Connection`] implements
+    /// `Send`, while statements prepared from it do not borrow it. The caller
+    /// must ensure that a connection opened with this option, and every
+    /// statement prepared from it, are never used from more than one thread at
+    /// the same time. This includes dropping them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::OpenOptions;
+    ///
+    /// // SAFETY: The connection and its statements stay on this thread.
+    /// let c = unsafe {
+    ///     OpenOptions::new()
+    ///         .read_write()
+    ///         .create()
+    ///         .no_mutex_unchecked()
+    ///         .open_in_memory()?
+    /// };
+    ///
+    /// c.execute("CREATE TABLE users (name TEXT)")?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub unsafe fn no_mutex_unchecked(&mut self) -> &mut Self {
+        self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
+        self.unsynchronized = true;
+        self
+    }
+
     /// The new database connection will use the "serialized" [threading mode].
     /// This means the multiple threads can safely attempt to use the same
     /// database connection at the same time. Mutexes will block any actual
     /// concurrency, but in this mode there is no harm in trying.
     ///
+    /// When the `threadsafe` feature is enabled this is always set. See the
+    /// [thread safety] section for details.
+    ///
     /// [threading mode]: https://sqlite.org/threadsafe.html
+    /// [thread safety]: Self#thread-safety
     ///
     /// # Examples
     ///
@@ -448,11 +519,47 @@ impl OpenOptions {
         self._open(c":memory:")
     }
 
+    /// Compute the flags to open the connection with.
+    ///
+    /// With the `threadsafe` feature [`Connection`] is `Send`, so unless the
+    /// caller opted out with the unsafe [`no_mutex_unchecked`], the connection
+    /// must be serialized, which requires both `SQLITE_OPEN_FULLMUTEX` and a
+    /// sqlite library built with thread safety.
+    ///
+    /// [`no_mutex_unchecked`]: Self::no_mutex_unchecked
+    fn flags(&self) -> Result<c_int> {
+        let mut flags = self.raw;
+
+        if cfg!(feature = "threadsafe") {
+            // A WebAssembly target without atomics cannot spawn threads, so
+            // `Send` has no effect there. This is also where the bundled
+            // library is always built without thread safety.
+            let can_thread = !cfg!(all(target_family = "wasm", not(target_feature = "atomics")));
+
+            // SAFETY: This only reads a compile-time constant of the library.
+            if can_thread && unsafe { ffi::sqlite3_threadsafe() } == 0 {
+                return Err(Error::new(
+                    Code::MISUSE,
+                    "the threadsafe feature is enabled but sqlite was built without thread safety",
+                ));
+            }
+
+            if !self.unsynchronized {
+                flags &= !ffi::SQLITE_OPEN_NOMUTEX;
+                flags |= ffi::SQLITE_OPEN_FULLMUTEX;
+            }
+        }
+
+        Ok(flags)
+    }
+
     fn _open(&self, name: &CStr) -> Result<Connection> {
+        let flags = self.flags()?;
+
         unsafe {
             let mut raw = MaybeUninit::uninit();
 
-            let code = ffi::sqlite3_open_v2(name.as_ptr(), raw.as_mut_ptr(), self.raw, ptr::null());
+            let code = ffi::sqlite3_open_v2(name.as_ptr(), raw.as_mut_ptr(), flags, ptr::null());
             let raw = raw.assume_init();
 
             if code != ffi::SQLITE_OK {
@@ -462,7 +569,7 @@ impl OpenOptions {
             }
 
             let is_thread_safe = ffi::sqlite3_threadsafe() != 0
-                && (self.raw & (ffi::SQLITE_OPEN_NOMUTEX | ffi::SQLITE_OPEN_FULLMUTEX)) != 0;
+                && (flags & (ffi::SQLITE_OPEN_NOMUTEX | ffi::SQLITE_OPEN_FULLMUTEX)) != 0;
 
             Ok(Connection::from_raw(
                 NonNull::new_unchecked(raw),

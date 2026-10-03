@@ -217,14 +217,16 @@ See the [`tokio_async` example] for a complete example.
   [`sqll-sys`] crate and the sqlite version used is part of the build
   metadata of that crate[^sqll-sys].
 * `threadsafe` - Enable usage of sqlite with the threadsafe option set. We
-  assume any system level libraries have this build option enabled. If this
-  is disabled the `bundled` feature has to be enabled. If `threadsafe` is
-  disabled, `Connection` and `Statement` does not implement `Send`. But it
-  is also important to understand that if this option is not set, sqlite
-  **may not be used by multiple threads at all** even if threads have
-  distinct connections. To disable mutexes which allows for efficient one
-  connection per thread the [`OpenOptions::no_mutex`] option should be used
-  instead[^sqll-sys].
+  assume any system level libraries have this build option enabled, and
+  opening a connection fails if they do not. If this is disabled the
+  `bundled` feature has to be enabled. With this feature `Connection`
+  implements `Send`, and every connection is opened in the "serialized"
+  threading mode, so [`OpenOptions::no_mutex`] has no effect and the unsafe
+  [`OpenOptions::no_mutex_unchecked`] is needed to avoid the per-connection
+  mutex. If `threadsafe` is disabled, `Connection` does not implement
+  `Send`. But it is also important to understand that if this option is not
+  set, sqlite **may not be used by multiple threads at all** even if threads
+  have distinct connections[^sqll-sys].
 * `strict` - Enable usage of sqlite with the strict compiler options
   enabled[^sqll-sys].
 * `pool` - Enable the high-level connection [`Pool`] and the
@@ -253,6 +255,7 @@ have been copied under the MIT license.
 [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
+[`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked
 [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html
 [`Statements` derive]: https://docs.rs/sqll/latest/sqll/derive.Statements.html
 [`tokio`]: https://docs.rs/tokio
