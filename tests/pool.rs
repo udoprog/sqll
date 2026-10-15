@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use anyhow::Result;
-use sqll::{OpenOptions, Pool, PoolBuilder, Statements, TypedStatement};
+use sqll::{OpenOptions, Pool, PoolBuilder, SendStatement, Statements, TypedStatement};
 use tempfile::TempDir;
 use tokio::sync::Barrier;
 use tokio::task;
@@ -147,5 +147,75 @@ async fn shared_and_exclusive_guards() -> Result<()> {
 
     let mut guard = pool.clone().shared().await?;
     assert_eq!(read(&mut guard)? as usize, writes);
+    Ok(())
+}
+
+#[derive(Statements)]
+#[sql(read_only)]
+struct PeopleRead {
+    #[sql = "SELECT id FROM people ORDER BY id LIMIT ?"]
+    limit: SendStatement,
+    #[sql = "SELECT id FROM people WHERE id LIKE ? ORDER BY id"]
+    like: SendStatement,
+}
+
+#[derive(Statements)]
+struct PeopleWrite {
+    #[sql = "SELECT id FROM people ORDER BY id LIMIT ?"]
+    limit: SendStatement,
+    #[sql = "SELECT id FROM people WHERE id LIKE ? ORDER BY id"]
+    like: SendStatement,
+}
+
+fn collect(stmt: &mut SendStatement, value: impl sqll::Bind) -> Result<Vec<String>> {
+    stmt.reset()?;
+    stmt.bind(value)?;
+
+    let mut out = Vec::new();
+
+    while let Some(id) = stmt.next::<String>()? {
+        out.push(id);
+    }
+
+    Ok(out)
+}
+
+/// Pooled statements stay usable after the pool is built.
+///
+/// SQLite re-prepares a statement whose plan depends on a bound value, such as
+/// a bare `LIMIT ?` or `LIKE ?`. That fails with `SQLITE_MISUSE` if the
+/// connection the statement was prepared on has been closed, so the pool must
+/// keep its connections alive for as long as their statements.
+#[tokio::test]
+async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
+    let dir = TempDir::new()?;
+    let path = dir.path().join("people.db");
+
+    {
+        let c = OpenOptions::new().create().read_write().open(&path)?;
+        c.execute(
+            "CREATE TABLE people (id TEXT NOT NULL);
+             INSERT INTO people VALUES ('alice'), ('alex'), ('bob'), ('carol');",
+        )?;
+    }
+
+    let pool = PoolBuilder::new(OpenOptions::new(), 2).open::<PeopleRead, PeopleWrite>(&path)?;
+    let pool = Arc::new(pool);
+
+    for _ in 0..2 {
+        let mut read = pool.clone().shared().await?;
+
+        assert_eq!(collect(&mut read.limit, 2i64)?, ["alex", "alice"]);
+        assert_eq!(collect(&mut read.limit, 3i64)?, ["alex", "alice", "bob"]);
+
+        assert_eq!(collect(&mut read.like, "al%")?, ["alex", "alice"]);
+        assert_eq!(collect(&mut read.like, "c%")?, ["carol"]);
+    }
+
+    let mut write = pool.clone().exclusive().await?;
+
+    assert_eq!(collect(&mut write.limit, 1i64)?, ["alex"]);
+
+    assert_eq!(collect(&mut write.like, "b%")?, ["bob"]);
     Ok(())
 }

@@ -447,15 +447,32 @@ impl fmt::Display for ErrorKind {
 /// [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
 pub struct Pool<R, W> {
     /// The pool of read connections of size `concurrency`.
-    read_pool: Box<[UnsafeCell<R>]>,
+    read_pool: Box<[UnsafeCell<Pooled<R>>]>,
     /// Bit set of which inner connections are in use.
     used_read: AtomicU64,
     /// The single write connection.
-    write: UnsafeCell<W>,
+    write: UnsafeCell<Pooled<W>>,
     /// The maximum number of concurrent connections to the database.
     concurrency: usize,
     /// Semaphore to limit the number of concurrent connections to the database.
     semaphore: Arc<Semaphore>,
+}
+
+/// A collection of statements together with the connection they were prepared
+/// on.
+///
+/// The connection must outlive its statements. If it is closed first, SQLite
+/// keeps it around as a zombie handle until the statements are finalized, and
+/// any statement that needs to be re-prepared on it (such as one with a bare
+/// `LIMIT ?` or `LIKE ?` whose plan depends on the bound value) fails with
+/// `SQLITE_MISUSE`.
+struct Pooled<T> {
+    /// The prepared statements. Declared before `connection` so that they are
+    /// dropped (finalized) first.
+    statements: T,
+    /// The connection the statements were prepared on. Never used directly
+    /// after construction, only kept alive for the statements.
+    _connection: Connection,
 }
 
 unsafe impl<R, W> Send for Pool<R, W>
@@ -599,7 +616,10 @@ where
             .setup(&mut write)
             .map_err(ErrorKind::SetupWriteConnection)?;
 
-        let write = W::build(&mut write)?;
+        let write = Pooled {
+            statements: W::build(&mut write)?,
+            _connection: write,
+        };
 
         let mut read_pool = Vec::with_capacity(concurrency);
 
@@ -615,7 +635,11 @@ where
                 .setup(&mut read)
                 .map_err(move |error| ErrorKind::SetupReadConnection(index, error))?;
 
-            let read = R::build(&mut read)?;
+            let read = Pooled {
+                statements: R::build(&mut read)?,
+                _connection: read,
+            };
+
             read_pool.push(UnsafeCell::new(read));
         }
 
@@ -634,7 +658,7 @@ where
     /// thread can have access to it at the same time. This is primarily useful
     /// for setup performed before the pool is shared across tasks.
     pub fn as_read_mut(&mut self) -> &mut R {
-        unsafe { &mut *self.read_pool[0].get() }
+        unsafe { &mut (*self.read_pool[0].get()).statements }
     }
 
     /// Access the write connection without acquiring a lock.
@@ -642,7 +666,7 @@ where
     /// This is fine since it requires mutable access to the pool, so no other
     /// thread can have access to it at the same time.
     pub fn as_write_mut(&mut self) -> &mut W {
-        unsafe { &mut *self.write.get() }
+        unsafe { &mut (*self.write.get()).statements }
     }
 
     /// Acquire a shared lock on the pool.
@@ -685,8 +709,8 @@ where
         // thread can have access to it. We are also keeping the pool alive by
         // storing it in the guard.
         let read = unsafe {
-            let slice = self.read_pool[index].get();
-            NonNull::new_unchecked(&mut *slice)
+            let slot = self.read_pool[index].get();
+            NonNull::new_unchecked(&mut (*slot).statements)
         };
 
         Ok(SharedGuard {
@@ -717,7 +741,7 @@ where
         // have acquired all permits in the semaphore, so no other thread can
         // have access to it. We are also keeping the pool alive by storing it
         // in the guard.
-        let write = unsafe { NonNull::new_unchecked(&mut *self.write.get()) };
+        let write = unsafe { NonNull::new_unchecked(&mut (*self.write.get()).statements) };
 
         Ok(ExclusiveGuard {
             write,
