@@ -4,7 +4,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::meta::ParseNestedMeta;
 use syn::spanned::Spanned;
-use syn::{Error, Expr, ExprLit, Ident, ItemStruct, Lit, LitStr, Member};
+use syn::{Error, Expr, ExprLit, Ident, ItemStruct, Lit, LitStr, Member, Path};
 
 pub(super) struct Ctxt {
     errors: RefCell<Vec<Error>>,
@@ -62,14 +62,8 @@ pub(super) fn expand(input: TokenStream) -> TokenStream {
 fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
     let st: ItemStruct = cx.capture(syn::parse2(input))?;
 
-    let connection = quote!(::sqll::Connection);
-    let pool_error = quote!(::sqll::PoolError);
-    let send_statement = quote!(::sqll::SendStatement);
-    let is_read_only_t = quote!(::sqll::IsReadOnly);
-    let statements_t = quote!(::sqll::Statements);
-    let try_from_t = quote!(::core::convert::TryFrom);
-
     let mut read_only = false;
+    let mut crate_path: Path = syn::parse_quote!(::sqll);
 
     for a in &st.attrs {
         if !a.path().is_ident("sql") {
@@ -82,9 +76,14 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
                 return Ok(());
             }
 
+            if s.path.is_ident("crate") {
+                crate_path = s.value()?.parse()?;
+                return Ok(());
+            }
+
             Err(Error::new_spanned(
                 &s.path,
-                "unsupported attribute, expected `read_only`",
+                "unsupported attribute, expected `read_only` or `crate`",
             ))
         });
 
@@ -92,6 +91,13 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
             cx.error(error);
         }
     }
+
+    let connection = quote!(#crate_path::Connection);
+    let pool_error = quote!(#crate_path::PoolError);
+    let send_statement = quote!(#crate_path::SendStatement);
+    let is_read_only_t = quote!(#crate_path::IsReadOnly);
+    let statements_t = quote!(#crate_path::Statements);
+    let try_from_t = quote!(::core::convert::TryFrom);
 
     let mut assert_read_only_impl = None;
     let mut members = Vec::new();
@@ -309,5 +315,72 @@ impl QueryString {
         }
 
         self.output.push_str(s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proc_macro2::{TokenStream, TokenTree};
+    use quote::quote;
+
+    fn idents(stream: TokenStream, out: &mut Vec<String>) {
+        for tt in stream {
+            match tt {
+                TokenTree::Ident(ident) => out.push(ident.to_string()),
+                TokenTree::Group(group) => idents(group.stream(), out),
+                _ => {}
+            }
+        }
+    }
+
+    fn expand(input: TokenStream) -> Vec<String> {
+        let mut out = Vec::new();
+        idents(super::expand(input), &mut out);
+        assert!(
+            !out.iter().any(|i| i == "compile_error"),
+            "expansion failed: {out:?}"
+        );
+        out
+    }
+
+    #[test]
+    fn default_crate_path() {
+        let out = expand(quote! {
+            #[sql(read_only)]
+            struct Read {
+                #[sql = "SELECT 1"]
+                one: SendStatement,
+            }
+        });
+
+        assert!(out.iter().any(|i| i == "sqll"));
+    }
+
+    #[test]
+    fn renamed_crate_path() {
+        let read = expand(quote! {
+            #[sql(read_only, crate = renamed)]
+            struct Read {
+                #[sql = "SELECT 1"]
+                one: SendStatement,
+                #[sql(statements)]
+                inner: Inner,
+            }
+        });
+
+        let write = expand(quote! {
+            #[sql(crate = renamed)]
+            struct Write {
+                #[sql(statements)]
+                read: Read,
+                #[sql = "CREATE TABLE foo (id INTEGER)"]
+                create_table: SendStatement,
+            }
+        });
+
+        for out in [read, write] {
+            assert!(out.iter().any(|i| i == "renamed"));
+            assert!(!out.iter().any(|i| i == "sqll"), "{out:?}");
+        }
     }
 }

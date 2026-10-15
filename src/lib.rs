@@ -707,6 +707,11 @@ pub use sqll_macros::Row;
 ///   is `#[sql(read_only)]`, the nested type must also implement [`IsReadOnly`]
 ///   (i.e. be `#[sql(read_only)]` itself), otherwise the read-only guarantee
 ///   would be unsound.
+/// * `#[sql(crate = ..)]` (container) - an alternative path to the `sqll`
+///   crate, used for every item the derive refers to. This is useful when the
+///   crate is renamed from the default `::sqll`, see [below](#renamed-crate).
+///   It may be combined with `read_only`, as in `#[sql(read_only, crate =
+///   ..)]`.
 ///
 /// # Examples
 ///
@@ -789,6 +794,33 @@ pub use sqll_macros::Row;
 ///     write: Write,
 ///     #[sql = "SELECT name, age FROM users ORDER BY age"]
 ///     all_users: SendStatement,
+/// }
+/// ```
+///
+/// ## Renamed crate
+///
+/// When `sqll` is depended on under another name, for instance to support
+/// several versions side by side, `#[sql(crate = ..)]` points the derive at
+/// it:
+///
+/// ```
+/// # extern crate sqll as my_sqll;
+/// use my_sqll::{SendStatement, Statements};
+///
+/// #[derive(Statements)]
+/// #[sql(read_only, crate = ::my_sqll)]
+/// struct Read {
+///     #[sql = "SELECT name, age FROM users ORDER BY age"]
+///     all_users: SendStatement,
+/// }
+///
+/// #[derive(Statements)]
+/// #[sql(crate = ::my_sqll)]
+/// struct Write {
+///     #[sql(statements)]
+///     read: Read,
+///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+///     insert_user: SendStatement,
 /// }
 /// ```
 ///

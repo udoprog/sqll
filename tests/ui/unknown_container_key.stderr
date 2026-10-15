@@ -1,0 +1,5 @@
+error: unsupported attribute, expected `read_only` or `crate`
+ --> tests/ui/unknown_container_key.rs:4:7
+  |
+4 | #[sql(nope)]
+  |       ^^^^
