@@ -111,7 +111,7 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
 
         match f.ident {
             Some(ref name) => {
-                variables.push(name.clone());
+                variables.push(Ident::new(&format!("__sqll_{name}"), span));
             }
             None => {
                 variables.push(Ident::new(&format!("_{index}"), span));
