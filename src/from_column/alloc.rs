@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -115,5 +116,119 @@ impl FromColumn<'_> for Vec<u8> {
     fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
         let buf = <[u8]>::from_unsized_column(stmt, index)?;
         Ok(Vec::from(buf))
+    }
+}
+
+/// [`FromColumn`] implementation which returns a newly allocated boxed
+/// [`str`].
+///
+/// For a more memory-efficient way of reading text, consider using the
+/// [`FromUnsizedColumn`] implementation for [`str`].
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (name TEXT);
+///
+///     INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT name FROM users")?;
+///
+/// assert_eq!(stmt.next::<Box<str>>()?, Some(Box::from("Alice")));
+/// assert_eq!(stmt.next::<Box<str>>()?, Some(Box::from("Bob")));
+/// assert_eq!(stmt.next::<Box<str>>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM users")?;
+///
+/// let e = stmt.next::<Box<str>>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl FromColumn<'_> for Box<str> {
+    type Type = ty::Text;
+
+    #[inline]
+    fn from_column(stmt: &Statement, index: ty::Text) -> Result<Self> {
+        let s = <str>::from_unsized_column(stmt, index)?;
+        Ok(Box::from(s))
+    }
+}
+
+/// [`FromColumn`] implementation which returns a newly allocated boxed byte
+/// slice.
+///
+/// For a more memory-efficient way of reading bytes, consider using the
+/// [`FromUnsizedColumn`] implementation for a byte slice.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::Connection;
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (blob BLOB);
+///
+///     INSERT INTO users (blob) VALUES (X'aabb'), (X'bbcc');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT blob FROM users")?;
+///
+/// assert_eq!(stmt.next::<Box<[u8]>>()?, Some(Box::from([0xaa, 0xbb])));
+/// assert_eq!(stmt.next::<Box<[u8]>>()?, Some(Box::from([0xbb, 0xcc])));
+/// assert_eq!(stmt.next::<Box<[u8]>>()?, None);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// Automatic conversion being denied:
+///
+/// ```
+/// use sqll::{Connection, Code};
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER);
+///
+///     INSERT INTO users (id) VALUES (1), (2);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id FROM users")?;
+///
+/// let e = stmt.next::<Box<[u8]>>().unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl FromColumn<'_> for Box<[u8]> {
+    type Type = ty::Blob;
+
+    #[inline]
+    fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
+        let buf = <[u8]>::from_unsized_column(stmt, index)?;
+        Ok(Box::from(buf))
     }
 }

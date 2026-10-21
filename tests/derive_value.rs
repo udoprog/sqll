@@ -20,6 +20,15 @@ struct Borrowed<'a>(&'a str);
 struct Generic<T>(T);
 
 #[derive(Debug, PartialEq, FromColumn, BindValue)]
+#[sql(transparent)]
+struct BoxedBlob {
+    data: Box<[u8]>,
+}
+
+#[derive(Debug, PartialEq, FromColumn, BindValue)]
+struct BoxedText(Box<str>);
+
+#[derive(Debug, PartialEq, FromColumn, BindValue)]
 #[sql(integer)]
 enum Implicit {
     A,
@@ -90,6 +99,32 @@ fn newtypes() -> Result<()> {
 
     let mut stmt = c.prepare("SELECT NULL")?;
     assert_eq!(stmt.next::<Option<Id>>()?, Some(None));
+    Ok(())
+}
+
+#[test]
+fn boxed_newtypes() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+
+    let blob = BoxedBlob {
+        data: Box::from([0xaa, 0xbb]),
+    };
+    assert_eq!(roundtrip(&c, blob)?.data[..], [0xaa, 0xbb]);
+    assert_eq!(
+        roundtrip(&c, BoxedText(Box::from("hi")))?,
+        BoxedText(Box::from("hi"))
+    );
+    assert_eq!(roundtrip(&c, Box::<[u8]>::from([]))?, Box::<[u8]>::from([]));
+    assert_eq!(
+        roundtrip(&c, Some(Box::<str>::from("x")))?,
+        Some(Box::from("x"))
+    );
+
+    let mut stmt = c.prepare("SELECT 1")?;
+    assert_eq!(stmt.next::<BoxedBlob>().unwrap_err().code(), Code::MISMATCH);
+
+    let mut stmt = c.prepare("SELECT X'00'")?;
+    assert_eq!(stmt.next::<BoxedText>().unwrap_err().code(), Code::MISMATCH);
     Ok(())
 }
 
