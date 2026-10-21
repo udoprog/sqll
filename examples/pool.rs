@@ -49,7 +49,9 @@ async fn main() -> Result<()> {
     // any statement is prepared.
     let pool = PoolBuilder::new(options, 4)
         .with_write_setup(|c| {
-            c.execute("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY NOT NULL, age INTEGER)")
+            c.execute(
+                "CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY NOT NULL, age INTEGER)",
+            )
         })
         .open::<Read, Write>(&path)?;
 

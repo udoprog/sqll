@@ -1,5 +1,8 @@
-//! Concurrent use of [`Pool::shared`], [`Pool::exclusive`] and
-//! [`Pool::exclusive_all`] from many tasks.
+//! Concurrent use of [`Pool::shared`], [`Pool::exclusive`],
+//! [`Pool::exclusive_all`], [`Pool::read`] and [`Pool::write`] from many tasks.
+//!
+//! Every wait on async work is bounded, so that a test fails rather than hangs
+//! if a guard is never released.
 
 #![cfg(feature = "pool")]
 
@@ -88,7 +91,7 @@ async fn shared_guards_are_concurrent() -> Result<()> {
         let barrier = barrier.clone();
 
         tasks.push(task::spawn(async move {
-            let mut guard = pool.shared().await?;
+            let mut guard = within(pool.shared()).await??;
             // Only completes once all shared guards are held at once.
             barrier.wait().await;
 
@@ -97,7 +100,7 @@ async fn shared_guards_are_concurrent() -> Result<()> {
     }
 
     for t in tasks {
-        assert_eq!(t.await??, 0);
+        assert_eq!(within(t).await???, 0);
     }
 
     Ok(())
@@ -190,7 +193,7 @@ fn writer_and_readers_hold_guards_at_once() -> Result<()> {
 async fn guards_nest_in_either_order() -> Result<()> {
     let (_dir, pool) = setup_wal(1)?;
 
-    let mut r = pool.shared().await?;
+    let mut r = within(pool.shared()).await??;
     let mut w = within(pool.exclusive()).await??;
     w.increment.execute(())?;
     assert_eq!(read(&mut r)?, 1);
@@ -209,12 +212,8 @@ async fn exclusive_guards_exclude() -> Result<()> {
     let (_dir, pool) = setup_wal(2)?;
     let wait = Duration::from_millis(50);
 
-    let write = pool.exclusive().await?;
-    assert!(
-        tokio::time::timeout(wait, pool.exclusive())
-            .await
-            .is_err()
-    );
+    let write = within(pool.exclusive()).await??;
+    assert!(tokio::time::timeout(wait, pool.exclusive()).await.is_err());
     assert!(
         tokio::time::timeout(wait, pool.exclusive_all())
             .await
@@ -222,7 +221,7 @@ async fn exclusive_guards_exclude() -> Result<()> {
     );
     drop(write);
 
-    let read = pool.shared().await?;
+    let read = within(pool.shared()).await??;
     // Waits for `read` to be dropped.
     assert!(
         tokio::time::timeout(wait, pool.exclusive_all())
@@ -231,17 +230,9 @@ async fn exclusive_guards_exclude() -> Result<()> {
     );
     drop(read);
 
-    let all = pool.exclusive_all().await?;
-    assert!(
-        tokio::time::timeout(wait, pool.shared())
-            .await
-            .is_err()
-    );
-    assert!(
-        tokio::time::timeout(wait, pool.exclusive())
-            .await
-            .is_err()
-    );
+    let all = within(pool.exclusive_all()).await??;
+    assert!(tokio::time::timeout(wait, pool.shared()).await.is_err());
+    assert!(tokio::time::timeout(wait, pool.exclusive()).await.is_err());
     drop(all);
 
     // Cancelled acquisitions above released whatever permits they had taken.
@@ -291,9 +282,9 @@ async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
             for round in 0..ROUNDS {
                 if (index + round) % 4 == 0 {
                     let mut guard = if all {
-                        pool.exclusive_all().await?
+                        within(pool.exclusive_all()).await??
                     } else {
-                        pool.exclusive().await?
+                        within(pool.exclusive()).await??
                     };
 
                     assert!(!writer.swap(true, Ordering::SeqCst));
@@ -312,7 +303,7 @@ async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
                     drop(guard);
                     writes += 1;
                 } else {
-                    let mut guard = pool.shared().await?;
+                    let mut guard = within(pool.shared()).await??;
                     readers.fetch_add(1, Ordering::SeqCst);
                     assert!(!all || !writer.load(Ordering::SeqCst));
 
@@ -337,12 +328,12 @@ async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
     let mut writes = 0;
 
     for t in tasks {
-        writes += t.await??;
+        writes += within(t).await???;
     }
 
     assert_eq!(writes, TASKS * ROUNDS / 4);
 
-    let mut guard = pool.shared().await?;
+    let mut guard = within(pool.shared()).await??;
     assert_eq!(read(&mut guard)? as usize, writes);
     Ok(())
 }
@@ -400,7 +391,7 @@ async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
     let pool = Arc::new(pool);
 
     for _ in 0..2 {
-        let mut read = pool.shared().await?;
+        let mut read = within(pool.shared()).await??;
 
         assert_eq!(collect(&mut read.limit, 2i64)?, ["alex", "alice"]);
         assert_eq!(collect(&mut read.limit, 3i64)?, ["alex", "alice", "bob"]);
@@ -409,7 +400,7 @@ async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
         assert_eq!(collect(&mut read.like, "c%")?, ["carol"]);
     }
 
-    let mut write = pool.exclusive().await?;
+    let mut write = within(pool.exclusive()).await??;
 
     assert_eq!(collect(&mut write.limit, 1i64)?, ["alex"]);
 
@@ -424,7 +415,7 @@ async fn guards_expose_their_connection() -> Result<()> {
     let (_dir, pool) = setup(2)?;
 
     {
-        let mut guard = pool.exclusive().await?;
+        let mut guard = within(pool.exclusive()).await??;
         guard.increment.execute(())?;
         assert_eq!(guard.connection().changes(), 1);
 
@@ -435,7 +426,7 @@ async fn guards_expose_their_connection() -> Result<()> {
         assert_eq!(c.changes(), 2);
     }
 
-    let mut guard = pool.shared().await?;
+    let mut guard = within(pool.shared()).await??;
     assert!(guard.connection().execute("DELETE FROM counter").is_err());
 
     let mut stmt = guard
@@ -457,7 +448,7 @@ async fn guards_expose_their_connection() -> Result<()> {
 async fn exclusive_transaction() -> Result<()> {
     let (_dir, pool) = setup(1)?;
 
-    let mut guard = pool.exclusive().await?;
+    let mut guard = within(pool.exclusive()).await??;
 
     guard.transaction(|write, _| {
         write.increment.execute(())?;
@@ -483,7 +474,160 @@ async fn exclusive_transaction() -> Result<()> {
     })?;
     drop(guard);
 
-    let mut guard = pool.shared().await?;
+    let mut guard = within(pool.shared()).await??;
     assert_eq!(read(&mut guard)?, 2);
+    Ok(())
+}
+
+/// `read` and `write` run their closure with the guard, which reaches both the
+/// statements and the connection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn helpers_reach_statements_and_connection() -> Result<()> {
+    let (_dir, pool) = setup(2)?;
+
+    let changes = within(pool.write(|w| -> Result<_> {
+        w.increment.execute(())?;
+        Ok(w.connection().changes())
+    }))
+    .await???;
+    assert_eq!(changes, 1);
+
+    let rowid = within(pool.write(|w| {
+        w.transaction(|_, c| {
+            c.execute("INSERT INTO counter VALUES (10)")?;
+            Ok::<_, sqll::Error>(c.last_insert_rowid())
+        })
+    }))
+    .await???;
+    assert_eq!(rowid, 2);
+
+    let rows = within(pool.read(|r| -> Result<Vec<i64>> {
+        let (_, c) = r.split();
+        let mut stmt = c.prepare("SELECT n FROM counter ORDER BY n DESC")?;
+        stmt.bind(())?;
+        Ok(stmt.iter::<i64>().collect::<Result<_, _>>()?)
+    }))
+    .await???;
+    assert_eq!(rows, [10, 1]);
+
+    let read_only = within(pool.read(|r| r.connection().execute("DELETE FROM counter"))).await??;
+    assert!(read_only.is_err());
+    Ok(())
+}
+
+/// The closure runs on a blocking thread, not on the runtime's worker.
+#[tokio::test]
+async fn helpers_run_on_a_blocking_thread() -> Result<()> {
+    let (_dir, pool) = setup(1)?;
+    let worker = std::thread::current().id();
+
+    let reader = within(pool.read(|_| std::thread::current().id())).await??;
+    let writer = within(pool.write(|_| std::thread::current().id())).await??;
+    assert_ne!(reader, worker);
+    assert_ne!(writer, worker);
+    Ok(())
+}
+
+/// A panicking closure is returned as an error, and its guard is released so
+/// the pool stays usable.
+#[tokio::test]
+async fn helpers_turn_panics_into_errors() -> Result<()> {
+    let (_dir, pool) = setup(1)?;
+
+    let error = within(pool.read(|_| -> i64 { panic!("read boom") }))
+        .await?
+        .unwrap_err();
+    assert_eq!(error.to_string(), "blocking task panicked");
+    assert!(core::error::Error::source(&error).is_some());
+
+    let error = within(pool.write(|w| -> usize {
+        w.increment.execute(()).unwrap();
+        panic!("write boom");
+    }))
+    .await?
+    .unwrap_err();
+    assert_eq!(error.to_string(), "blocking task panicked");
+
+    // Both lanes are free again: the single read connection and the writer.
+    within(pool.write(|w| w.increment.execute(()))).await???;
+    let n = within(pool.read(|r| read(r))).await???;
+    assert_eq!(n, 2);
+    Ok(())
+}
+
+/// A `read` proceeds while the exclusive guard is held, and a `write` waits
+/// for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn helpers_follow_the_lanes() -> Result<()> {
+    let (_dir, pool) = setup_wal(1)?;
+    let wait = Duration::from_millis(50);
+
+    let mut guard = within(pool.exclusive()).await??;
+    guard.increment.execute(())?;
+
+    assert_eq!(within(pool.read(|r| read(r))).await???, 1);
+
+    let write = task::spawn({
+        let pool = pool.clone();
+        async move { pool.write(|w| w.increment.execute(())).await }
+    });
+
+    tokio::time::sleep(wait).await;
+    assert!(!write.is_finished());
+    drop(guard);
+
+    within(write).await????;
+    assert_eq!(within(pool.read(|r| read(r))).await???, 2);
+    Ok(())
+}
+
+/// Many tasks reading and writing through the helpers at once: every write
+/// lands, and no two writers overlap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn helpers_contend() -> Result<()> {
+    const TASKS: usize = 16;
+    const ROUNDS: usize = 25;
+
+    let (_dir, pool) = setup_wal(2)?;
+    let writer = Arc::new(AtomicBool::new(false));
+    let mut tasks = Vec::new();
+
+    for index in 0..TASKS {
+        let pool = pool.clone();
+        let writer = writer.clone();
+
+        tasks.push(task::spawn(async move {
+            let mut writes = 0usize;
+
+            for round in 0..ROUNDS {
+                if (index + round) % 4 == 0 {
+                    let writer = writer.clone();
+
+                    pool.write(move |w| -> Result<()> {
+                        assert!(!writer.swap(true, Ordering::SeqCst));
+                        w.increment.execute(())?;
+                        writer.store(false, Ordering::SeqCst);
+                        Ok(())
+                    })
+                    .await??;
+
+                    writes += 1;
+                } else {
+                    pool.read(|r| read(r)).await??;
+                }
+            }
+
+            Ok::<_, anyhow::Error>(writes)
+        }));
+    }
+
+    let mut writes = 0;
+
+    for t in tasks {
+        writes += within(t).await???;
+    }
+
+    assert_eq!(writes, TASKS * ROUNDS / 4);
+    assert_eq!(within(pool.read(|r| read(r))).await??? as usize, writes);
     Ok(())
 }
