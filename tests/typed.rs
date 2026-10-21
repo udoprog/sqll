@@ -1,6 +1,6 @@
 //! Integration tests for the typed statement API.
 //!
-//! Behavioural examples for the `BoundStatement` methods (`first`, `next`,
+//! Behavioural examples for the `BoundStatement` methods (`first`, `Iterator`,
 //! `reset`, and `Drop`) live as doctests on the methods themselves. This file
 //! covers the end-to-end derive flow plus the `TryFrom` conversion error paths,
 //! which assert exact diagnostics and are awkward to express as doctests.
@@ -43,11 +43,7 @@ fn end_to_end_execute_and_query() -> Result<()> {
     w.insert.execute(("Bob".to_string(), 35))?;
     w.insert.execute(("Charlie".to_string(), 30))?;
 
-    let mut out = Vec::new();
-    let mut stmt = w.read.all.query()?;
-    while let Some(row) = stmt.next()? {
-        out.push(row);
-    }
+    let out = w.read.all.query()?.collect::<Result<Vec<_>, _>>()?;
 
     assert_eq!(
         out,
@@ -111,5 +107,45 @@ fn try_from_matching_counts() -> Result<()> {
 
     let mut stmt = TypedStatement::<(), (i32,)>::try_from(send).unwrap();
     assert_eq!(stmt.query()?.first()?, Some((1,)));
+    Ok(())
+}
+
+/// After a row fails to convert, the iterator is fused rather than stepping on
+/// (or restarting) the statement.
+#[test]
+fn iterator_fused_after_error() -> Result<()> {
+    let mut c = setup()?;
+    c.execute("INSERT INTO users (name, age) VALUES ('Alice', 'not a number'), ('Bob', 35)")?;
+
+    let mut read = Read::build(&mut c)?;
+    let mut stmt = read.all.query()?;
+
+    // Integers sort before text, so Bob comes first and Alice fails to convert.
+    assert_eq!(stmt.next().transpose()?, Some(("Bob".to_string(), 35)));
+    assert!(matches!(stmt.next(), Some(Err(..))));
+    assert!(stmt.next().is_none());
+    assert!(stmt.next().is_none());
+    drop(stmt);
+
+    // Dropping reset the statement, so it reads from the top again.
+    let mut stmt = read.all.query()?;
+    assert_eq!(stmt.next().transpose()?, Some(("Bob".to_string(), 35)));
+    assert!(matches!(stmt.next(), Some(Err(..))));
+    Ok(())
+}
+
+/// After the last row the iterator is fused rather than restarting the
+/// statement, which SQLite would otherwise do on the next step.
+#[test]
+fn iterator_fused_after_done() -> Result<()> {
+    let mut c = setup()?;
+    c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25)")?;
+
+    let mut read = Read::build(&mut c)?;
+    let mut stmt = read.all.query()?;
+
+    assert_eq!(stmt.next().transpose()?, Some(("Alice".to_string(), 25)));
+    assert!(stmt.next().is_none());
+    assert!(stmt.next().is_none());
     Ok(())
 }

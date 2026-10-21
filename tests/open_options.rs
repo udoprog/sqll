@@ -220,10 +220,10 @@ fn pool_connections() -> Result<()> {
     let mut pool = PoolBuilder::new(options, 2).open::<Read, Write>(&path)?;
 
     let write = pool.as_write_mut();
-    assert_eq!(write.journal_mode.query()?.next()?.as_deref(), Some("wal"));
+    assert_eq!(write.journal_mode.query()?.first()?.as_deref(), Some("wal"));
 
     let read = pool.as_read_mut();
-    assert_eq!(read.foreign_keys.query()?.next()?, Some(1));
-    assert_eq!(read.journal_mode.query()?.next()?.as_deref(), Some("wal"));
+    assert_eq!(read.foreign_keys.query()?.first()?, Some(1));
+    assert_eq!(read.journal_mode.query()?.first()?.as_deref(), Some("wal"));
     Ok(())
 }

@@ -4,6 +4,7 @@
 //! for executing statements and retrieving rows.
 
 use core::fmt;
+use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
@@ -125,6 +126,14 @@ where
     /// parameters do not match the expected count, this will result in a
     /// compile time error.
     ///
+    /// The statement is reset before binding, and the returned
+    /// [`BoundStatement`] resets it again when it is dropped. So there is no
+    /// need to call [`BoundStatement::reset`] after reading rows: let the bound
+    /// statement go out of scope, or consume it by collecting its rows.
+    ///
+    /// [`BoundStatement`] is an [`Iterator`] over `Result<O>`, so all rows can
+    /// be collected with `collect::<Result<Vec<_>>>()`.
+    ///
     /// # Examples
     ///
     /// ```
@@ -147,15 +156,22 @@ where
     /// c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 35), ('Charlie', 30)")?;
     ///
     /// let mut read = Read::build(&mut c)?;
-    /// let mut stmt = read.users_older_than.bind((30,))?;
     ///
-    /// let mut out = Vec::new();
+    /// let out = read
+    ///     .users_older_than
+    ///     .bind((29,))?
+    ///     .collect::<Result<Vec<_>, _>>()?;
     ///
-    /// while let Some((name, age)) = stmt.next()? {
-    ///     out.push((name, age));
-    /// }
+    /// assert_eq!(out, [("Charlie".to_string(), 30), ("Bob".to_string(), 35)]);
     ///
-    /// assert_eq!(out, vec![("Bob".to_string(), 35)]);
+    /// // No reset is needed: the bound statement was dropped by `collect`, which
+    /// // reset it, so it can be bound again right away.
+    /// let out = read
+    ///     .users_older_than
+    ///     .bind((30,))?
+    ///     .collect::<Result<Vec<_>, _>>()?;
+    ///
+    /// assert_eq!(out, [("Bob".to_string(), 35)]);
     /// # Ok::<(), Box<dyn core::error::Error>>(())
     /// ```
     #[track_caller]
@@ -174,6 +190,7 @@ where
         self.inner.bind(bind)?;
         Ok(BoundStatement {
             stmt: &mut self.inner,
+            done: false,
             _marker: PhantomData,
         })
     }
@@ -253,9 +270,14 @@ where
 /// A [`TypedStatement`] that has been bound with parameters, ready to execute
 /// or retrieve rows.
 ///
+/// A `BoundStatement` is an [`Iterator`] over the rows of the statement, each
+/// item being a `Result<O>`. Once it has returned `None` or an error it is
+/// fused and keeps returning `None`.
+///
 /// When a `BoundStatement` is dropped it resets the underlying statement (any
 /// reset error is ignored), so the statement can be bound again even if it was
-/// only partially read. Use [`reset`] instead when you need to observe a reset
+/// only partially read. There is therefore no need to reset it explicitly
+/// after reading rows. Use [`reset`] only when you need to observe a reset
 /// error.
 ///
 /// See [`TypedStatement::bind`] for more details and examples.
@@ -288,7 +310,7 @@ where
 ///
 /// // Read a single row, then drop the bound statement mid-iteration.
 /// let mut stmt = read.all.query()?;
-/// assert_eq!(stmt.next()?, Some(("Alice".to_string(), 25)));
+/// assert_eq!(stmt.next().transpose()?, Some(("Alice".to_string(), 25)));
 /// drop(stmt);
 ///
 /// assert_eq!(read.all.query()?.first()?, Some(("Alice".to_string(), 25)));
@@ -298,6 +320,10 @@ where
 /// [`reset`]: BoundStatement::reset
 pub struct BoundStatement<'stmt, I, O> {
     stmt: &'stmt mut SendStatement,
+    /// Set once the statement has returned its last row or an error, so that
+    /// iteration is fused. Stepping a finished statement would otherwise
+    /// restart it from the top.
+    done: bool,
     _marker: PhantomData<(I, O)>,
 }
 
@@ -342,60 +368,14 @@ impl<I, O> BoundStatement<'_, I, O> {
     /// assert_eq!(none, None);
     /// # Ok::<(), Box<dyn core::error::Error>>(())
     /// ```
-    pub fn first(self) -> Result<Option<O>, Error>
+    pub fn first(mut self) -> Result<Option<O>, Error>
     where
         O: for<'stmt> Row<'stmt>,
     {
-        let value = self.stmt.next()?;
+        let value = self.next().transpose()?;
         let mut this = ManuallyDrop::new(self);
         this.stmt.reset()?;
         Ok(value)
-    }
-
-    /// Return the next row, if any, without resetting the underlying statement.
-    ///
-    /// This is a convenient way to execute a query that is expected to return
-    /// multiple rows, allowing the caller to iterate over them without needing
-    /// to manually reset the statement between rows. The caller is responsible
-    /// for resetting the statement when finished, either by calling `reset` or
-    /// by letting the bound statement go out of scope.
-    ///
-    /// # Examples
-    ///
-    /// `next` yields each row in turn, returning `None` once the result set is
-    /// exhausted (which terminates the loop below):
-    ///
-    /// ```
-    /// use sqll::{OpenOptions, Statements, TypedStatement};
-    ///
-    /// #[derive(Statements)]
-    /// #[sql(read_only)]
-    /// struct Read {
-    ///     #[sql = "SELECT name, age FROM users ORDER BY age"]
-    ///     all: TypedStatement<(), (String, i32)>,
-    /// }
-    ///
-    /// let mut c = OpenOptions::new().no_mutex().read_write().create().open_in_memory()?;
-    ///
-    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
-    /// c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 35)")?;
-    ///
-    /// let mut read = Read::build(&mut c)?;
-    /// let mut stmt = read.all.query()?;
-    ///
-    /// let mut out = Vec::new();
-    /// while let Some(row) = stmt.next()? {
-    ///     out.push(row);
-    /// }
-    /// assert_eq!(out, [("Alice".to_string(), 25), ("Bob".to_string(), 35)]);
-    /// # Ok::<(), Box<dyn core::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn next(&mut self) -> Result<Option<O>, Error>
-    where
-        O: for<'stmt> Row<'stmt>,
-    {
-        self.stmt.next()
     }
 
     /// Consume the bound statement and reset the underlying statement. This
@@ -432,8 +412,8 @@ impl<I, O> BoundStatement<'_, I, O> {
     /// let mut read = Read::build(&mut c)?;
     ///
     /// let mut stmt = read.all.query()?;
-    /// assert_eq!(stmt.next()?, Some(("Alice".to_string(), 25)));
-    /// stmt.reset()?; // stop early so the statement can be reused
+    /// assert_eq!(stmt.next().transpose()?, Some(("Alice".to_string(), 25)));
+    /// stmt.reset()?; // stop early and observe any reset error
     ///
     /// // The statement replays from the top on the next bind.
     /// assert_eq!(read.all.query()?.first()?, Some(("Alice".to_string(), 25)));
@@ -447,6 +427,72 @@ impl<I, O> BoundStatement<'_, I, O> {
         Ok(())
     }
 }
+
+/// Iterate over the rows of a bound statement.
+///
+/// The iterator is fused: after the last row or after an error it keeps
+/// returning `None` rather than restarting the statement. Dropping it resets
+/// the underlying statement.
+///
+/// # Examples
+///
+/// ```
+/// use sqll::{OpenOptions, Statements, TypedStatement};
+///
+/// #[derive(Statements)]
+/// #[sql(read_only)]
+/// struct Read {
+///     #[sql = "SELECT name, age FROM users ORDER BY age"]
+///     all: TypedStatement<(), (String, i32)>,
+/// }
+///
+/// let mut c = OpenOptions::new().no_mutex().read_write().create().open_in_memory()?;
+///
+/// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
+/// c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 35)")?;
+///
+/// let mut read = Read::build(&mut c)?;
+///
+/// let mut stmt = read.all.query()?;
+/// assert_eq!(stmt.next().transpose()?, Some(("Alice".to_string(), 25)));
+/// assert_eq!(stmt.next().transpose()?, Some(("Bob".to_string(), 35)));
+/// assert!(stmt.next().is_none());
+/// // Fused: the statement does not start over.
+/// assert!(stmt.next().is_none());
+/// drop(stmt);
+///
+/// // Or collect every row at once.
+/// let all = read.all.query()?.collect::<Result<Vec<_>, _>>()?;
+/// assert_eq!(all, [("Alice".to_string(), 25), ("Bob".to_string(), 35)]);
+/// # Ok::<(), Box<dyn core::error::Error>>(())
+/// ```
+impl<I, O> Iterator for BoundStatement<'_, I, O>
+where
+    O: for<'stmt> Row<'stmt>,
+{
+    type Item = Result<O, Error>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        match self.stmt.next() {
+            Ok(Some(row)) => Some(Ok(row)),
+            Ok(None) => {
+                self.done = true;
+                None
+            }
+            Err(e) => {
+                self.done = true;
+                Some(Err(e))
+            }
+        }
+    }
+}
+
+impl<I, O> FusedIterator for BoundStatement<'_, I, O> where O: for<'stmt> Row<'stmt> {}
 
 impl<I, O> Drop for BoundStatement<'_, I, O> {
     fn drop(&mut self) {

@@ -42,8 +42,8 @@ fn setup(concurrency: usize) -> Result<(TempDir, Arc<Pool<Read, Write>>)> {
 
 fn read(guard: &mut Read) -> Result<i64> {
     let mut stmt = guard.get.query()?;
-    let n = stmt.next()?.expect("a row");
-    assert!(stmt.next()?.is_none());
+    let n = stmt.next().transpose()?.expect("a row");
+    assert!(stmt.next().is_none());
     Ok(n)
 }
 
@@ -250,6 +250,6 @@ async fn guards_expose_their_connection() -> Result<()> {
 
     let (read, c) = guard.split();
     assert!(c.database_read_only(c"main")?);
-    assert_eq!(read.get.query()?.next()?, Some(2));
+    assert_eq!(read.get.query()?.first()?, Some(2));
     Ok(())
 }

@@ -87,14 +87,7 @@ async fn main() -> Result<()> {
             let mut guard = pool.shared().await?;
 
             task::spawn_blocking(move || -> Result<Vec<(String, i64)>> {
-                let mut rows = Vec::new();
-
-                let mut stmt = guard.all_users.query()?;
-
-                while let Some(row) = stmt.next()? {
-                    rows.push(row);
-                }
-
+                let rows = guard.all_users.query()?.collect::<Result<Vec<_>, _>>()?;
                 Ok(rows)
             })
             .await?
