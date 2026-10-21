@@ -1086,6 +1086,140 @@ impl Statement {
         value.bind_value(self, index)
     }
 
+    /// Bind a list of values whose length is only known at runtime, one after
+    /// another starting at [`Index::BIND`].
+    ///
+    /// This is useful for statements whose SQL is composed at runtime, such as
+    /// an `IN (?, ?, ...)` list or a `WHERE` clause with optional filters,
+    /// where a fixed-arity [`Bind`] implementation like a tuple does not fit.
+    /// To bind values of different types, collect them as [`OwnedValue`] or
+    /// [`Value`].
+    ///
+    /// Like [`bind_value`], this does not reset the statement, so a statement
+    /// that has been stepped must be [`reset`] first. The bindings are sticky,
+    /// so a following [`execute`] or [`first`] with `()` runs the statement
+    /// with them.
+    ///
+    /// [`OwnedValue`]: crate::OwnedValue
+    /// [`Value`]: crate::Value
+    /// [`bind_value`]: Self::bind_value
+    /// [`reset`]: Self::reset
+    /// [`execute`]: Self::execute
+    /// [`first`]: Self::first
+    ///
+    /// # Errors
+    ///
+    /// Errors with [`Code::RANGE`] if the number of values differs from
+    /// [`bind_parameter_count`]. Values before the mismatch is detected may
+    /// already have been bound when this happens.
+    ///
+    /// [`bind_parameter_count`]: Self::bind_parameter_count
+    ///
+    /// ```
+    /// use sqll::{Code, Connection};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// let mut stmt = c.prepare("SELECT ?, ?")?;
+    ///
+    /// let e = stmt.bind_iter([1, 2, 3]).unwrap_err();
+    /// assert_eq!(e.code(), Code::RANGE);
+    ///
+    /// let e = stmt.bind_iter([1]).unwrap_err();
+    /// assert_eq!(e.code(), Code::RANGE);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 42), ('Bob', 72), ('Carol', 35);
+    /// "#)?;
+    ///
+    /// let names = ["Alice", "Carol"];
+    /// let placeholders = vec!["?"; names.len()].join(", ");
+    ///
+    /// let mut stmt = c.prepare(format!("SELECT age FROM users WHERE name IN ({placeholders}) ORDER BY age"))?;
+    /// stmt.bind_iter(names)?;
+    ///
+    /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(35), Ok(42)]);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    ///
+    /// Composing a query with optional filters of different types:
+    ///
+    /// ```
+    /// use sqll::{Connection, OwnedValue};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 42), ('Bob', 72), ('Carol', 35);
+    /// "#)?;
+    ///
+    /// let name: Option<&str> = None;
+    /// let min_age: Option<i64> = Some(40);
+    ///
+    /// let mut sql = String::from("SELECT name FROM users WHERE 1");
+    /// let mut params = Vec::new();
+    ///
+    /// if let Some(name) = name {
+    ///     sql.push_str(" AND name = ?");
+    ///     params.push(OwnedValue::from(name));
+    /// }
+    ///
+    /// if let Some(min_age) = min_age {
+    ///     sql.push_str(" AND age >= ?");
+    ///     params.push(OwnedValue::from(min_age));
+    /// }
+    ///
+    /// sql.push_str(" ORDER BY name");
+    ///
+    /// let mut stmt = c.prepare(sql)?;
+    /// stmt.bind_iter(&params)?;
+    ///
+    /// let names = stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?;
+    /// assert_eq!(names, ["Alice", "Bob"]);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn bind_iter<I>(&mut self, values: I) -> Result<()>
+    where
+        I: IntoIterator<Item: BindValue>,
+    {
+        let expected = self.bind_parameter_count();
+        let mut count: c_int = 0;
+
+        for value in values {
+            if count >= expected {
+                return Err(Error::new(
+                    Code::RANGE,
+                    format_args!("more values than the {expected} parameters of the statement"),
+                ));
+            }
+
+            count += 1;
+            value.bind_value(self, Index::from_raw(count))?;
+        }
+
+        if count != expected {
+            return Err(Error::new(
+                Code::RANGE,
+                format_args!("{count} values bound to a statement with {expected} parameters"),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Return the index for a named parameter if exists.
     ///
     /// Note that this takes a c-string as the parameter name since that is what

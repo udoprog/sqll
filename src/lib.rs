@@ -359,6 +359,8 @@ mod open_options;
 mod owned;
 #[cfg(feature = "alloc")]
 mod owned_bytes;
+#[cfg(feature = "alloc")]
+mod owned_value;
 #[cfg(feature = "pool")]
 mod pool;
 mod row;
@@ -418,6 +420,10 @@ pub use self::open_options::{JournalMode, OpenOptions, Synchronous};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, cfg(feature = "alloc"))]
 pub use self::owned_bytes::OwnedBytes;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[doc(inline)]
+pub use self::owned_value::OwnedValue;
 #[doc(inline)]
 pub use self::row::Row;
 #[doc(inline)]
