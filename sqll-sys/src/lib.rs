@@ -13,9 +13,11 @@
 //!
 //! * `bundled` - Use the bundled sqlite3 source code. If this feature is not
 //!   enabled see the building with system dependencies section below.
-//! * `threadsafe` - Build sqlite3 with threadsafe support. If this is not set
-//!   then the `bundled` feature has to be set since we otherwise cannot control
-//!   how sqlite is built.
+//! * `threadsafe` - Build sqlite3 with threadsafe support. This only changes
+//!   how the bundled sqlite3 is built: without it, the `bundled` feature builds
+//!   sqlite3 with `SQLITE_THREADSAFE=0`. A system library is linked as it is,
+//!   and with or without this feature [sqll] checks its thread safety when a
+//!   connection is opened.
 //! * `strict` - Build sqlite3 with strict compiler flags enabled. This is only
 //!   used when the `bundled` feature is enabled.
 //!
@@ -61,8 +63,3 @@
 #[allow(clippy::all, warnings)]
 mod base;
 pub use base::*;
-
-#[cfg(all(not(feature = "bundled"), not(feature = "threadsafe")))]
-compile_error!(
-    "sqll-sys: If the `threadsafe` feature is disabled, the `bundled` feature must be enabled. Otherwise it has no effect."
-);

@@ -259,8 +259,7 @@ Each item which needs a feature is marked with it in the documentation.
   metadata of that crate[^sqll-sys].
 * `threadsafe` - Enable usage of sqlite with the threadsafe option set. We
   assume any system level libraries have this build option enabled, and
-  opening a connection fails if they do not. If this is disabled the
-  `bundled` feature has to be enabled. Enabled by default. With this feature
+  opening a connection fails if they do not. Enabled by default. With it
   `Connection` implements `Send`, and every connection is opened in the
   "serialized" threading mode, so [`OpenOptions::no_mutex`] has no effect and
   is deprecated, and the unsafe [`OpenOptions::no_mutex_unchecked`] is needed
@@ -268,8 +267,10 @@ Each item which needs a feature is marked with it in the documentation.
   [`Pool`] guards which hand out their [`Connection`], such as
   [`ExclusiveGuard::transaction`]. If `threadsafe` is disabled, `Connection`
   does not implement `Send`. But it is also important to understand that if
-  this option is not set, sqlite **may not be used by multiple threads at
-  all** even if threads have distinct connections[^sqll-sys].
+  this option is not set together with `bundled`, sqlite is built without
+  thread safety and **may not be used by multiple threads at all** even if
+  threads have distinct connections[^sqll-sys]. A system library is linked
+  as it is either way.
 * `strict` - Enable usage of sqlite with the strict compiler options
   enabled[^sqll-sys].
 * `pool` - Enable the high-level connection [`Pool`], [`Pool::read`] and
@@ -286,9 +287,8 @@ Each item which needs a feature is marked with it in the documentation.
 The rest of the crate needs no feature of its own, including
 [`Connection::transaction`], [`JournalMode`] and [`Synchronous`], and the
 [`FromColumn`], [`BindValue`], [`Bind`] and [`Row`] traits. A crate which only
-implements those traits can depend on sqll with `default-features = false`,
-though [`sqll-sys`] currently refuses to build unless one of `threadsafe` or
-`bundled` is enabled somewhere in the build.
+implements those traits can depend on sqll with `default-features = false`
+and leave how sqlite is linked and threaded to the final binary.
 
 [^sqll-sys]: This is a forwarded sqll-sys option, see <https://docs.rs/sqll-sys>.
 
