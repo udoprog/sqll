@@ -1149,7 +1149,8 @@ impl Statement {
     /// let mut stmt = c.prepare(format!("SELECT age FROM users WHERE name IN ({placeholders}) ORDER BY age"))?;
     /// stmt.bind_iter(names)?;
     ///
-    /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(35), Ok(42)]);
+    /// let ages = stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?;
+    /// assert_eq!(ages, [35, 42]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     ///

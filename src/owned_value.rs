@@ -3,9 +3,7 @@ use alloc::vec::Vec;
 
 use crate::ty;
 use crate::value::Kind;
-use crate::{
-    Bind, BindValue, Code, Error, FromColumn, Index, Null, Result, Statement, Value, ValueType,
-};
+use crate::{Bind, BindValue, Error, FromColumn, Index, Null, Result, Statement, Value, ValueType};
 
 /// An owned dynamic value, which unlike [`Value`] can also be `NULL`.
 ///
@@ -142,11 +140,13 @@ impl OwnedValue {
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 ///
 /// stmt.bind_value(Index::BIND, OwnedValue::Null)?;
-/// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::from("Alice"))]);
+/// let names = stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?;
+/// assert_eq!(names, ["Alice"]);
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, OwnedValue::Integer(30))?;
-/// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::from("Bob"))]);
+/// let names = stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?;
+/// assert_eq!(names, ["Bob"]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for OwnedValue {
@@ -179,7 +179,8 @@ impl BindValue for OwnedValue {
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(OwnedValue::Null)?;
-/// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::from("Alice"))]);
+/// let names = stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?;
+/// assert_eq!(names, ["Alice"]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bind for OwnedValue {
@@ -236,10 +237,7 @@ impl<'stmt> FromColumn<'stmt> for OwnedValue {
             Kind::Integer(value) => Self::Integer(value),
             Kind::Float(value) => Self::Float(value),
             Kind::Text(value) => {
-                let Ok(string) = value.to_str() else {
-                    return Err(Error::new(Code::MISMATCH, "column is not valid UTF-8"));
-                };
-
+                let string = value.to_str().map_err(Error::conversion)?;
                 Self::Text(String::from(string))
             }
             Kind::Blob(value) => Self::Blob(Vec::from(value)),

@@ -116,5 +116,6 @@ fn owned_value_invalid_utf8() -> Result<()> {
     let mut stmt = c.prepare("SELECT CAST(X'FF' AS TEXT)")?;
     let e = stmt.next::<OwnedValue>().unwrap_err();
     assert_eq!(e.code(), Code::MISMATCH);
+    assert!(e.get_ref().is_some_and(|e| e.is::<std::str::Utf8Error>()));
     Ok(())
 }
