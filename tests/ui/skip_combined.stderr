@@ -1,0 +1,11 @@
+error: cannot have both `skip` and `statements`
+ --> tests/ui/skip_combined.rs:5:11
+  |
+5 |     #[sql(skip, statements)]
+  |           ^^^^
+
+error: cannot have both `skip` and a query
+ --> tests/ui/skip_combined.rs:7:11
+  |
+7 |     #[sql(skip)]
+  |           ^^^^

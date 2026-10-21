@@ -1,0 +1,5 @@
+error: a query expression cannot be combined with other queries
+ --> tests/ui/query_expr_combined.rs:8:19
+  |
+8 |     #[sql(query = SELECT)]
+  |                   ^^^^^^

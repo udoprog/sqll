@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::meta::ParseNestedMeta;
 use syn::spanned::Spanned;
 use syn::{Error, Expr, ExprLit, Ident, ItemStruct, Lit, LitStr, Member, Path};
@@ -126,6 +126,7 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
 
         let mut query = QueryString::default();
         let mut statements = false;
+        let mut skip = None;
 
         for a in &f.attrs {
             if !a.path().is_ident("sql") {
@@ -136,7 +137,7 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
                 syn::Meta::Path(..) => {
                     cx.error(Error::new_spanned(
                         &a.meta,
-                        "unsupported attribute, expected `statements` or a string literal",
+                        "unsupported attribute, expected `statements`, `skip`, `query = ..` or a string literal",
                     ));
 
                     continue;
@@ -148,9 +149,19 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
                             return Ok(());
                         }
 
+                        if s.path.is_ident("query") {
+                            let expr: Expr = s.value()?.parse()?;
+                            return query.push(&expr);
+                        }
+
+                        if s.path.is_ident("skip") {
+                            skip = Some(s.path.span());
+                            return Ok(());
+                        }
+
                         Err(Error::new_spanned(
                             &s.path,
-                            "unsupported attribute, expected `statements` or a string literal",
+                            "unsupported attribute, expected `statements`, `skip` or `query = ..`",
                         ))
                     });
 
@@ -161,15 +172,9 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
                     continue;
                 }
                 syn::Meta::NameValue(name_value) => {
-                    if let Expr::Lit(ExprLit {
-                        lit: Lit::Str(lit), ..
-                    }) = &name_value.value
-                    {
-                        query.append(lit);
-                        continue;
+                    if let Err(error) = query.push(&name_value.value) {
+                        cx.error(error);
                     }
-
-                    cx.error(Error::new_spanned(name_value, "expected string literal"));
                 }
             }
         }
@@ -208,7 +213,17 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
             }
         });
 
-        if statements {
+        if let Some(skip) = skip {
+            if statements {
+                cx.error(Error::new(skip, "cannot have both `skip` and `statements`"));
+            }
+
+            if query.span.is_some() {
+                cx.error(Error::new(skip, "cannot have both `skip` and a query"));
+            }
+
+            builders.push(quote!(::core::default::Default::default()));
+        } else if statements {
             if let Some(span) = query.span {
                 cx.error(Error::new(
                     span,
@@ -237,7 +252,7 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
                 <#ty as #statements_t>::build(c)?
             }});
         } else {
-            let query = query.output;
+            let query = query.output();
 
             builders.push(quote! {{
                 let stmt = match c.prepare_with(#query).persistent().build() {
@@ -267,17 +282,18 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
     }
 
     let ident = &st.ident;
+    let (impl_generics, type_generics, where_clause) = st.generics.split_for_impl();
 
     let impl_read_only = read_only.then(|| {
         quote! {
             #[automatically_derived]
-            unsafe impl #is_read_only_t for #ident {}
+            unsafe impl #impl_generics #is_read_only_t for #ident #type_generics #where_clause {}
         }
     });
 
     Ok(quote! {
         #[automatically_derived]
-        impl #statements_t for #ident {
+        impl #impl_generics #statements_t for #ident #type_generics #where_clause {
             fn build(c: &mut #connection) -> Result<Self, #pool_error> {
                 #assert_read_only_impl
 
@@ -293,13 +309,58 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
     })
 }
 
+/// The query of a field, from its `#[sql = ..]` attributes.
+///
+/// String literals, from `#[sql = ".."]` or `#[sql(query = "..")]`, are trimmed
+/// and joined with a single space at compile time. Any other expression, which
+/// can only be given as `#[sql(query = ..)]` since rustc only accepts literals
+/// in `#[sql = ..]`, must evaluate to a `&'static str` in a const context, such
+/// as a path to an associated constant, and is used as-is when the collection
+/// is built. An expression cannot be combined with other queries on the same
+/// field.
 #[derive(Default)]
 struct QueryString {
     output: String,
+    expr: Option<Expr>,
     span: Option<Span>,
 }
 
 impl QueryString {
+    fn push(&mut self, value: &Expr) -> Result<(), Error> {
+        if let Some(expr) = &self.expr {
+            return Err(Error::new_spanned(
+                expr,
+                "a query expression cannot be combined with other queries",
+            ));
+        }
+
+        if let Expr::Lit(ExprLit {
+            lit: Lit::Str(lit), ..
+        }) = value
+        {
+            self.append(lit);
+            return Ok(());
+        }
+
+        if self.span.is_some() {
+            return Err(Error::new_spanned(
+                value,
+                "a query expression cannot be combined with other queries",
+            ));
+        }
+
+        if let Expr::Lit(lit) = value {
+            return Err(Error::new_spanned(
+                lit,
+                "expected a string literal or a const `&'static str` expression",
+            ));
+        }
+
+        self.span = Some(value.span());
+        self.expr = Some(value.clone());
+        Ok(())
+    }
+
     fn append(&mut self, s: &LitStr) {
         self.span = Some(s.span());
 
@@ -315,6 +376,21 @@ impl QueryString {
         }
 
         self.output.push_str(s);
+    }
+
+    fn output(&self) -> TokenStream {
+        match &self.expr {
+            Some(expr) => quote_spanned! { expr.span() =>
+                const {
+                    let query: &'static str = #expr;
+                    query
+                }
+            },
+            None => {
+                let output = &self.output;
+                quote!(#output)
+            }
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-error: unsupported attribute, expected `statements` or a string literal
+error: unsupported attribute, expected `statements`, `skip`, `query = ..` or a string literal
  --> tests/ui/bare_sql_path.rs:5:7
   |
 5 |     #[sql]

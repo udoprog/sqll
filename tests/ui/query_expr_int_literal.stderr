@@ -1,0 +1,5 @@
+error: expected a string literal or a const `&'static str` expression
+ --> tests/ui/query_expr_int_literal.rs:5:19
+  |
+5 |     #[sql(query = 42)]
+  |                   ^^

@@ -4,7 +4,7 @@ use core::error::Error as _;
 use core::fmt;
 
 use anyhow::Result;
-use sqll::{OpenOptions, PoolBuilder, PoolError, SendStatement, Statements};
+use sqll::{OpenOptions, PoolBuilder, PoolError, Prepared, SendStatement, Statements};
 
 #[derive(Statements)]
 struct TupleStatements(
@@ -229,5 +229,141 @@ fn test_setup_custom_error() -> Result<()> {
 
     let source = error.source().expect("setup error is the source");
     assert_eq!(source.to_string(), "schema is from the future");
+    Ok(())
+}
+
+// Queries customised through a trait of associated constants with defaults, as
+// a library would expose them so that downstreams can override its SQL.
+trait Queries: 'static {
+    const SELECT: &'static str = "SELECT id FROM items";
+    const INSERT: &'static str = "INSERT INTO items (id) VALUES (?)";
+}
+
+struct Defaults;
+
+impl Queries for Defaults {}
+
+struct Custom;
+
+impl Queries for Custom {
+    const SELECT: &'static str = "SELECT id FROM items WHERE id > 0";
+}
+
+const SELECT_ONE: &str = "SELECT 1";
+
+#[derive(Statements)]
+#[sql(read_only)]
+struct GenericRead<Q: Queries = Defaults> {
+    #[sql(query = Q::SELECT)]
+    select: SendStatement,
+    #[sql(query = SELECT_ONE)]
+    select_one: SendStatement,
+    #[sql = "SELECT"]
+    #[sql = "2"]
+    select_two: SendStatement,
+    #[sql(skip)]
+    _marker: core::marker::PhantomData<Q>,
+}
+
+#[derive(Statements)]
+struct GenericWrite<Q>
+where
+    Q: Queries,
+{
+    #[sql(statements)]
+    read: GenericRead<Q>,
+    #[sql(query = Q::INSERT)]
+    insert: SendStatement,
+}
+
+// An application embedding the generic collections into its own.
+#[derive(Statements)]
+#[sql(read_only)]
+struct AppRead {
+    #[sql(statements)]
+    items: GenericRead<Custom>,
+    #[sql(statements)]
+    defaults: GenericRead,
+}
+
+#[derive(Statements)]
+struct AppWrite {
+    #[sql(statements)]
+    items: GenericWrite<Custom>,
+}
+
+#[test]
+fn test_generic_const_queries() -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.create();
+
+    let temp = tempfile::TempDir::new()?;
+
+    // The pool builds every generic collection, read and write.
+    let _pool = PoolBuilder::new(options, 2)
+        .with_write_setup(|c| c.execute("CREATE TABLE items (id INTEGER)"))
+        .open::<AppRead, AppWrite>(temp.path().join("pool.db"))?;
+
+    let c = OpenOptions::new().create().read_write().open_in_memory()?;
+    c.execute("CREATE TABLE items (id INTEGER)")?;
+
+    let mut write = Prepared::<AppWrite>::new(c)?;
+    write.items.insert.execute(0)?;
+    write.items.insert.execute(7)?;
+
+    let read = &mut write.items.read;
+    read.select.bind(())?;
+    assert_eq!(
+        read.select.iter::<i64>().collect::<Result<Vec<_>, _>>()?,
+        [7]
+    );
+    read.select_one.bind(())?;
+    assert_eq!(
+        read.select_one
+            .iter::<i64>()
+            .collect::<Result<Vec<_>, _>>()?,
+        [1]
+    );
+    read.select_two.bind(())?;
+    assert_eq!(
+        read.select_two
+            .iter::<i64>()
+            .collect::<Result<Vec<_>, _>>()?,
+        [2]
+    );
+
+    let (write, c) = write.into_parts();
+    drop(write);
+
+    let mut defaults = Prepared::<GenericRead>::new(c)?;
+    defaults.select.bind(())?;
+    assert_eq!(
+        defaults
+            .select
+            .iter::<i64>()
+            .collect::<Result<Vec<_>, _>>()?,
+        [0, 7]
+    );
+    Ok(())
+}
+
+struct Mutating;
+
+impl Queries for Mutating {
+    const SELECT: &'static str = "DELETE FROM items";
+}
+
+#[test]
+fn test_generic_const_query_not_read_only() -> Result<()> {
+    let c = OpenOptions::new().create().read_write().open_in_memory()?;
+    c.execute("CREATE TABLE items (id INTEGER)")?;
+
+    // The read-only check of a query expression happens when the collection is
+    // built, since its value is only known once the type parameter is.
+    let Err(error) = Prepared::<GenericRead<Mutating>>::new(c) else {
+        panic!("expected an error");
+    };
+
+    assert_eq!(error.to_string(), "field select is not read-only");
     Ok(())
 }

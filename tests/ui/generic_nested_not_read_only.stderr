@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `Write<Q>: IsReadOnly` is not satisfied
+  --> tests/ui/generic_nested_not_read_only.rs:19:12
+   |
+19 |     write: Write<Q>,
+   |            ^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `IsReadOnly` is not implemented for `Write<Q>`
+  --> tests/ui/generic_nested_not_read_only.rs:8:1
+   |
+ 8 | struct Write<Q: Queries> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+help: the trait `IsReadOnly` is implemented for `Read<Q>`
+  --> tests/ui/generic_nested_not_read_only.rs:15:10
+   |
+15 | #[derive(Statements)]
+   |          ^^^^^^^^^^
+note: required by a bound in `_assert_is_read_only`
+  --> tests/ui/generic_nested_not_read_only.rs:15:10
+   |
+15 | #[derive(Statements)]
+   |          ^^^^^^^^^^ required by this bound in `_assert_is_read_only`
+   = note: this error originates in the derive macro `Statements` (in Nightly builds, run with -Z macro-backtrace for more info)

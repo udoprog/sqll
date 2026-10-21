@@ -1,4 +1,4 @@
-error: unsupported attribute, expected `statements` or a string literal
+error: unsupported attribute, expected `statements`, `skip` or `query = ..`
  --> tests/ui/unknown_list_key.rs:5:11
   |
 5 |     #[sql(nope)]
