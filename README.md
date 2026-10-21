@@ -240,8 +240,8 @@ See the [`tokio_async` example] for a complete example.
   [`OwnedBytes`], [`Connection::serialize`], [`Connection::deserialize`],
   [`Connection::busy_handler`] and reading columns into `String` or
   `Vec<u8>`.
-* `derive` - Add a dependency to and re-export of the [`Row` derive]
-  macro.
+* `derive` - Add a dependency to and re-export of the [`Row` derive],
+  [`Bind` derive], [`FromColumn` derive] and [`BindValue` derive] macros.
 * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
   [`sqll-sys`] crate and the sqlite version used is part of the build
   metadata of that crate[^sqll-sys].
@@ -278,6 +278,7 @@ have been copied under the MIT license.
 
 [`axum`]: https://docs.rs/axum
 [`Bind` derive]: https://docs.rs/sqll/latest/sqll/derive.Bind.html
+[`BindValue` derive]: https://docs.rs/sqll/latest/sqll/derive.BindValue.html
 [`bind`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.bind
 [`Bind`]: https://docs.rs/sqll/latest/sqll/trait.Bind.html
 [`Connection`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#thread-safety
@@ -291,6 +292,7 @@ have been copied under the MIT license.
 [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
 [`examples/tokio_async.rs`]: https://github.com/udoprog/sqll/blob/main/examples/tokio_async.rs
 [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
+[`FromColumn` derive]: https://docs.rs/sqll/latest/sqll/derive.FromColumn.html
 [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
 [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 [`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked

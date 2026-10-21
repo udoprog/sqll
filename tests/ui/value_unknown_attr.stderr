@@ -1,0 +1,11 @@
+error: unsupported attribute, expected `crate`, `transparent`, `integer`, `text` or `rename_all`
+ --> tests/ui/value_unknown_attr.rs:4:16
+  |
+4 | #[sql(integer, nope)]
+  |                ^^^^
+
+error: unsupported `rename_all` value, expected one of "lowercase", "UPPERCASE", "snake_case", "SCREAMING_SNAKE_CASE" or "kebab-case"
+  --> tests/ui/value_unknown_attr.rs:10:26
+   |
+10 | #[sql(text, rename_all = "camelCase")]
+   |                          ^^^^^^^^^^^

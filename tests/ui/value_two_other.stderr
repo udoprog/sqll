@@ -1,0 +1,11 @@
+error: only one variant can be marked `other`
+ --> tests/ui/value_two_other.rs:9:11
+  |
+9 |     #[sql(other)]
+  |           ^^^^^
+
+error: first marked `other` here
+ --> tests/ui/value_two_other.rs:6:11
+  |
+6 |     #[sql(other)]
+  |           ^^^^^

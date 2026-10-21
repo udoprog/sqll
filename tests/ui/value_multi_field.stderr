@@ -1,0 +1,5 @@
+error: `FromColumn` can only be derived for structs with exactly one field, use `Row` for multiple columns
+ --> tests/ui/value_multi_field.rs:4:8
+  |
+4 | struct Point(i64, i64);
+  |        ^^^^^

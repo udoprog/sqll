@@ -1,0 +1,11 @@
+error: expected an integer literal, use `#[sql(value = ..)]` to give a value which is not a literal
+ --> tests/ui/value_non_literal.rs:8:11
+  |
+8 |     Low = BASE,
+  |           ^^^^
+
+error: cannot infer the value of this variant, give it with `#[sql(value = ..)]`
+ --> tests/ui/value_non_literal.rs:9:5
+  |
+9 |     High,
+  |     ^^^^

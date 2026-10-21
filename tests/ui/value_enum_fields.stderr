@@ -1,0 +1,5 @@
+error: `BindValue` can only be derived for enums whose variants have no fields
+ --> tests/ui/value_enum_fields.rs:7:11
+  |
+7 |     Circle(f64),
+  |           ^^^^^

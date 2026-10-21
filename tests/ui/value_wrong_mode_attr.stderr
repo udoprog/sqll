@@ -1,0 +1,17 @@
+error: `rename` is only supported with `#[sql(text)]`, use `value` with `#[sql(integer)]`
+ --> tests/ui/value_wrong_mode_attr.rs:6:20
+  |
+6 |     #[sql(rename = "en")]
+  |                    ^^^^
+
+error: `value` is only supported with `#[sql(integer)]`, use `rename` with `#[sql(text)]`
+  --> tests/ui/value_wrong_mode_attr.rs:13:19
+   |
+13 |     #[sql(value = 1)]
+   |                   ^
+
+error: `integer` and `text` are only supported on enums, a struct delegates to its field
+  --> tests/ui/value_wrong_mode_attr.rs:18:7
+   |
+18 | #[sql(integer)]
+   |       ^^^^^^^

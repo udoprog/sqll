@@ -1,0 +1,11 @@
+error: variant `Email` has the same value 1 as another variant
+ --> tests/ui/value_duplicate.rs:8:19
+  |
+8 |     #[sql(value = 1)]
+  |                   ^
+
+error: first used here
+ --> tests/ui/value_duplicate.rs:6:5
+  |
+6 |     Name = 1,
+  |     ^^^^

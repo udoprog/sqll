@@ -1,0 +1,5 @@
+error: deriving `FromColumn` for an enum requires `#[sql(integer)]` or `#[sql(text)]` to pick how it is stored
+ --> tests/ui/value_enum_no_mode.rs:4:6
+  |
+4 | enum Direction {
+  |      ^^^^^^^^^
