@@ -67,7 +67,6 @@ async fn main() -> Result<()> {
 
                 let task = task::spawn_blocking(move || {
                     stmts.update.execute(2)?;
-                    stmts.update.reset()?;
                     Ok::<_, anyhow::Error>(())
                 });
 

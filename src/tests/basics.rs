@@ -280,3 +280,68 @@ fn deserialize_empty() -> Result<()> {
     drop(c);
     Ok(())
 }
+
+#[test]
+fn statement_execute_resets_and_counts_changes() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+
+    c.execute(
+        r#"
+        CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER);
+        CREATE TABLE log (id INTEGER);
+        CREATE TRIGGER t_log AFTER INSERT ON t BEGIN
+            INSERT INTO log VALUES (new.id);
+            INSERT INTO log VALUES (new.id);
+        END;
+        "#,
+    )?;
+
+    let mut insert = c.prepare("INSERT INTO t (n) VALUES (?), (?)")?;
+    // Trigger changes are not counted.
+    assert_eq!(insert.execute((1, 2))?, 2);
+    // No manual reset is needed between executions.
+    assert_eq!(insert.execute((3, 4))?, 2);
+
+    // A statement which changes nothing reports zero, rather than the count
+    // of the most recent write on the connection.
+    let mut select = c.prepare("SELECT n FROM t")?;
+    assert_eq!(select.execute(())?, 0);
+
+    let mut ddl = c.prepare("CREATE TABLE other (x INTEGER)")?;
+    assert_eq!(ddl.execute(())?, 0);
+
+    let mut update = c.prepare("UPDATE t SET n = n + 1 WHERE n > ?")?;
+    assert_eq!(update.execute(2)?, 2);
+    assert_eq!(update.execute(100)?, 0);
+
+    let mut delete = c.prepare("DELETE FROM t")?;
+    assert_eq!(delete.execute(())?, 4);
+    assert_eq!(delete.execute(())?, 0);
+    Ok(())
+}
+
+#[test]
+fn statement_first() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+
+    c.execute(
+        r#"
+        CREATE TABLE t (n INTEGER);
+        INSERT INTO t VALUES (1), (2), (3);
+        "#,
+    )?;
+
+    let mut stmt = c.prepare("SELECT n FROM t WHERE n >= ? ORDER BY n")?;
+
+    // Leaving the statement active from a partial read is fixed by `first`.
+    stmt.bind(1)?;
+    assert_eq!(stmt.next::<i64>()?, Some(1));
+
+    assert_eq!(stmt.first::<i64>(2)?, Some(2));
+    assert_eq!(stmt.first::<i64>(1)?, Some(1));
+    assert_eq!(stmt.first::<i64>(4)?, None);
+
+    // The statement is no longer active, so the table can be dropped.
+    c.execute("DROP TABLE t")?;
+    Ok(())
+}

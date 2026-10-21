@@ -54,10 +54,8 @@ use core::str::Utf8Error;
 /// let mut insert = c.prepare("INSERT INTO example (data) VALUES (?)")?;
 ///
 /// insert.execute(Text::new(b"invalid: \xF0\x90\x80\xF0\x90\x80"))?;
-/// insert.reset()?;
 ///
 /// insert.execute(Text::new(b"valid: \xe2\x9d\xa4\xef\xb8\x8f"))?;
-/// insert.reset()?;
 ///
 /// let mut stmt = c.prepare("SELECT data FROM example")?;
 /// let e = stmt.next::<&str>().unwrap_err();

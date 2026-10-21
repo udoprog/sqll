@@ -53,7 +53,6 @@ pub trait BindValue {
     /// let mut stmt = c.prepare("INSERT INTO ids (id) VALUES (?)")?;
     ///
     /// stmt.execute(Id(*b"abcdabcd"))?;
-    /// stmt.reset()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
     fn bind_value(&self, stmt: &mut Statement, index: Index) -> Result<()>;
@@ -969,7 +968,6 @@ cfg_select! {
 /// let mut stmt = c.prepare("INSERT INTO strings (string) VALUES (?)")?;
 ///
 /// stmt.execute((String::new(),))?;
-/// stmt.reset()?;
 ///
 /// let mut stmt = c.prepare("SELECT string FROM strings")?;
 /// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::new())]);
@@ -1265,10 +1263,8 @@ where
 /// let mut stmt = c.prepare("INSERT INTO users VALUES (?, ?, ?, ?, ?)")?;
 ///
 /// stmt.execute((None::<i64>, None::<&str>, None::<f64>, None::<&[u8]>, None::<&str>))?;
-/// stmt.reset()?;
 ///
 /// stmt.execute((Some(2i64), Some(b"Bob"), Some(69.42), Some(&[0x69u8, 0x42u8][..]), Some("Bob")))?;
-/// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -1286,10 +1282,8 @@ where
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
 /// stmt.execute(("Alice", None::<i64>))?;
-/// stmt.reset()?;
 ///
 /// stmt.execute(("Bob", Some(30i64)))?;
-/// stmt.reset()?;
 ///
 /// let mut it = c.prepare("SELECT name, age FROM users")?.into_iter::<(String, Option<i64>)>();
 /// assert_eq!(it.collect::<Vec<_>>(), [Ok((String::from("Alice"), None)), Ok((String::from("Bob"), Some(30)))]);

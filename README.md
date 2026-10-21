@@ -125,10 +125,8 @@ c.execute(r#"
 let mut stmt = c.prepare("INSERT INTO persons (name, age) VALUES (:name, :age)")?;
 
 stmt.execute(Person { name: "Alice", age: 30 })?;
-stmt.reset()?;
 
 stmt.execute(Person { name: "Bob", age: 40 })?;
-stmt.reset()?;
 
 let mut query = c.prepare("SELECT name, age FROM persons ORDER BY age")?;
 

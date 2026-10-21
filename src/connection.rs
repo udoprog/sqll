@@ -618,7 +618,6 @@ impl Connection {
     /// drop(c);
     ///
     /// insert.execute(42)?;
-    /// insert.reset()?;
     ///
     /// query.bind(())?;
     /// assert_eq!(query.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);

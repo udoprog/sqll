@@ -393,8 +393,7 @@ impl Statement {
     ///                 let mut stmts = db.stmts.lock_owned().await;
     ///
     ///                 let task = task::spawn_blocking(move || -> Result<Option<i64>> {
-    ///                     stmts.select.reset()?;
-    ///                     Ok(stmts.select.next::<i64>()?)
+    ///                     Ok(stmts.select.first::<i64>(())?)
     ///                 });
     ///
     ///                 task.await?
@@ -623,16 +622,25 @@ impl Statement {
         }
     }
 
-    /// In one call [`bind`] the specified values, and [`step`] until the
-    /// current statement reports [`State::is_done`].
+    /// In one call [`reset`] the statement, [`bind`] the specified values, and
+    /// [`step`] until the statement reports [`State::is_done`], returning the
+    /// number of rows inserted, updated or deleted by it.
     ///
-    /// This is a convenience wrapper around those operations since they are
-    /// commonly used together.
+    /// Since the statement is reset first, the same statement can be executed
+    /// any number of times in a row without resetting it manually. Bindings
+    /// are replaced by the ones passed in. To not bind anything, use `()` as
+    /// the argument, which keeps any previous bindings.
     ///
-    /// To not bind anything, use `()` as the argument.
+    /// The returned count is that of [`Connection::changes`] for this
+    /// statement: only rows directly changed by an `INSERT`, `UPDATE` or
+    /// `DELETE` are counted, not those changed by triggers or foreign key
+    /// actions. Statements which change no rows, such as `SELECT` or `CREATE
+    /// TABLE`, return `0`.
     ///
+    /// [`reset`]: Self::reset
     /// [`bind`]: Self::bind
     /// [`step`]: Self::step
+    /// [`Connection::changes`]: crate::Connection::changes
     ///
     /// # Examples
     ///
@@ -650,21 +658,97 @@ impl Statement {
     ///
     /// let mut stmt = c.prepare("UPDATE users SET age = age + 1")?;
     ///
-    /// stmt.execute(())?;
-    /// stmt.reset()?;
+    /// assert_eq!(stmt.execute(())?, 2);
+    /// assert_eq!(stmt.execute(())?, 2);
     ///
-    /// stmt.execute(())?;
-    /// stmt.reset()?;
+    /// let mut stmt = c.prepare("DELETE FROM users WHERE name = ?")?;
+    /// assert_eq!(stmt.execute("Alice")?, 1);
+    /// assert_eq!(stmt.execute("Alice")?, 0);
     ///
     /// let mut query = c.prepare("SELECT age FROM users ORDER BY name")?;
     /// let results = query.iter::<i64>().collect::<Result<Vec<_>>>()?;
-    /// assert_eq!(results, [44, 71]);
+    /// assert_eq!(results, [71]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    pub fn execute(&mut self, bind: impl Bind) -> Result<()> {
+    pub fn execute(&mut self, bind: impl Bind) -> Result<usize> {
+        self.reset()?;
         self.bind(bind)?;
+
+        // SAFETY: We own the raw handle to this statement, and the connection
+        // it belongs to outlives it.
+        let db = unsafe { ffi::sqlite3_db_handle(self.as_ptr()) };
+        let before = unsafe { ffi::sqlite3_total_changes(db) };
+
         while !self.step()?.is_done() {}
-        Ok(())
+
+        // `sqlite3_changes` reports the most recently completed INSERT, UPDATE
+        // or DELETE on the connection, which is not this statement if it
+        // changed nothing (a SELECT or DDL). The total changes only move when a
+        // row was changed, so use them to tell the two apart.
+        let changes = unsafe {
+            if ffi::sqlite3_total_changes(db) == before {
+                0
+            } else {
+                ffi::sqlite3_changes(db)
+            }
+        };
+
+        Ok(changes as usize)
+    }
+
+    /// In one call [`reset`] the statement, [`bind`] the specified values, and
+    /// return the first row produced, if any, resetting the statement again
+    /// afterwards.
+    ///
+    /// This is a convenient way to run a query that is expected to return at
+    /// most one row. Any further rows are discarded, and since the statement
+    /// is reset before returning it is never left active, so it does not hold
+    /// a read lock or prevent other statements such as `DROP TABLE` from
+    /// running. To not bind anything, use `()` as the argument.
+    ///
+    /// Like [`iter`], the row has to be owned, so columns have to use owned
+    /// variants such as [`String`] or [`FixedBlob`].
+    ///
+    /// [`reset`]: Self::reset
+    /// [`bind`]: Self::bind
+    /// [`iter`]: Self::iter
+    /// [`String`]: alloc::string::String
+    /// [`FixedBlob`]: crate::FixedBlob
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Connection;
+    ///
+    /// let c = Connection::open_in_memory()?;
+    ///
+    /// c.execute(r#"
+    ///     CREATE TABLE users (name TEXT, age INTEGER);
+    ///
+    ///     INSERT INTO users VALUES ('Alice', 72);
+    ///     INSERT INTO users VALUES ('Bob', 40);
+    /// "#)?;
+    ///
+    /// let mut stmt = c.prepare("SELECT name, age FROM users WHERE age > ? ORDER BY age")?;
+    ///
+    /// // Two rows match, but only the first is returned.
+    /// assert_eq!(stmt.first::<(String, i64)>(30)?, Some((String::from("Bob"), 40)));
+    /// assert_eq!(stmt.first::<(String, i64)>(50)?, Some((String::from("Alice"), 72)));
+    /// assert_eq!(stmt.first::<(String, i64)>(100)?, None);
+    ///
+    /// // The statement is not left active, so the table can be dropped.
+    /// c.execute("DROP TABLE users")?;
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn first<T>(&mut self, bind: impl Bind) -> Result<Option<T>>
+    where
+        for<'stmt> T: Row<'stmt>,
+    {
+        self.reset()?;
+        self.bind(bind)?;
+        let value = self.next::<T>();
+        self.reset()?;
+        value
     }
 
     /// Coerce a statement into a typed iterator over the rows produced by this

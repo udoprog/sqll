@@ -914,10 +914,8 @@ impl<const N: usize> FromColumn<'_> for FixedText<N> {
 /// let mut stmt = c.prepare("INSERT INTO users (name, age) VALUES (?, ?)")?;
 ///
 /// stmt.execute(("Alice", None::<i64>))?;
-/// stmt.reset()?;
 ///
 /// stmt.execute(("Bob", Some(30i64)))?;
-/// stmt.reset()?;
 ///
 /// let mut stmt = c.prepare("SELECT name, age FROM users")?;
 ///

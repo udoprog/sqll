@@ -70,6 +70,11 @@ where
     /// Execute the statement with the specified bind parameters, this is not
     /// expected to return any rows.
     ///
+    /// The statement is reset first and the number of rows inserted, updated
+    /// or deleted by it is returned, as with [`Statement::execute`].
+    ///
+    /// [`Statement::execute`]: crate::Statement::execute
+    ///
     /// # Examples
     ///
     /// ```
@@ -90,11 +95,12 @@ where
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
     ///
     /// let mut write = Write::build(&mut c)?;
-    /// write.insert_user.execute(("Alice".to_string(), 25))?;
+    /// assert_eq!(write.insert_user.execute(("Alice".to_string(), 25))?, 1);
+    /// assert_eq!(write.insert_user.execute(("Bob".to_string(), 30))?, 1);
     /// # Ok::<(), Box<dyn core::error::Error>>(())
     /// ```
     #[track_caller]
-    pub fn execute<B>(&mut self, bind: B) -> Result<(), Error>
+    pub fn execute<B>(&mut self, bind: B) -> Result<usize, Error>
     where
         B: Bind,
     {
@@ -105,10 +111,7 @@ where
             );
         }
 
-        self.inner.reset()?;
-        self.inner.bind(bind)?;
-        while !self.inner.step()?.is_done() {}
-        Ok(())
+        self.inner.execute(bind)
     }
 }
 
