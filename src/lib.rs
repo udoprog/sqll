@@ -409,6 +409,9 @@ mod pool;
 #[cfg(feature = "pool")]
 mod prepared;
 mod row;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub mod schema;
 mod statement;
 mod text;
 mod transaction;
@@ -477,6 +480,10 @@ pub use self::owned_bytes::OwnedBytes;
 pub use self::owned_value::OwnedValue;
 #[doc(inline)]
 pub use self::row::Row;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[doc(inline)]
+pub use self::schema::Schema;
 #[doc(inline)]
 pub use self::statement::{Null, SendStatement, State, Statement};
 #[doc(inline)]
