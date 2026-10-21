@@ -211,7 +211,7 @@ impl FromUnsizedColumn for str {
         let text = Text::from_unsized_column(stmt, index)?;
 
         let Ok(string) = text.to_str() else {
-            return Err(Error::new(Code::MISMATCH, "column is not valid UTF-8"));
+            return Err(Error::mismatch("column is not valid UTF-8"));
         };
 
         Ok(string)
@@ -299,10 +299,9 @@ unsafe fn column_bytes(stmt: &Statement, column: Column, expected: ValueType) ->
     let actual = stmt.column_type(column);
 
     if actual != expected {
-        return Err(Error::new(
-            Code::MISMATCH,
-            format_args!("expected column type {expected} but found {actual}"),
-        ));
+        return Err(Error::mismatch(format_args!(
+            "expected column type {expected} but found {actual}"
+        )));
     }
 
     unsafe {

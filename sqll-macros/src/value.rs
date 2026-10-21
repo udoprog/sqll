@@ -641,7 +641,6 @@ fn expand_enum(
             let statement = tokens.path(&["Statement"]);
             let from_column_t = tokens.path(&["FromColumn"]);
             let error = tokens.path(&["Error"]);
-            let code = tokens.path(&["Code"]);
             let (lt, impl_generics) = stmt_lifetime(&input.generics);
 
             let (ty, read) = match mode {
@@ -662,7 +661,7 @@ fn expand_enum(
                     };
 
                     quote! {
-                        value => #result::Err(#error::new(#code::MISMATCH, ::core::format_args!(#message, value))),
+                        value => #result::Err(#error::mismatch(::core::format_args!(#message, value))),
                     }
                 }
             };

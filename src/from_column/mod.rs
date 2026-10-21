@@ -3,9 +3,7 @@ mod alloc;
 
 use crate::ffi;
 use crate::ty::{self, AnyKind, NotNull, Type};
-use crate::{
-    Code, Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Statement, Text, Value,
-};
+use crate::{Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Statement, Text, Value};
 
 /// A type suitable for reading a single value from a prepared statement.
 ///
@@ -67,6 +65,71 @@ use crate::{
 /// let mut stmt = c.prepare("SELECT ts FROM test")?;
 ///
 /// assert_eq!(stmt.next::<Timestamp>()?, Some(Timestamp { seconds: 1767675413 }));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// A conversion that can fail returns [`Error::mismatch`] with a message, or
+/// [`Error::conversion`] to keep the error that caused it as the source. Both
+/// use [`Code::MISMATCH`].
+///
+/// ```
+/// use std::net::Ipv4Addr;
+///
+/// use sqll::{Code, Connection, Error, FromColumn, Result, Statement};
+/// use sqll::ty;
+///
+/// #[derive(Debug, PartialEq, Eq)]
+/// struct Port(u16);
+///
+/// impl FromColumn<'_> for Port {
+///     type Type = ty::Integer;
+///
+///     #[inline]
+///     fn from_column(stmt: &Statement, index: ty::Integer) -> Result<Self> {
+///         let value = i64::from_column(stmt, index)?;
+///
+///         match u16::try_from(value) {
+///             Ok(port) if port != 0 => Ok(Port(port)),
+///             _ => Err(Error::mismatch(format_args!("{value} is not a port"))),
+///         }
+///     }
+/// }
+///
+/// struct Address(Ipv4Addr);
+///
+/// impl FromColumn<'_> for Address {
+///     type Type = ty::Text;
+///
+///     #[inline]
+///     fn from_column(stmt: &Statement, index: ty::Text) -> Result<Self> {
+///         let text = <&str>::from_column(stmt, index)?;
+///         let address = text.parse().map_err(Error::conversion)?;
+///         Ok(Address(address))
+///     }
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE test (port INTEGER, address TEXT);
+///
+///     INSERT INTO test VALUES (8080, '127.0.0.1'), (0, 'localhost');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT port, address FROM test")?;
+///
+/// assert!(stmt.step()?.is_row());
+/// assert_eq!(stmt.column::<Port>(0)?, Port(8080));
+/// assert_eq!(stmt.column::<Address>(1)?.0, Ipv4Addr::LOCALHOST);
+///
+/// assert!(stmt.step()?.is_row());
+/// let e = stmt.column::<Port>(0).unwrap_err();
+/// assert_eq!(e.code(), Code::MISMATCH);
+/// assert_eq!(e.to_string(), "0 is not a port");
+///
+/// let Err(e) = stmt.column::<Address>(1) else { panic!() };
+/// assert_eq!(e.code(), Code::MISMATCH);
+/// assert!(e.get_ref().is_some_and(|e| e.is::<std::net::AddrParseError>()));
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -570,7 +633,7 @@ macro_rules! lossy {
                 let value = i64::from_column(stmt, index)?;
 
                 let Ok(value) = <$ty>::try_from(value) else {
-                    return Err(Error::new(Code::MISMATCH, format_args!($conversion, value)));
+                    return Err(Error::mismatch(format_args!($conversion, value)));
                 };
 
                 Ok(value)
@@ -797,13 +860,10 @@ impl<const N: usize> FromColumn<'_> for [u8; N] {
 
         match blob.into_bytes() {
             Ok(bytes) => Ok(bytes),
-            Err(blob) => Err(Error::new(
-                Code::MISMATCH,
-                format_args!(
-                    "blob size must be exactly {N} bytes, but was {}",
-                    blob.len()
-                ),
-            )),
+            Err(blob) => Err(Error::mismatch(format_args!(
+                "blob size must be exactly {N} bytes, but was {}",
+                blob.len()
+            ))),
         }
     }
 }
@@ -848,7 +908,7 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
     fn from_column(stmt: &Statement, index: ty::Blob) -> Result<Self> {
         match FixedBlob::try_from(<[u8]>::from_unsized_column(stmt, index)?) {
             Ok(bytes) => Ok(bytes),
-            Err(err) => Err(Error::new(Code::MISMATCH, err)),
+            Err(err) => Err(Error::conversion(err)),
         }
     }
 }
@@ -893,7 +953,7 @@ impl<const N: usize> FromColumn<'_> for FixedText<N> {
     fn from_column(stmt: &Statement, index: ty::Text) -> Result<Self> {
         match FixedText::try_from(str::from_unsized_column(stmt, index)?) {
             Ok(s) => Ok(s),
-            Err(err) => Err(Error::new(Code::MISMATCH, err)),
+            Err(err) => Err(Error::conversion(err)),
         }
     }
 }

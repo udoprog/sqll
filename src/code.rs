@@ -43,6 +43,79 @@ impl Code {
         Self::new(self.raw & 0xff)
     }
 
+    /// Test if this code is in the [`Code::BUSY`] or [`Code::LOCKED`] family.
+    ///
+    /// Both mean that a lock the operation needed was held elsewhere, so the
+    /// operation can be tried again later. `BUSY` is a lock held by another
+    /// connection to the database file, and `LOCKED` one held inside the same
+    /// connection or shared cache.
+    ///
+    /// This looks at the [base] code, so it gives the same answer whether or
+    /// not [extended result codes] are enabled.
+    ///
+    /// [base]: Code::base
+    /// [extended result codes]: crate::OpenOptions::extended_result_codes
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Code;
+    ///
+    /// assert!(Code::BUSY.is_busy());
+    /// assert!(Code::BUSY_SNAPSHOT.is_busy());
+    /// assert!(Code::LOCKED_SHAREDCACHE.is_busy());
+    /// assert!(!Code::CONSTRAINT.is_busy());
+    /// ```
+    #[inline]
+    pub fn is_busy(self) -> bool {
+        matches!(self.base(), Self::BUSY | Self::LOCKED)
+    }
+
+    /// Test if this code is in the [`Code::CONSTRAINT`] family, such as a
+    /// violated `UNIQUE`, `NOT NULL`, `CHECK` or foreign key constraint.
+    ///
+    /// This looks at the [base] code, so it gives the same answer whether or
+    /// not [extended result codes] are enabled.
+    ///
+    /// [base]: Code::base
+    /// [extended result codes]: crate::OpenOptions::extended_result_codes
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Code;
+    ///
+    /// assert!(Code::CONSTRAINT.is_constraint());
+    /// assert!(Code::CONSTRAINT_UNIQUE.is_constraint());
+    /// assert!(!Code::BUSY.is_constraint());
+    /// ```
+    #[inline]
+    pub fn is_constraint(self) -> bool {
+        self.base() == Self::CONSTRAINT
+    }
+
+    /// Test if this code is [`Code::FULL`], meaning the database or a
+    /// temporary file could not grow, such as when the disk is full.
+    ///
+    /// This looks at the [base] code, so it gives the same answer whether or
+    /// not [extended result codes] are enabled.
+    ///
+    /// [base]: Code::base
+    /// [extended result codes]: crate::OpenOptions::extended_result_codes
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Code;
+    ///
+    /// assert!(Code::FULL.is_full());
+    /// assert!(!Code::IOERR.is_full());
+    /// ```
+    #[inline]
+    pub fn is_full(self) -> bool {
+        self.base() == Self::FULL
+    }
+
     /// Get the error message associated with this code.
     #[cfg(not(feature = "alloc"))]
     pub(crate) fn message(&self) -> &Text {

@@ -169,10 +169,9 @@ unsafe impl Type for Any {
             ValueType::FLOAT => AnyKind::Float(Float::check(stmt, column)?),
             ValueType::INTEGER => AnyKind::Integer(Integer::check(stmt, column)?),
             ty => {
-                return Err(Error::new(
-                    Code::MISMATCH,
-                    format_args!("dynamic value has unsupported column type {ty}"),
-                ));
+                return Err(Error::mismatch(format_args!(
+                    "dynamic value has unsupported column type {ty}"
+                )));
             }
         };
 
@@ -771,13 +770,10 @@ where
 #[inline(always)]
 fn type_check(stmt: &Statement, column: Column, expected: ValueType) -> Result<()> {
     if stmt.column_type(column) != expected {
-        return Err(Error::new(
-            Code::MISMATCH,
-            format_args!(
-                "expected column type {expected} but found {}",
-                stmt.column_type(column)
-            ),
-        ));
+        return Err(Error::mismatch(format_args!(
+            "expected column type {expected} but found {}",
+            stmt.column_type(column)
+        )));
     }
 
     Ok(())

@@ -5,7 +5,7 @@ use crate::bytes;
 use crate::ffi;
 use crate::utils::sqlite3_try;
 use crate::value::Kind;
-use crate::{Bind, Code, Error, FixedBlob, FixedText, Index, Null, Result, Statement, Text, Value};
+use crate::{Bind, Error, FixedBlob, FixedText, Index, Null, Result, Statement, Text, Value};
 
 /// A type suitable for binding to a prepared statement.
 ///
@@ -843,7 +843,7 @@ macro_rules! lossy {
             #[inline]
             fn bind_value(&self, stmt: &mut Statement, index: Index) -> Result<()> {
                 let Ok(value) = i64::try_from(*self) else {
-                    return Err(Error::new(Code::MISMATCH, format_args!($conversion, *self)));
+                    return Err(Error::mismatch(format_args!($conversion, *self)));
                 };
 
                 value.bind_value(stmt, index)
