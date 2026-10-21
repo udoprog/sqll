@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 use std::path::Path;
 
 use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore};
+use tokio::task::{self, JoinError};
 
 use crate::{Connection, Error as SqllError, NotThreadSafe, OpenOptions};
 
@@ -475,6 +476,7 @@ impl Error for PoolError {
             ErrorKind::FieldPrepareFailed(_, ref source) => Some(source),
             ErrorKind::IndexNotThreadSafe(_, ref source) => Some(source),
             ErrorKind::FieldNotThreadSafe(_, ref source) => Some(source),
+            ErrorKind::Task(ref source) => Some(source),
             _ => None,
         }
     }
@@ -501,6 +503,7 @@ enum ErrorKind {
     FieldNotThreadSafe(&'static str, NotThreadSafe),
     IndexBuildFailed(usize, Box<dyn Error + Send + Sync + 'static>),
     FieldBuildFailed(&'static str, Box<dyn Error + Send + Sync + 'static>),
+    Task(JoinError),
 }
 
 impl From<ErrorKind> for PoolError {
@@ -541,6 +544,8 @@ impl fmt::Display for ErrorKind {
             Self::FieldBuildFailed(name, source) => {
                 write!(f, "field {name} build failed: {source}")
             }
+            Self::Task(error) if error.is_panic() => write!(f, "blocking task panicked"),
+            Self::Task(_) => write!(f, "blocking task was cancelled"),
         }
     }
 }
@@ -574,6 +579,8 @@ impl fmt::Display for ErrorKind {
 /// [`shared`]: Self::shared
 /// [`exclusive`]: Self::exclusive
 /// [`exclusive_all`]: Self::exclusive_all
+/// [`read`]: Self::read
+/// [`write`]: Self::write
 /// [WAL]: https://sqlite.org/wal.html
 /// [`busy_timeout`]: OpenOptions::busy_timeout
 ///
@@ -605,11 +612,12 @@ impl fmt::Display for ErrorKind {
 /// # Ok::<_, sqll::PoolError>(())
 /// ```
 ///
-/// Once built, wrap the pool in an [`Arc`] and use [`shared`] to read or
-/// [`exclusive`] to write. Since SQLite is a blocking library, the actual
-/// statement calls should be performed on a blocking thread (such as
-/// [`tokio::task::spawn_blocking`]). See [`examples/pool.rs`] for a complete
-/// asynchronous example.
+/// Once built, wrap the pool in an [`Arc`] and use [`read`] to read or
+/// [`write`] to write. Since SQLite is a blocking library, these run the given
+/// closure with a guard on a blocking thread through
+/// [`tokio::task::spawn_blocking`]. [`shared`] and [`exclusive`] hand out the
+/// guards themselves, for when the caller wants to pick the thread. See
+/// [`examples/pool.rs`] for a complete asynchronous example.
 ///
 /// SQL which cannot be declared up front, such as a query composed at runtime,
 /// can be prepared on the connection a guard lends out through
@@ -914,7 +922,7 @@ where
     ///
     /// [`exclusive`]: Self::exclusive
     /// [`exclusive_all`]: Self::exclusive_all
-    pub async fn shared(self: Arc<Self>) -> Result<SharedGuard<R, W>, PoolError> {
+    pub async fn shared(self: &Arc<Self>) -> Result<SharedGuard<R, W>, PoolError> {
         let result = self.read_semaphore.clone().acquire_owned().await;
 
         let permit = match result {
@@ -955,7 +963,7 @@ where
 
         Ok(SharedGuard {
             read,
-            pool: self,
+            pool: self.clone(),
             index,
             _permit: permit,
         })
@@ -1010,14 +1018,14 @@ where
     /// let pool = Arc::new(pool);
     ///
     /// # tokio::runtime::Runtime::new()?.block_on(async move {
-    /// let mut write = pool.clone().exclusive().await?;
+    /// let mut write = pool.exclusive().await?;
     /// let (w, c) = write.split();
     /// c.execute("BEGIN")?;
     /// w.insert.execute("Alice")?;
     ///
     /// // A reader is not held up by the writer, and does not see its
     /// // uncommitted changes.
-    /// let mut read = pool.clone().shared().await?;
+    /// let mut read = pool.shared().await?;
     /// read.count.reset()?;
     /// assert_eq!(read.count.next::<i64>()?, Some(0));
     /// read.count.reset()?;
@@ -1028,7 +1036,7 @@ where
     /// # })?;
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub async fn exclusive(self: Arc<Self>) -> Result<ExclusiveGuard<R, W>, PoolError> {
+    pub async fn exclusive(self: &Arc<Self>) -> Result<ExclusiveGuard<R, W>, PoolError> {
         let write_permit = match self.write_semaphore.clone().acquire_owned().await {
             Ok(permit) => permit,
             Err(AcquireError { .. }) => return Err(PoolError::from(ErrorKind::NoConnections)),
@@ -1042,7 +1050,7 @@ where
 
         Ok(ExclusiveGuard {
             write,
-            _pool: self,
+            _pool: self.clone(),
             _read_permits: None,
             _write_permit: write_permit,
         })
@@ -1097,21 +1105,21 @@ where
     /// let pool = Arc::new(pool);
     ///
     /// # tokio::runtime::Runtime::new()?.block_on(async move {
-    /// let mut write = pool.clone().exclusive_all().await?;
+    /// let mut write = pool.exclusive_all().await?;
     /// write.insert.execute("Alice")?;
     ///
     /// // No reader can get in while the guard is held.
     /// let wait = Duration::from_millis(50);
-    /// assert!(tokio::time::timeout(wait, pool.clone().shared()).await.is_err());
+    /// assert!(tokio::time::timeout(wait, pool.shared()).await.is_err());
     /// drop(write);
     ///
-    /// let mut read = pool.clone().shared().await?;
+    /// let mut read = pool.shared().await?;
     /// assert_eq!(read.count.next::<i64>()?, Some(1));
     /// # Ok::<_, anyhow::Error>(())
     /// # })?;
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub async fn exclusive_all(self: Arc<Self>) -> Result<ExclusiveGuard<R, W>, PoolError> {
+    pub async fn exclusive_all(self: &Arc<Self>) -> Result<ExclusiveGuard<R, W>, PoolError> {
         // The write permit is taken first, so that waiting for the readers to
         // drain does not hold up readers on behalf of a writer that is itself
         // still queued behind another writer. Taking the two in a fixed order
@@ -1138,10 +1146,226 @@ where
 
         Ok(ExclusiveGuard {
             write,
-            _pool: self,
+            _pool: self.clone(),
             _read_permits: Some(read_permits),
             _write_permit: write_permit,
         })
+    }
+
+    /// Run `f` with a [`SharedGuard`] on a blocking thread.
+    ///
+    /// This acquires a guard as [`shared`] does, then moves it to a thread
+    /// where blocking is allowed through [`tokio::task::spawn_blocking`], and
+    /// calls `f` with it there. SQLite is a blocking library, so this is how
+    /// statements are meant to be run from asynchronous code. The guard is
+    /// dropped on the blocking thread once `f` returns.
+    ///
+    /// `f` receives the guard itself, so besides the `R` statements it
+    /// derefs to it can reach the connection through
+    /// [`SharedGuard::connection`] or [`SharedGuard::split`].
+    ///
+    /// Whatever `f` returns is passed through, so a fallible `f` makes this
+    /// return a nested `Result`, which `??` unwraps when both error types
+    /// convert into the caller's.
+    ///
+    /// # Errors
+    ///
+    /// Fails if no read connection could be acquired, or if `f` panicked, in
+    /// which case the [`source`] of the error is the [`JoinError`] carrying
+    /// the panic.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called outside of a Tokio runtime.
+    ///
+    /// # Cancellation
+    ///
+    /// Dropping the returned future while it waits for a connection stops the
+    /// wait. Once `f` is running it cannot be stopped, so dropping the future
+    /// then only discards its result.
+    ///
+    /// [`shared`]: Self::shared
+    /// [`source`]: core::error::Error::source
+    /// [`JoinError`]: https://docs.rs/tokio/latest/tokio/task/struct.JoinError.html
+    /// [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, Statements, TypedStatement};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT name FROM users WHERE age > ? ORDER BY name"]
+    ///     older_than: TypedStatement<i64, String>,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {}
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| {
+    ///         c.execute(r#"
+    ///             CREATE TABLE users (name TEXT, age INTEGER);
+    ///             INSERT INTO users VALUES ('Alice', 42), ('Bob', 72), ('Carol', 21);
+    ///         "#)
+    ///     })
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let names = pool
+    ///     .read(|r| r.older_than.bind(30)?.collect::<Result<Vec<_>, _>>())
+    ///     .await??;
+    ///
+    /// assert_eq!(names, ["Alice", "Bob"]);
+    ///
+    /// // SQL composed at runtime through the guard's connection.
+    /// let column = "age";
+    ///
+    /// let oldest = pool
+    ///     .read(move |r| {
+    ///         let mut stmt = r.connection().prepare(format!("SELECT MAX({column}) FROM users"))?;
+    ///         stmt.bind(())?;
+    ///         stmt.next::<i64>()
+    ///     })
+    ///     .await??;
+    ///
+    /// assert_eq!(oldest, Some(72));
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    pub async fn read<F, T>(self: &Arc<Self>, f: F) -> Result<T, PoolError>
+    where
+        R: Send + 'static,
+        W: Send + 'static,
+        F: FnOnce(&mut SharedGuard<R, W>) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let mut guard = self.shared().await?;
+        let task = task::spawn_blocking(move || f(&mut guard));
+        task.await.map_err(|e| PoolError::from(ErrorKind::Task(e)))
+    }
+
+    /// Run `f` with an [`ExclusiveGuard`] on a blocking thread.
+    ///
+    /// This acquires a guard as [`exclusive`] does, then moves it to a thread
+    /// where blocking is allowed through [`tokio::task::spawn_blocking`], and
+    /// calls `f` with it there. The guard is dropped on the blocking thread
+    /// once `f` returns, so the next writer can only start after that.
+    ///
+    /// `f` receives the guard itself, so besides the `W` statements it derefs
+    /// to it can reach the connection through [`ExclusiveGuard::connection`]
+    /// or [`ExclusiveGuard::split`], and run its statements in a transaction
+    /// through [`ExclusiveGuard::transaction`].
+    ///
+    /// The errors, panics and cancellation are as for [`read`].
+    ///
+    /// [`exclusive`]: Self::exclusive
+    /// [`read`]: Self::read
+    /// [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{Error, OpenOptions, PoolBuilder, Statements, TypedStatement};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: TypedStatement<(), i64>,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+    ///     insert: TypedStatement<(String, i64), ()>,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT, age INTEGER)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let rowid = pool
+    ///     .write(|w| {
+    ///         w.transaction(|w, c| {
+    ///             w.insert.execute(("Alice", 42))?;
+    ///             w.insert.execute(("Bob", 72))?;
+    ///             Ok::<_, Error>(c.last_insert_rowid())
+    ///         })
+    ///     })
+    ///     .await??;
+    ///
+    /// assert_eq!(rowid, 2);
+    ///
+    /// let count = pool.read(|r| r.count.query()?.first()).await??;
+    /// assert_eq!(count, Some(2));
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    ///
+    /// A panic in `f` is returned as an error, and leaves the pool usable:
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {}
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {}
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = Arc::new(PoolBuilder::new(options, 4).open::<Read, Write>(&path)?);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let error = pool.write(|_| panic!("oops")).await.unwrap_err();
+    /// assert_eq!(error.to_string(), "blocking task panicked");
+    ///
+    /// pool.write(|w| w.connection().execute("CREATE TABLE t (a)")).await??;
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    pub async fn write<F, T>(self: &Arc<Self>, f: F) -> Result<T, PoolError>
+    where
+        R: Send + 'static,
+        W: Send + 'static,
+        F: FnOnce(&mut ExclusiveGuard<R, W>) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let mut guard = self.exclusive().await?;
+        let task = task::spawn_blocking(move || f(&mut guard));
+        task.await.map_err(|e| PoolError::from(ErrorKind::Task(e)))
     }
 }
 
@@ -1471,7 +1695,7 @@ impl<R, W> ExclusiveGuard<R, W> {
     /// let pool = Arc::new(pool);
     ///
     /// # tokio::runtime::Runtime::new()?.block_on(async move {
-    /// let mut guard = pool.clone().exclusive().await?;
+    /// let mut guard = pool.exclusive().await?;
     /// let (write, c) = guard.split();
     ///
     /// c.execute("BEGIN")?;
@@ -1543,7 +1767,7 @@ impl<R, W> ExclusiveGuard<R, W> {
     /// let pool = Arc::new(pool);
     ///
     /// # tokio::runtime::Runtime::new()?.block_on(async move {
-    /// let mut guard = pool.clone().exclusive().await?;
+    /// let mut guard = pool.exclusive().await?;
     ///
     /// guard.transaction(|write, _| {
     ///     write.insert.execute(("Alice", 42))?;
@@ -1618,7 +1842,7 @@ impl<R, W> ExclusiveGuard<R, W> {
     /// let pool = Arc::new(pool);
     ///
     /// # tokio::runtime::Runtime::new()?.block_on(async move {
-    /// let mut guard = pool.clone().exclusive().await?;
+    /// let mut guard = pool.exclusive().await?;
     ///
     /// guard.transaction_with(TransactionBehavior::Exclusive, |write, _| {
     ///     write.insert.execute("Alice")?;

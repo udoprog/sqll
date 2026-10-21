@@ -40,55 +40,47 @@ async fn main() -> Result<()> {
     let dir = tempfile::TempDir::new()?;
     let path = dir.path().join("pool.db");
 
-    // The statements in `Read` reference the `users` table, and the pool
-    // prepares every statement up front, so the schema has to exist before the
-    // pool is constructed.
-    {
-        let c = OpenOptions::new().create().read_write().open(&path)?;
-
-        c.execute("CREATE TABLE users (name TEXT PRIMARY KEY NOT NULL, age INTEGER)")?;
-    }
-
     let mut options = OpenOptions::new();
     // WAL lets readers proceed while the write connection is in use.
     options.create().journal_mode(JournalMode::Wal);
 
-    let pool = Arc::new(PoolBuilder::new(options, 4).open::<Read, Write>(&path)?);
+    // The pool prepares every statement up front, so the `users` table the
+    // statements reference is created by the write setup, which runs before
+    // any statement is prepared.
+    let pool = PoolBuilder::new(options, 4)
+        .with_write_setup(|c| {
+            c.execute("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY NOT NULL, age INTEGER)")
+        })
+        .open::<Read, Write>(&path)?;
 
-    // Insert a few rows through the write connection. While this guard is held
-    // no other task can acquire an exclusive guard, but shared guards can still
-    // be used to read. The actual statement calls are performed on a blocking
-    // thread, since SQLite is blocking.
-    {
-        let guard = pool.clone().exclusive().await?;
+    let pool = Arc::new(pool);
 
-        task::spawn_blocking(move || -> Result<()> {
-            let mut guard = guard;
-
+    // Insert a few rows through the write connection, in one transaction.
+    // `write` runs the closure on a blocking thread, since SQLite is blocking.
+    // While it runs no other writer can get in, but readers still can.
+    pool.write(|w| {
+        w.transaction(|w, _| {
             for (name, age) in [("Alice", 42), ("Bob", 52), ("Charlie", 20)] {
-                guard.insert_user.execute((name, age))?;
+                w.insert_user.execute((name, age))?;
             }
 
-            Ok(())
+            Ok::<_, sqll::Error>(())
         })
-        .await??;
-    }
+    })
+    .await??;
 
-    // Read concurrently from several tasks. Each task acquires its own shared
-    // guard backed by one of the pool's read connections.
+    // Read concurrently from several tasks. Each read runs on its own read
+    // connection.
     let mut tasks = Vec::new();
 
     for _ in 0..4 {
         let pool = pool.clone();
 
         tasks.push(task::spawn(async move {
-            let mut guard = pool.shared().await?;
-
-            task::spawn_blocking(move || -> Result<Vec<(String, i64)>> {
-                let rows = guard.all_users.query()?.collect::<Result<Vec<_>, _>>()?;
-                Ok(rows)
-            })
-            .await?
+            let rows = pool
+                .read(|r| r.all_users.query()?.collect::<Result<Vec<_>, _>>())
+                .await??;
+            Ok::<_, anyhow::Error>(rows)
         }));
     }
 
@@ -97,5 +89,19 @@ async fn main() -> Result<()> {
         println!("{rows:?}");
     }
 
+    // SQL composed at runtime is prepared on the guard's connection.
+    let min_age = 30;
+
+    let names = pool
+        .read(move |r| -> Result<Vec<String>> {
+            let mut stmt = r
+                .connection()
+                .prepare(format!("SELECT name FROM users WHERE age > {min_age}"))?;
+            stmt.bind(())?;
+            Ok(stmt.iter::<String>().collect::<Result<_, _>>()?)
+        })
+        .await??;
+
+    println!("{names:?}");
     Ok(())
 }

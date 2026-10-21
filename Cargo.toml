@@ -22,7 +22,7 @@ derive = ["dep:sqll-macros"]
 bundled = ["sqll-sys/bundled"]
 threadsafe = ["sqll-sys/threadsafe"]
 strict = ["sqll-sys/strict"]
-pool = ["alloc", "tokio/sync", "sqll-macros/statements"]
+pool = ["alloc", "tokio/sync", "tokio/rt", "sqll-macros/statements"]
 typed = []
 
 [dependencies]

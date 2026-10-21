@@ -260,8 +260,9 @@ See the [`tokio_async` example] for a complete example.
   enabled[^sqll-sys].
 * `pool` - Enable the high-level connection [`Pool`] and the
   [`Statements` derive] for declaring reusable collections of prepared
-  statements. This pulls in a dependency on the `sync` feature of [`tokio`].
-  Enabled by default.
+  statements, and [`Pool::read`] and [`Pool::write`] which run a closure on
+  a blocking thread. This pulls in a dependency on the `sync` and `rt`
+  features of [`tokio`]. Enabled by default.
 * `typed` - Enable [`TypedStatement`] and the [`typed`] module, wrappers
   around statements which encode their bind parameter and column counts in
   the type system and reset themselves between uses. Used by the
@@ -297,6 +298,8 @@ have been copied under the MIT license.
 [`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked
 [`OwnedBytes`]: https://docs.rs/sqll/latest/sqll/struct.OwnedBytes.html
 [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html
+[`Pool::read`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.read
+[`Pool::write`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.write
 [`Statements` derive]: https://docs.rs/sqll/latest/sqll/derive.Statements.html
 [`tokio`]: https://docs.rs/tokio
 [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with

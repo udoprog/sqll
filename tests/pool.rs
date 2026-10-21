@@ -122,11 +122,11 @@ fn writer_and_readers_hold_guards_at_once() -> Result<()> {
     // all held at once. Each acquisition would wait forever if it had to wait
     // for another guard to be dropped, so bound it.
     let (mut write, reads) = rt.block_on(async {
-        let write = within(pool.clone().exclusive()).await??;
+        let write = within(pool.exclusive()).await??;
         let mut reads = Vec::new();
 
         for _ in 0..CONCURRENCY {
-            reads.push(within(pool.clone().shared()).await??);
+            reads.push(within(pool.shared()).await??);
         }
 
         Ok::<_, anyhow::Error>((write, reads))
@@ -190,13 +190,13 @@ fn writer_and_readers_hold_guards_at_once() -> Result<()> {
 async fn guards_nest_in_either_order() -> Result<()> {
     let (_dir, pool) = setup_wal(1)?;
 
-    let mut r = pool.clone().shared().await?;
-    let mut w = within(pool.clone().exclusive()).await??;
+    let mut r = pool.shared().await?;
+    let mut w = within(pool.exclusive()).await??;
     w.increment.execute(())?;
     assert_eq!(read(&mut r)?, 1);
     drop(r);
 
-    let mut r = within(pool.clone().shared()).await??;
+    let mut r = within(pool.shared()).await??;
     w.increment.execute(())?;
     assert_eq!(read(&mut r)?, 2);
     Ok(())
@@ -209,45 +209,45 @@ async fn exclusive_guards_exclude() -> Result<()> {
     let (_dir, pool) = setup_wal(2)?;
     let wait = Duration::from_millis(50);
 
-    let write = pool.clone().exclusive().await?;
+    let write = pool.exclusive().await?;
     assert!(
-        tokio::time::timeout(wait, pool.clone().exclusive())
+        tokio::time::timeout(wait, pool.exclusive())
             .await
             .is_err()
     );
     assert!(
-        tokio::time::timeout(wait, pool.clone().exclusive_all())
+        tokio::time::timeout(wait, pool.exclusive_all())
             .await
             .is_err()
     );
     drop(write);
 
-    let read = pool.clone().shared().await?;
+    let read = pool.shared().await?;
     // Waits for `read` to be dropped.
     assert!(
-        tokio::time::timeout(wait, pool.clone().exclusive_all())
+        tokio::time::timeout(wait, pool.exclusive_all())
             .await
             .is_err()
     );
     drop(read);
 
-    let all = pool.clone().exclusive_all().await?;
+    let all = pool.exclusive_all().await?;
     assert!(
-        tokio::time::timeout(wait, pool.clone().shared())
+        tokio::time::timeout(wait, pool.shared())
             .await
             .is_err()
     );
     assert!(
-        tokio::time::timeout(wait, pool.clone().exclusive())
+        tokio::time::timeout(wait, pool.exclusive())
             .await
             .is_err()
     );
     drop(all);
 
     // Cancelled acquisitions above released whatever permits they had taken.
-    let _read = within(pool.clone().shared()).await??;
-    let _read = within(pool.clone().shared()).await??;
-    let _write = within(pool.clone().exclusive()).await??;
+    let _read = within(pool.shared()).await??;
+    let _read = within(pool.shared()).await??;
+    let _write = within(pool.exclusive()).await??;
     Ok(())
 }
 
@@ -291,9 +291,9 @@ async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
             for round in 0..ROUNDS {
                 if (index + round) % 4 == 0 {
                     let mut guard = if all {
-                        pool.clone().exclusive_all().await?
+                        pool.exclusive_all().await?
                     } else {
-                        pool.clone().exclusive().await?
+                        pool.exclusive().await?
                     };
 
                     assert!(!writer.swap(true, Ordering::SeqCst));
@@ -312,7 +312,7 @@ async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
                     drop(guard);
                     writes += 1;
                 } else {
-                    let mut guard = pool.clone().shared().await?;
+                    let mut guard = pool.shared().await?;
                     readers.fetch_add(1, Ordering::SeqCst);
                     assert!(!all || !writer.load(Ordering::SeqCst));
 
@@ -342,7 +342,7 @@ async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
 
     assert_eq!(writes, TASKS * ROUNDS / 4);
 
-    let mut guard = pool.clone().shared().await?;
+    let mut guard = pool.shared().await?;
     assert_eq!(read(&mut guard)? as usize, writes);
     Ok(())
 }
@@ -400,7 +400,7 @@ async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
     let pool = Arc::new(pool);
 
     for _ in 0..2 {
-        let mut read = pool.clone().shared().await?;
+        let mut read = pool.shared().await?;
 
         assert_eq!(collect(&mut read.limit, 2i64)?, ["alex", "alice"]);
         assert_eq!(collect(&mut read.limit, 3i64)?, ["alex", "alice", "bob"]);
@@ -409,7 +409,7 @@ async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
         assert_eq!(collect(&mut read.like, "c%")?, ["carol"]);
     }
 
-    let mut write = pool.clone().exclusive().await?;
+    let mut write = pool.exclusive().await?;
 
     assert_eq!(collect(&mut write.limit, 1i64)?, ["alex"]);
 
@@ -424,7 +424,7 @@ async fn guards_expose_their_connection() -> Result<()> {
     let (_dir, pool) = setup(2)?;
 
     {
-        let mut guard = pool.clone().exclusive().await?;
+        let mut guard = pool.exclusive().await?;
         guard.increment.execute(())?;
         assert_eq!(guard.connection().changes(), 1);
 
@@ -435,7 +435,7 @@ async fn guards_expose_their_connection() -> Result<()> {
         assert_eq!(c.changes(), 2);
     }
 
-    let mut guard = pool.clone().shared().await?;
+    let mut guard = pool.shared().await?;
     assert!(guard.connection().execute("DELETE FROM counter").is_err());
 
     let mut stmt = guard
@@ -457,7 +457,7 @@ async fn guards_expose_their_connection() -> Result<()> {
 async fn exclusive_transaction() -> Result<()> {
     let (_dir, pool) = setup(1)?;
 
-    let mut guard = pool.clone().exclusive().await?;
+    let mut guard = pool.exclusive().await?;
 
     guard.transaction(|write, _| {
         write.increment.execute(())?;
