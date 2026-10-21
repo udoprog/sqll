@@ -453,7 +453,7 @@ impl Connection {
     /// [`open_in_memory`]: Self::open_in_memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, cfg(feature = "std"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[inline]
     pub fn open(path: impl AsRef<Path>) -> Result<Connection> {
         OpenOptions::new()
@@ -1221,7 +1221,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, cfg(feature = "alloc"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn busy_handler<F>(&mut self, callback: F) -> Result<()>
     where
         F: FnMut(usize) -> bool + Send + 'static,
@@ -1361,7 +1361,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, cfg(feature = "alloc"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn serialize(&self, name: &CStr) -> Result<OwnedBytes, Error> {
         unsafe {
             let mut len = MaybeUninit::uninit();
@@ -1512,7 +1512,7 @@ impl Connection {
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, cfg(feature = "alloc"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn deserialize(&self, name: &CStr, mut data: OwnedBytes) -> Result<()> {
         // An empty buffer holds a dangling pointer, which sqlite would later
         // free since ownership is transferred to it.

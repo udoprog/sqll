@@ -51,6 +51,7 @@ use super::FromColumn;
 /// assert_eq!(e.code(), Code::MISMATCH);
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl FromColumn<'_> for String {
     type Type = ty::Text;
 
@@ -106,6 +107,7 @@ impl FromColumn<'_> for String {
 /// assert_eq!(e.code(), Code::MISMATCH);
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl FromColumn<'_> for Vec<u8> {
     type Type = ty::Blob;
 

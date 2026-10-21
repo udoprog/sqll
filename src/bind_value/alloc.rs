@@ -34,6 +34,7 @@ use super::BindValue;
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl BindValue for Vec<u8> {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: Index) -> Result<()> {
@@ -69,6 +70,7 @@ impl BindValue for Vec<u8> {
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl Bind for Vec<u8> {
     const COUNT: usize = 1;
 
@@ -100,6 +102,7 @@ impl Bind for Vec<u8> {
 /// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl BindValue for String {
     #[inline]
     fn bind_value(&self, stmt: &mut Statement, index: Index) -> Result<()> {
@@ -128,6 +131,7 @@ impl BindValue for String {
 /// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl Bind for String {
     const COUNT: usize = 1;
 
@@ -188,6 +192,7 @@ impl Bind for String {
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl<T> BindValue for Box<T>
 where
     T: ?Sized + BindValue,
@@ -248,6 +253,7 @@ where
 /// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl<T> Bind for Box<T>
 where
     T: ?Sized + BindValue,

@@ -235,41 +235,60 @@
 //!
 //! ## Features
 //!
+//! The default features are `std`, `derive`, `threadsafe`, `pool` and `typed`.
+//! Each item which needs a feature is marked with it in the documentation.
+//!
 //! * `std` - Enable usage of the Rust standard library. Enabled by default.
+//!   Needed by the functions which open a database from a [`Path`], such as
+//!   [`Connection::open`], [`OpenOptions::open`], [`PoolBuilder::open`] and
+//!   [`Pool::new`]. Without it, open databases by a C string through
+//!   [`Connection::open_c_str`], [`OpenOptions::open_c_str`],
+//!   [`PoolBuilder::open_c_str`] and [`Pool::new_c_str`], or in memory.
 //! * `alloc` - Enable usage of the Rust alloc library. Enabled by default
 //!   through `std`, and also enabled by `pool`. The crate builds without it,
 //!   but APIs which need to allocate are then unavailable, such as
-//!   [`OwnedBytes`], [`Connection::serialize`], [`Connection::deserialize`],
-//!   [`Connection::busy_handler`] and reading columns into `String` or
-//!   `Vec<u8>`.
+//!   [`OwnedBytes`], [`OwnedValue`], [`Migrations`], [`Error::get_ref`],
+//!   [`Connection::serialize`], [`Connection::deserialize`],
+//!   [`Connection::busy_handler`] and reading or binding `String`, `Vec<u8>`
+//!   and `Box<T>`. Errors then keep only their [`Code`], and drop their message,
+//!   source and column context.
 //! * `derive` - Add a dependency to and re-export of the [`Row` derive],
-//!   [`Bind` derive], [`FromColumn` derive] and [`BindValue` derive] macros.
+//!   [`Bind` derive], [`FromColumn` derive] and [`BindValue` derive] macros, and
+//!   with `pool` the [`Statements` derive]. Enabled by default.
 //! * `bundled` - Use a bundled version of sqlite. The bundle is provided by the
 //!   [`sqll-sys`] crate and the sqlite version used is part of the build
 //!   metadata of that crate[^sqll-sys].
 //! * `threadsafe` - Enable usage of sqlite with the threadsafe option set. We
 //!   assume any system level libraries have this build option enabled, and
 //!   opening a connection fails if they do not. If this is disabled the
-//!   `bundled` feature has to be enabled. With this feature `Connection`
-//!   implements `Send`, and every connection is opened in the "serialized"
-//!   threading mode, so `OpenOptions::no_mutex` has no effect and the unsafe
-//!   [`OpenOptions::no_mutex_unchecked`] is needed to avoid the per-connection
-//!   mutex. If `threadsafe` is disabled, `Connection` does not implement
-//!   `Send`. But it is also important to understand that if this option is not
-//!   set, sqlite **may not be used by multiple threads at all** even if threads
-//!   have distinct connections[^sqll-sys].
+//!   `bundled` feature has to be enabled. Enabled by default. With this feature
+//!   `Connection` implements `Send`, and every connection is opened in the
+//!   "serialized" threading mode, so [`OpenOptions::no_mutex`] has no effect and
+//!   is deprecated, and the unsafe [`OpenOptions::no_mutex_unchecked`] is needed
+//!   to avoid the per-connection mutex. It also enables the methods of the
+//!   [`Pool`] guards which hand out their [`Connection`], such as
+//!   [`ExclusiveGuard::transaction`]. If `threadsafe` is disabled, `Connection`
+//!   does not implement `Send`. But it is also important to understand that if
+//!   this option is not set, sqlite **may not be used by multiple threads at
+//!   all** even if threads have distinct connections[^sqll-sys].
 //! * `strict` - Enable usage of sqlite with the strict compiler options
 //!   enabled[^sqll-sys].
-//! * `pool` - Enable the high-level connection [`Pool`] and the
-//!   [`Statements` derive] for declaring reusable collections of prepared
-//!   statements, [`Prepared`] for using such a collection without a pool, and
-//!   [`Pool::read`] and [`Pool::write`] which run a closure on a blocking
-//!   thread. This pulls in a dependency on the `sync` and `rt`
-//!   features of [`tokio`]. Enabled by default.
+//! * `pool` - Enable the high-level connection [`Pool`], and [`Pool::read`] and
+//!   [`Pool::write`] which run a closure on a blocking thread. With `derive` it
+//!   also enables the [`Statements` derive] for declaring reusable collections
+//!   of prepared statements. Implies `alloc`, and pulls in a dependency on the
+//!   `sync` and `rt` features of [`tokio`]. Enabled by default.
 //! * `typed` - Enable [`TypedStatement`] and the [`typed`] module, wrappers
 //!   around statements which encode their bind parameter and column counts in
 //!   the type system and reset themselves between uses. Used by the
 //!   [`Statements` derive]. Enabled by default.
+//!
+//! The rest of the crate needs no feature of its own, including
+//! [`Connection::transaction`], [`JournalMode`] and [`Synchronous`], and the
+//! [`FromColumn`], [`BindValue`], [`Bind`] and [`Row`] traits. A crate which only
+//! implements those traits can depend on sqll with `default-features = false`,
+//! though [`sqll-sys`] currently refuses to build unless one of `threadsafe` or
+//! `bundled` is enabled somewhere in the build.
 //!
 //! [^sqll-sys]: This is a forwarded sqll-sys option, see <https://docs.rs/sqll-sys>.
 //!
@@ -282,29 +301,47 @@
 //!
 //! [`axum`]: https://docs.rs/axum
 //! [`Bind` derive]: https://docs.rs/sqll/latest/sqll/derive.Bind.html
+//! [`BindValue`]: https://docs.rs/sqll/latest/sqll/trait.BindValue.html
 //! [`BindValue` derive]: https://docs.rs/sqll/latest/sqll/derive.BindValue.html
 //! [`bind`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.bind
 //! [`Bind`]: https://docs.rs/sqll/latest/sqll/trait.Bind.html
+//! [`Code`]: https://docs.rs/sqll/latest/sqll/struct.Code.html
 //! [`Connection`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#thread-safety
 //! [`Connection::busy_handler`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.busy_handler
+//! [`Connection::open`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.open
+//! [`Connection::open_c_str`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.open_c_str
 //! [`Connection::transaction`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.transaction
 //! [`Connection::deserialize`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.deserialize
 //! [`Connection::serialize`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.serialize
+//! [`Error::get_ref`]: https://docs.rs/sqll/latest/sqll/struct.Error.html#method.get_ref
 //! [`ExclusiveGuard::transaction`]: https://docs.rs/sqll/latest/sqll/struct.ExclusiveGuard.html#method.transaction
 //! [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 //! [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 //! [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
 //! [`examples/tokio_async.rs`]: https://github.com/udoprog/sqll/blob/main/examples/tokio_async.rs
 //! [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
+//! [`FromColumn`]: https://docs.rs/sqll/latest/sqll/trait.FromColumn.html
 //! [`FromColumn` derive]: https://docs.rs/sqll/latest/sqll/derive.FromColumn.html
+//! [`JournalMode`]: https://docs.rs/sqll/latest/sqll/enum.JournalMode.html
+//! [`Migrations`]: https://docs.rs/sqll/latest/sqll/struct.Migrations.html
 //! [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
+//! [`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 //! [`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked
+//! [`OpenOptions::open`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.open
+//! [`OpenOptions::open_c_str`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.open_c_str
 //! [`OwnedBytes`]: https://docs.rs/sqll/latest/sqll/struct.OwnedBytes.html
+//! [`OwnedValue`]: https://docs.rs/sqll/latest/sqll/enum.OwnedValue.html
+//! [`Path`]: https://doc.rust-lang.org/std/path/struct.Path.html
 //! [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html
 //! [`Prepared`]: https://docs.rs/sqll/latest/sqll/struct.Prepared.html
+//! [`Pool::new`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.new
+//! [`Pool::new_c_str`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.new_c_str
 //! [`Pool::read`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.read
 //! [`Pool::write`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.write
+//! [`PoolBuilder::open`]: https://docs.rs/sqll/latest/sqll/struct.PoolBuilder.html#method.open
+//! [`PoolBuilder::open_c_str`]: https://docs.rs/sqll/latest/sqll/struct.PoolBuilder.html#method.open_c_str
 //! [`Statements` derive]: https://docs.rs/sqll/latest/sqll/derive.Statements.html
+//! [`Synchronous`]: https://docs.rs/sqll/latest/sqll/enum.Synchronous.html
 //! [`tokio`]: https://docs.rs/tokio
 //! [`prepare_with`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare_with
 //! [`prepare`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.prepare
@@ -373,6 +410,7 @@ mod text;
 mod transaction;
 pub mod ty;
 #[cfg(feature = "typed")]
+#[cfg_attr(docsrs, doc(cfg(feature = "typed")))]
 pub mod typed;
 mod utils;
 mod value;
@@ -427,7 +465,7 @@ pub use self::migrations::Migrations;
 pub use self::open_options::{JournalMode, OpenOptions, Synchronous};
 #[doc(inline)]
 #[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, cfg(feature = "alloc"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use self::owned_bytes::OwnedBytes;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]

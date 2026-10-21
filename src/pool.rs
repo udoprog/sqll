@@ -303,6 +303,7 @@ where
     /// [`Pool::new`]: Pool::new
     #[inline]
     #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn open<R, W>(self, path: impl AsRef<Path>) -> Result<Pool<R, W>, PoolError>
     where
         R: IsReadOnly,
@@ -769,6 +770,7 @@ where
     /// [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
     #[inline]
     #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn new(
         open_options: OpenOptions,
         path: impl AsRef<Path>,
@@ -1711,7 +1713,8 @@ impl<R, W> ExclusiveGuard<R, W> {
     /// returned. Use [`transaction_with`] to pick another
     /// [`TransactionBehavior`].
     ///
-    /// [`Immediate`]: TransactionBehavior::Immediate
+    /// [`Immediate`]: crate::TransactionBehavior::Immediate
+    /// [`TransactionBehavior`]: crate::TransactionBehavior
     /// [`transaction_with`]: Self::transaction_with
     ///
     /// # Examples
@@ -1788,6 +1791,7 @@ impl<R, W> ExclusiveGuard<R, W> {
     /// This is the same as [`transaction`] apart from the behavior.
     ///
     /// [`transaction`]: Self::transaction
+    /// [`TransactionBehavior`]: crate::TransactionBehavior
     ///
     /// # Examples
     ///

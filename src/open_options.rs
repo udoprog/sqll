@@ -719,7 +719,7 @@ impl OpenOptions {
     /// [`open_in_memory`]: Self::open_in_memory
     /// [`open_c_str`]: Self::open_c_str
     #[cfg(feature = "std")]
-    #[cfg_attr(docsrs, cfg(feature = "std"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[inline]
     pub fn open(&self, path: impl AsRef<Path>) -> Result<Connection> {
         let path = path_to_cstring(path.as_ref())?;

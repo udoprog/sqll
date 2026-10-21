@@ -356,6 +356,7 @@ impl Error {
     /// assert!(e.get_ref().is_none());
     /// ```
     #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     #[inline]
     pub fn get_ref(&self) -> Option<&(dyn error::Error + Send + Sync + 'static)> {
         match &self.repr {
