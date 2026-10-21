@@ -217,6 +217,32 @@ assert_eq!(stmt.first::<i64>(())?, Some(0));
 
 <br>
 
+#### Migrations and schema checks
+
+[`Migrations`] applies ordered SQL migrations once each, recording them in a
+table. [`Schema`] describes the resulting schema so a test can check that the
+migrations produce the same tables, columns, indexes and foreign keys as a
+reference schema, with a readable list of what differs when they do not.
+
+```rust
+use sqll::{Connection, Migrations, Schema};
+
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_users", "CREATE TABLE users (name TEXT)"),
+    ("0002_email", "ALTER TABLE users ADD COLUMN email TEXT"),
+];
+
+const SCHEMA: &str = "CREATE TABLE users (name TEXT, email TEXT)";
+
+let c = Connection::open_in_memory()?;
+Migrations::new().run(&c, MIGRATIONS.iter().copied())?;
+
+let diff = Schema::describe(&c)?.diff(&Schema::from_sql(SCHEMA)?);
+assert!(diff.is_empty(), "schema differs:\n{diff}");
+```
+
+<br>
+
 #### Use in asynchronous contexts
 
 In order for sqlite to be used in asynchronous contexts, the [`Statement`]
@@ -246,7 +272,7 @@ Each item which needs a feature is marked with it in the documentation.
 * `alloc` - Enable usage of the Rust alloc library. Enabled by default
   through `std`, and also enabled by `pool`. The crate builds without it,
   but APIs which need to allocate are then unavailable, such as
-  [`OwnedBytes`], [`OwnedValue`], [`Migrations`], [`Error::get_ref`],
+  [`OwnedBytes`], [`OwnedValue`], [`Migrations`], [`Schema`], [`Error::get_ref`],
   [`Connection::serialize`], [`Connection::deserialize`],
   [`Connection::busy_handler`] and reading or binding `String`, `Vec<u8>`
   and `Box<T>`. Errors then keep only their [`Code`], and drop their message,
@@ -350,6 +376,7 @@ have been copied under the MIT license.
 [`PrepareWith::persistent`]: https://docs.rs/sqll/latest/sqll/struct.PrepareWith.html#method.persistent
 [`Row` derive]: https://docs.rs/sqll/latest/sqll/derive.Row.html
 [`Row`]: https://docs.rs/sqll/latest/sqll/trait.Row.html
+[`Schema`]: https://docs.rs/sqll/latest/sqll/struct.Schema.html
 [`sqlite` crate]: https://github.com/stainless-steel/sqlite
 [`sqll-sys`]: https://crates.io/crates/sqll-sys
 [`Statement::into_send`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.into_send
