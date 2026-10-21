@@ -73,8 +73,8 @@ use crate::{Code, Connection, Error, Result};
 /// through the safe `open*` methods uses the "serialized" [threading mode]:
 ///
 /// * [`full_mutex`] is always set, even if it was not requested.
-/// * `no_mutex` is not available, since it could not take effect. Use the
-///   `unsafe` [`no_mutex_unchecked`] to opt out of the per-connection mutex.
+/// * `no_mutex` has no effect and is deprecated. Use the `unsafe`
+///   [`no_mutex_unchecked`] to opt out of the per-connection mutex.
 /// * Opening fails with [`Code::MISUSE`] if the linked sqlite library was
 ///   built without thread safety (`SQLITE_THREADSAFE=0`). The exception is
 ///   WebAssembly targets without the `atomics` target feature, which cannot
@@ -374,11 +374,11 @@ impl OpenOptions {
     /// same time, as long as each thread is using a different database
     /// connection.
     ///
-    /// This method is only available without the `threadsafe` feature. With
-    /// it, connections always use the "serialized" threading mode, since
-    /// [`Connection`] is `Send` and its statements could otherwise be used
-    /// concurrently with it from another thread, so an option that cannot take
-    /// effect is not offered. See [`no_mutex_unchecked`] for how to opt into
+    /// When the `threadsafe` feature is enabled this option has no effect and
+    /// is deprecated. Connections then always use the "serialized" threading
+    /// mode, since [`Connection`] is `Send` and its statements could otherwise
+    /// be used concurrently with it from another thread. It stays defined so
+    /// that the feature is additive. See [`no_mutex_unchecked`] for how to opt into
     /// the "multi-thread" mode anyway. See the [thread safety] section for
     /// details.
     ///
@@ -389,6 +389,7 @@ impl OpenOptions {
     /// # Examples
     ///
     /// ```
+    /// # #![allow(deprecated)]
     /// use sqll::OpenOptions;
     ///
     /// let c = OpenOptions::new()
@@ -398,7 +399,12 @@ impl OpenOptions {
     ///     .open_in_memory()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
-    #[cfg(not(feature = "threadsafe"))]
+    #[cfg_attr(
+        feature = "threadsafe",
+        deprecated(
+            note = "has no effect with the `threadsafe` feature; use the unsafe `no_mutex_unchecked` to opt out of the connection mutex"
+        )
+    )]
     #[inline]
     pub fn no_mutex(&mut self) -> &mut Self {
         self.raw |= ffi::SQLITE_OPEN_NOMUTEX;
@@ -408,7 +414,7 @@ impl OpenOptions {
     /// The new database connection will use the "multi-thread" [threading
     /// mode], even when the `threadsafe` feature is enabled.
     ///
-    /// This is the same as `no_mutex`, which is only available without the
+    /// This is the same as `no_mutex`, which has no effect with the
     /// `threadsafe` feature, except that it also takes effect when the
     /// `threadsafe` feature is enabled, which avoids the cost of the
     /// per-connection mutex.

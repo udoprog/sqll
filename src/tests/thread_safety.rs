@@ -41,6 +41,16 @@ fn safe_open_is_serialized() -> Result<()> {
 }
 
 #[test]
+#[allow(deprecated)]
+fn deprecated_no_mutex_is_still_serialized() -> Result<()> {
+    assert!(is_serialized(&rw().no_mutex().open_in_memory()?)?);
+    assert!(is_serialized(
+        &rw().no_mutex().full_mutex().open_in_memory()?
+    )?);
+    Ok(())
+}
+
+#[test]
 fn no_mutex_unchecked_is_not_serialized() -> Result<()> {
     // SAFETY: The connection and its statements stay on this thread.
     let c = unsafe { rw().no_mutex_unchecked().open_in_memory()? };

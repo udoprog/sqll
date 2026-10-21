@@ -252,7 +252,7 @@
 //!   opening a connection fails if they do not. If this is disabled the
 //!   `bundled` feature has to be enabled. With this feature `Connection`
 //!   implements `Send`, and every connection is opened in the "serialized"
-//!   threading mode, so `OpenOptions::no_mutex` is not available and the unsafe
+//!   threading mode, so `OpenOptions::no_mutex` has no effect and the unsafe
 //!   [`OpenOptions::no_mutex_unchecked`] is needed to avoid the per-connection
 //!   mutex. If `threadsafe` is disabled, `Connection` does not implement
 //!   `Send`. But it is also important to understand that if this option is not

@@ -730,8 +730,8 @@ where
     ///
     /// The `open_options` parameter is used to configure the connections to the
     /// database. With the `threadsafe` feature the connections are always
-    /// opened in the "serialized" threading mode, so `no_mutex` is not
-    /// available. Since the pool only ever hands each connection to one guard at a
+    /// opened in the "serialized" threading mode, so `no_mutex` has no
+    /// effect. Since the pool only ever hands each connection to one guard at a
     /// time, the per-connection mutex can be avoided with the unsafe
     /// [`no_mutex_unchecked`], as long as no statement prepared from a pooled
     /// connection, whether by the setup hooks or through a guard, is used or
