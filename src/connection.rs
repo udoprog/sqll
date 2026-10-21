@@ -151,13 +151,15 @@ pub(crate) type HandleRef = Handle;
 ///
 /// # Thread safety
 ///
-/// `Handle` is neither `Send` nor `Sync` by itself, so `Arc<Handle>` is not
-/// either. The types holding it opt in by hand: [`Connection`] under the
-/// `threadsafe` feature, and [`SendConnection`] and [`SendStatement`] through
-/// their unsafe constructors, which already require the caller to uphold the
-/// connection's threading mode (serialized, or no concurrent use under
-/// `no_mutex_unchecked`, dropping included). Sharing the handle adds nothing
-/// those contracts don't cover:
+/// `Handle` is `Send` and `Sync` (see the impls below), so that `Arc<Handle>`
+/// is too. That grants nothing on its own: `Handle` exposes no operation
+/// through `&Handle`, and the types holding it keep their own raw pointers,
+/// which are neither `Send` nor `Sync`. They opt in by hand, [`Connection`]
+/// under the `threadsafe` feature, and [`SendConnection`] and
+/// [`SendStatement`] through their unsafe constructors, which already require
+/// the caller to uphold the connection's threading mode (serialized, or no
+/// concurrent use under `no_mutex_unchecked`, dropping included). Sharing the
+/// handle adds nothing those contracts don't cover:
 ///
 /// * Releasing an `Arc` that is not the last one only decrements an atomic
 ///   counter. It touches neither the `sqlite3` handle nor `busy_callback`, so
@@ -184,6 +186,16 @@ pub(crate) struct Handle {
     #[cfg(feature = "alloc")]
     busy_callback: UnsafeCell<Option<Owned>>,
 }
+
+// SAFETY: Dropping the handle, the only thing it does by value, may happen on
+// any thread since it is the last reference to the connection, and the busy
+// handler closure it frees is `Send`. See "Thread safety" on `Handle`.
+unsafe impl Send for Handle {}
+
+// SAFETY: There is no operation on `&Handle`: its fields are private to this
+// module and only read through `&mut Connection` or in `Drop`. See "Thread
+// safety" on `Handle`.
+unsafe impl Sync for Handle {}
 
 impl Drop for Handle {
     #[inline]
