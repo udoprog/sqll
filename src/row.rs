@@ -22,6 +22,9 @@ use crate::{Column, Error, FromColumn, Statement};
 ///
 /// [`Row` derive]: derive@crate::Row
 ///
+/// Tuples of up to 32 elements implement [`Row`]. For wider rows, use the
+/// [`Row` derive] on a struct instead, which has no such limit.
+///
 /// # Examples
 ///
 /// The simplest implementation for [`Row`] is provided by tuples.

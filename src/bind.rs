@@ -9,6 +9,9 @@ use crate::{BindValue, Error, Statement};
 /// [`bind`]: Statement::bind
 /// [`Bind` derive]: derive@crate::Bind
 ///
+/// Tuples of up to 32 elements implement [`Bind`]. For wider rows, use the
+/// [`Bind` derive] on a struct instead, which has no such limit.
+///
 /// # Examples
 ///
 /// ```
