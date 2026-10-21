@@ -13,6 +13,7 @@
 //! [`sqll` crate]: https://docs.rs/sqll
 
 mod implement;
+mod value;
 #[cfg(feature = "statements")]
 mod statements;
 
@@ -30,4 +31,14 @@ pub fn bind(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro_derive(Statements, attributes(sql))]
 pub fn statements(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     statements::expand(input.into()).into()
+}
+
+#[proc_macro_derive(FromColumn, attributes(sql))]
+pub fn from_column(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    value::expand(input.into(), value::What::FromColumn).into()
+}
+
+#[proc_macro_derive(BindValue, attributes(sql))]
+pub fn bind_value(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    value::expand(input.into(), value::What::BindValue).into()
 }

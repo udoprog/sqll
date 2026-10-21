@@ -714,6 +714,319 @@ pub use sqll_macros::Bind;
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
 pub use sqll_macros::Row;
 
+/// Derive macro for [`FromColumn`].
+///
+/// This reads a single column into a struct with exactly one field, or into a
+/// fieldless enum. It is usually derived together with the [`BindValue`
+/// derive], which writes the same representation back, and accepts the same
+/// attributes.
+///
+/// A struct with a single field delegates to that field, so the column is read
+/// with the field's own [`FromColumn`] implementation. This is convenient for
+/// newtypes over a column type, such as identifiers and timestamps.
+///
+/// ```
+/// use sqll::{BindValue, Connection, FromColumn};
+///
+/// #[derive(Debug, PartialEq, FromColumn, BindValue)]
+/// struct UserId(i64);
+///
+/// #[derive(Debug, PartialEq, FromColumn, BindValue)]
+/// struct Name<'stmt> {
+///     value: &'stmt str,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER, name TEXT);
+///
+///     INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT id, name FROM users WHERE id = ?")?;
+/// stmt.bind(UserId(2))?;
+///
+/// assert_eq!(stmt.next::<(UserId, Name<'_>)>()?, Some((UserId(2), Name { value: "Bob" })));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// A fieldless enum is stored either as an integer or as text, which has to be
+/// picked with `#[sql(integer)]` or `#[sql(text)]`. A value which matches no
+/// variant is an error with the code [`Code::MISMATCH`], unless a variant is
+/// marked `#[sql(other)]`.
+///
+/// ```
+/// use sqll::{BindValue, Code, Connection, FromColumn};
+///
+/// #[derive(Debug, PartialEq, FromColumn, BindValue)]
+/// #[sql(integer)]
+/// enum Direction {
+///     Input = 1,
+///     Output = 2,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE ports (direction INTEGER);
+///
+///     INSERT INTO ports VALUES (2), (7);
+/// "#)?;
+///
+/// let mut stmt = c.prepare("SELECT direction FROM ports")?;
+///
+/// assert_eq!(stmt.next::<Direction>()?, Some(Direction::Output));
+/// assert_eq!(stmt.next::<Direction>().unwrap_err().code(), Code::MISMATCH);
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// [`BindValue` derive]: derive@crate::BindValue
+///
+/// <br>
+///
+/// ## Container attributes
+///
+/// <br>
+///
+/// #### `#[sql(crate = ..)]`
+///
+/// This attributes allows specifying an alternative path to the `sqll` crate.
+///
+/// This is useful when the crate is renamed from the default `::sqll`.
+///
+/// ```
+/// # extern crate sqll as my_sqll;
+/// use my_sqll::{BindValue, FromColumn};
+///
+/// #[derive(FromColumn, BindValue)]
+/// #[sql(crate = ::my_sqll)]
+/// struct UserId(i64);
+/// ```
+///
+/// <br>
+///
+/// #### `#[sql(transparent)]`
+///
+/// Accepted on a single-field struct for clarity. Delegating to the field is
+/// what a struct always does, so it has no other effect.
+///
+/// ```
+/// use sqll::FromColumn;
+///
+/// #[derive(FromColumn)]
+/// #[sql(transparent)]
+/// struct Checksum([u8; 32]);
+/// ```
+///
+/// <br>
+///
+/// #### `#[sql(integer)]`
+///
+/// Store a fieldless enum as an integer. Each variant is stored as its
+/// `#[sql(value = ..)]` if it has one, otherwise as its discriminant. As in
+/// Rust, a variant without either is the value of the variant before it plus
+/// one, starting at `0`. Discriminants have to be integer literals, use
+/// `#[sql(value = ..)]` when they are not.
+///
+/// ```
+/// use sqll::{BindValue, Connection, FromColumn};
+///
+/// #[derive(Debug, PartialEq, FromColumn, BindValue)]
+/// #[sql(integer)]
+/// enum Field {
+///     Name,
+///     Age,
+///     #[sql(value = -1)]
+///     Unknown,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// let mut stmt = c.prepare("SELECT ?")?;
+/// stmt.bind(Field::Unknown)?;
+/// assert_eq!(stmt.next::<i64>()?, Some(-1));
+///
+/// let mut stmt = c.prepare("SELECT 1")?;
+/// assert_eq!(stmt.next::<Field>()?, Some(Field::Age));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// <br>
+///
+/// #### `#[sql(text)]`
+///
+/// Store a fieldless enum as text. Each variant is stored as its
+/// `#[sql(rename = "..")]` if it has one, otherwise as its name after applying
+/// `#[sql(rename_all = "..")]`, otherwise as its name as written.
+///
+/// ```
+/// use sqll::{BindValue, Connection, FromColumn};
+///
+/// #[derive(Debug, PartialEq, FromColumn, BindValue)]
+/// #[sql(text)]
+/// enum Locale {
+///     #[sql(rename = "en")]
+///     English,
+///     #[sql(rename = "sv")]
+///     Swedish,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// let mut stmt = c.prepare("SELECT ?")?;
+/// stmt.bind(Locale::Swedish)?;
+/// assert_eq!(stmt.next::<String>()?.as_deref(), Some("sv"));
+///
+/// let mut stmt = c.prepare("SELECT 'en'")?;
+/// assert_eq!(stmt.next::<Locale>()?, Some(Locale::English));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// <br>
+///
+/// #### `#[sql(rename_all = "..")]`
+///
+/// With `#[sql(text)]`, store each variant as its name converted to
+/// `"lowercase"`, `"UPPERCASE"`, `"snake_case"`, `"SCREAMING_SNAKE_CASE"` or
+/// `"kebab-case"`, unless it is renamed itself.
+///
+/// ```
+/// use sqll::{Connection, FromColumn};
+///
+/// #[derive(Debug, PartialEq, FromColumn)]
+/// #[sql(text, rename_all = "snake_case")]
+/// enum Status {
+///     Todo,
+///     InProgress,
+///     #[sql(rename = "finished")]
+///     Done,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// let mut stmt = c.prepare("SELECT 'in_progress' UNION ALL SELECT 'finished'")?;
+/// assert_eq!(stmt.next::<Status>()?, Some(Status::InProgress));
+/// assert_eq!(stmt.next::<Status>()?, Some(Status::Done));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// <br>
+///
+/// ## Variant attributes
+///
+/// <br>
+///
+/// #### `#[sql(value = ..)]`
+///
+/// With `#[sql(integer)]`, the integer to store the variant as, see
+/// [`#[sql(integer)]`](#sqlinteger).
+///
+/// <br>
+///
+/// #### `#[sql(rename = "..")]`
+///
+/// With `#[sql(text)]`, the text to store the variant as, see
+/// [`#[sql(text)]`](#sqltext).
+///
+/// <br>
+///
+/// #### `#[sql(other)]`
+///
+/// Read any value which matches no other variant as this one, instead of
+/// failing. The variant is still written as its own value. Only one variant
+/// can be marked `other`.
+///
+/// ```
+/// use sqll::{Connection, FromColumn};
+///
+/// #[derive(Debug, PartialEq, FromColumn)]
+/// #[sql(integer)]
+/// enum Kind {
+///     #[sql(other)]
+///     Unknown = 0,
+///     File = 1,
+///     Directory = 2,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// let mut stmt = c.prepare("SELECT 2 UNION ALL SELECT 42")?;
+/// assert_eq!(stmt.next::<Kind>()?, Some(Kind::Directory));
+/// assert_eq!(stmt.next::<Kind>()?, Some(Kind::Unknown));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// # Errors
+///
+/// A value which is used by two variants is an error.
+///
+/// ```compile_fail
+/// use sqll::FromColumn;
+///
+/// #[derive(FromColumn)]
+/// #[sql(text)]
+/// enum Locale {
+///     English,
+///     #[sql(rename = "English")]
+///     British,
+/// }
+/// ```
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use sqll_macros::FromColumn;
+
+/// Derive macro for [`BindValue`] and [`Bind`].
+///
+/// This binds a struct with exactly one field, or a fieldless enum, as a single
+/// value. It is the counterpart of the [`FromColumn` derive] and takes the same
+/// attributes, see it for how enums are stored.
+///
+/// Since a type which binds a single value can be passed directly to
+/// [`bind`] or [`execute`], this also implements [`Bind`] with a
+/// [`COUNT`] of `1`, binding the value to the first parameter. So `#[derive(Bind)]`
+/// should not be used on the same type.
+///
+/// ```
+/// use sqll::{BindValue, Connection};
+///
+/// #[derive(BindValue)]
+/// struct UserId(i64);
+///
+/// #[derive(BindValue)]
+/// #[sql(text, rename_all = "lowercase")]
+/// enum Role {
+///     Admin,
+///     Guest,
+/// }
+///
+/// let c = Connection::open_in_memory()?;
+///
+/// c.execute(r#"
+///     CREATE TABLE users (id INTEGER, role TEXT);
+/// "#)?;
+///
+/// let mut insert = c.prepare("INSERT INTO users (id, role) VALUES (?, ?)")?;
+/// insert.execute((UserId(1), Role::Admin))?;
+/// insert.execute((UserId(2), Role::Guest))?;
+///
+/// let mut delete = c.prepare("DELETE FROM users WHERE id = ?")?;
+/// assert_eq!(delete.execute(UserId(2))?, 1);
+///
+/// let mut select = c.prepare("SELECT id FROM users WHERE role = ?")?;
+/// select.bind(Role::Admin)?;
+/// assert_eq!(select.next::<i64>()?, Some(1));
+/// # Ok::<_, sqll::Error>(())
+/// ```
+///
+/// [`FromColumn` derive]: derive@crate::FromColumn
+/// [`bind`]: Statement::bind
+/// [`execute`]: Statement::execute
+/// [`COUNT`]: Bind::COUNT
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use sqll_macros::BindValue;
+
 /// Derive macro for the [`Statements`] trait.
 ///
 /// This implements [`Statements`] for a struct whose fields are the prepared
