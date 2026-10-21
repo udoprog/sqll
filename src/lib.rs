@@ -240,10 +240,11 @@
 //!
 //! * `std` - Enable usage of the Rust standard library. Enabled by default.
 //!   Needed by the functions which open a database from a [`Path`], such as
-//!   [`Connection::open`], [`OpenOptions::open`], [`PoolBuilder::open`] and
-//!   [`Pool::new`]. Without it, open databases by a C string through
-//!   [`Connection::open_c_str`], [`OpenOptions::open_c_str`],
-//!   [`PoolBuilder::open_c_str`] and [`Pool::new_c_str`], or in memory.
+//!   [`Connection::open`], [`OpenOptions::open`], [`PoolBuilder::open`],
+//!   [`Pool::new`] and [`Prepared::open`]. Without it, open databases by a C
+//!   string through [`Connection::open_c_str`], [`OpenOptions::open_c_str`],
+//!   [`PoolBuilder::open_c_str`], [`Pool::new_c_str`] and
+//!   [`Prepared::open_c_str`], or in memory.
 //! * `alloc` - Enable usage of the Rust alloc library. Enabled by default
 //!   through `std`, and also enabled by `pool`. The crate builds without it,
 //!   but APIs which need to allocate are then unavailable, such as
@@ -273,9 +274,10 @@
 //!   all** even if threads have distinct connections[^sqll-sys].
 //! * `strict` - Enable usage of sqlite with the strict compiler options
 //!   enabled[^sqll-sys].
-//! * `pool` - Enable the high-level connection [`Pool`], and [`Pool::read`] and
-//!   [`Pool::write`] which run a closure on a blocking thread. With `derive` it
-//!   also enables the [`Statements` derive] for declaring reusable collections
+//! * `pool` - Enable the high-level connection [`Pool`], [`Pool::read`] and
+//!   [`Pool::write`] which run a closure on a blocking thread, and [`Prepared`]
+//!   for using a collection of statements without a pool. With `derive` it also
+//!   enables the [`Statements` derive] for declaring such reusable collections
 //!   of prepared statements. Implies `alloc`, and pulls in a dependency on the
 //!   `sync` and `rt` features of [`tokio`]. Enabled by default.
 //! * `typed` - Enable [`TypedStatement`] and the [`typed`] module, wrappers
@@ -334,6 +336,8 @@
 //! [`Path`]: https://doc.rust-lang.org/std/path/struct.Path.html
 //! [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html
 //! [`Prepared`]: https://docs.rs/sqll/latest/sqll/struct.Prepared.html
+//! [`Prepared::open`]: https://docs.rs/sqll/latest/sqll/struct.Prepared.html#method.open
+//! [`Prepared::open_c_str`]: https://docs.rs/sqll/latest/sqll/struct.Prepared.html#method.open_c_str
 //! [`Pool::new`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.new
 //! [`Pool::new_c_str`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.new_c_str
 //! [`Pool::read`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.read
