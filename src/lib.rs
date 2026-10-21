@@ -262,8 +262,9 @@
 //!   enabled[^sqll-sys].
 //! * `pool` - Enable the high-level connection [`Pool`] and the
 //!   [`Statements` derive] for declaring reusable collections of prepared
-//!   statements, and [`Pool::read`] and [`Pool::write`] which run a closure on
-//!   a blocking thread. This pulls in a dependency on the `sync` and `rt`
+//!   statements, [`Prepared`] for using such a collection without a pool, and
+//!   [`Pool::read`] and [`Pool::write`] which run a closure on a blocking
+//!   thread. This pulls in a dependency on the `sync` and `rt`
 //!   features of [`tokio`]. Enabled by default.
 //! * `typed` - Enable [`TypedStatement`] and the [`typed`] module, wrappers
 //!   around statements which encode their bind parameter and column counts in
@@ -300,6 +301,7 @@
 //! [`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked
 //! [`OwnedBytes`]: https://docs.rs/sqll/latest/sqll/struct.OwnedBytes.html
 //! [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html
+//! [`Prepared`]: https://docs.rs/sqll/latest/sqll/struct.Prepared.html
 //! [`Pool::read`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.read
 //! [`Pool::write`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html#method.write
 //! [`Statements` derive]: https://docs.rs/sqll/latest/sqll/derive.Statements.html
@@ -363,6 +365,8 @@ mod owned_bytes;
 mod owned_value;
 #[cfg(feature = "pool")]
 mod pool;
+#[cfg(feature = "pool")]
+mod prepared;
 mod row;
 mod statement;
 mod text;
@@ -382,6 +386,11 @@ pub use self::pool::{
     ConnectionSetup, EmptySetup, ExclusiveGuard, IsReadOnly, Pool, PoolBuilder, PoolError,
     SharedGuard, Statements,
 };
+
+#[cfg(feature = "pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "pool")))]
+#[doc(inline)]
+pub use self::prepared::Prepared;
 
 #[cfg(feature = "typed")]
 #[cfg_attr(docsrs, doc(cfg(feature = "typed")))]

@@ -18,7 +18,7 @@ use std::path::Path;
 use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore};
 use tokio::task::{self, JoinError};
 
-use crate::{Connection, Error as SqllError, NotThreadSafe, OpenOptions};
+use crate::{Connection, Error as SqllError, NotThreadSafe, OpenOptions, Prepared};
 
 /// The error a [`ConnectionSetup`] hook fails with, boxed so that the hook can
 /// return any error type, such as the application's own error or
@@ -350,7 +350,8 @@ where
 /// A collection of prepared statements that can be built from a [`Connection`].
 ///
 /// This is what the read (`R`) and write (`W`) sides of a [`Pool`] are made of.
-/// Each field of the implementing type is a [`SendStatement`] prepared from a
+/// For synchronous use without a pool, prepare one on a connection with
+/// [`Prepared`]. Each field of the implementing type is a [`SendStatement`] prepared from a
 /// `#[sql = "..."]` attribute. See the [`Statements` derive] for the available
 /// attributes and a complete example.
 ///
@@ -468,6 +469,7 @@ impl fmt::Debug for PoolError {
 impl Error for PoolError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self.kind {
+            ErrorKind::Open(ref source) => Some(source),
             ErrorKind::BuildWriteConnection(ref source) => Some(source),
             ErrorKind::BuildReadConnection(_, ref source) => Some(source),
             ErrorKind::SetupWriteConnection(ref source) => Some(&**source),
@@ -483,11 +485,12 @@ impl Error for PoolError {
 }
 
 #[derive(Debug)]
-enum ErrorKind {
+pub(crate) enum ErrorKind {
     #[cfg(feature = "std")]
     NotUtf8Path,
     #[cfg(feature = "std")]
     NulByteInPath,
+    Open(SqllError),
     BuildWriteConnection(SqllError),
     BuildReadConnection(usize, SqllError),
     SetupWriteConnection(SetupError),
@@ -520,6 +523,7 @@ impl fmt::Display for ErrorKind {
             Self::NotUtf8Path => write!(f, "path is not valid UTF-8"),
             #[cfg(feature = "std")]
             Self::NulByteInPath => write!(f, "path contains a nul byte"),
+            Self::Open(_) => write!(f, "opening connection"),
             Self::BuildWriteConnection(_) => write!(f, "building write connection"),
             Self::BuildReadConnection(index, _) => write!(f, "building read connection #{index}"),
             Self::SetupWriteConnection(_) => write!(f, "setting up write connection"),
@@ -681,11 +685,11 @@ impl fmt::Display for ErrorKind {
 // the pool, and `Arc` only hands out `&Pool`.
 pub struct Pool<R, W> {
     /// The pool of read connections of size `concurrency`.
-    read_pool: Box<[UnsafeCell<Pooled<R>>]>,
+    read_pool: Box<[UnsafeCell<Prepared<R>>]>,
     /// Bit set of which read connections are in use.
     used_read: AtomicU64,
     /// The single write connection.
-    write: UnsafeCell<Pooled<W>>,
+    write: UnsafeCell<Prepared<W>>,
     /// The number of read connections, which is also the number of permits in
     /// `read_semaphore`.
     concurrency: usize,
@@ -695,25 +699,6 @@ pub struct Pool<R, W> {
     /// [`ExclusiveGuard`]. Independent of `read_semaphore`, so that a writer
     /// does not exclude readers.
     write_semaphore: Arc<Semaphore>,
-}
-
-/// A collection of statements together with the connection they were prepared
-/// on.
-///
-/// The connection must outlive its statements. If it is closed first, SQLite
-/// keeps it around as a zombie handle until the statements are finalized, and
-/// any statement that needs to be re-prepared on it (such as one with a bare
-/// `LIMIT ?` or `LIKE ?` whose plan depends on the bound value) fails with
-/// `SQLITE_MISUSE`.
-struct Pooled<T> {
-    /// The prepared statements. Declared before `connection` so that they are
-    /// dropped (finalized) first.
-    statements: T,
-    /// The connection the statements were prepared on. Kept alive for the
-    /// statements, and lent out by [`SharedGuard::connection`] and
-    /// [`ExclusiveGuard::connection`].
-    #[cfg_attr(not(feature = "threadsafe"), allow(dead_code))]
-    connection: Connection,
 }
 
 unsafe impl<R, W> Send for Pool<R, W>
@@ -856,10 +841,7 @@ where
             .setup(&mut write)
             .map_err(ErrorKind::SetupWriteConnection)?;
 
-        let write = Pooled {
-            statements: W::build(&mut write)?,
-            connection: write,
-        };
+        let write = Prepared::new(write)?;
 
         let mut read_pool = Vec::with_capacity(concurrency);
 
@@ -875,10 +857,7 @@ where
                 .setup(&mut read)
                 .map_err(move |error| ErrorKind::SetupReadConnection(index, error))?;
 
-            let read = Pooled {
-                statements: R::build(&mut read)?,
-                connection: read,
-            };
+            let read = Prepared::new(read)?;
 
             read_pool.push(UnsafeCell::new(read));
         }
@@ -1373,7 +1352,7 @@ where
 ///
 /// See [`Pool::shared`] for more details.
 pub struct SharedGuard<R, W> {
-    read: NonNull<Pooled<R>>,
+    read: NonNull<Prepared<R>>,
     pool: Arc<Pool<R, W>>,
     index: usize,
     _permit: OwnedSemaphorePermit,
@@ -1568,7 +1547,7 @@ impl<R, W> Drop for SharedGuard<R, W> {
 ///
 /// See [`Pool::exclusive`] and [`Pool::exclusive_all`] for more details.
 pub struct ExclusiveGuard<R, W> {
-    write: NonNull<Pooled<W>>,
+    write: NonNull<Prepared<W>>,
     _pool: Arc<Pool<R, W>>,
     /// Every read permit, when taken with [`Pool::exclusive_all`].
     _read_permits: Option<OwnedSemaphorePermit>,

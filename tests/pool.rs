@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use sqll::{
-    JournalMode, OpenOptions, Pool, PoolBuilder, SendStatement, Statements, TypedStatement,
+    JournalMode, OpenOptions, Pool, PoolBuilder, Prepared, SendStatement, Statements,
+    TypedStatement,
 };
 use tempfile::TempDir;
 use tokio::sync::Barrier;
@@ -372,8 +373,9 @@ fn collect(stmt: &mut SendStatement, value: impl sqll::Bind) -> Result<Vec<Strin
 ///
 /// SQLite re-prepares a statement whose plan depends on a bound value, such as
 /// a bare `LIMIT ?` or `LIKE ?`. That fails with `SQLITE_MISUSE` if the
-/// connection the statement was prepared on has been closed, so the pool must
-/// keep its connections alive for as long as their statements.
+/// connection the statement was prepared on has been closed, so it must stay
+/// open for as long as its statements, which they ensure by holding a reference
+/// to the connection handle.
 #[tokio::test]
 async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
     let dir = TempDir::new()?;
@@ -405,6 +407,26 @@ async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
     assert_eq!(collect(&mut write.limit, 1i64)?, ["alex"]);
 
     assert_eq!(collect(&mut write.like, "b%")?, ["bob"]);
+    Ok(())
+}
+
+/// A [`Prepared`] collection taken apart, with its connection dropped before
+/// statements that have to re-prepare on it.
+#[test]
+fn prepared_statements_outlive_their_connection() -> Result<()> {
+    let c = OpenOptions::new().create().read_write().open_in_memory()?;
+    c.execute(
+        "CREATE TABLE people (id TEXT NOT NULL);
+         INSERT INTO people VALUES ('alice'), ('alex'), ('bob'), ('carol');",
+    )?;
+
+    let (mut people, c) = Prepared::<PeopleWrite>::new(c)?.into_parts();
+    drop(c);
+
+    assert_eq!(collect(&mut people.limit, 2i64)?, ["alex", "alice"]);
+    assert_eq!(collect(&mut people.limit, 3i64)?, ["alex", "alice", "bob"]);
+    assert_eq!(collect(&mut people.like, "al%")?, ["alex", "alice"]);
+    assert_eq!(collect(&mut people.like, "c%")?, ["carol"]);
     Ok(())
 }
 
