@@ -44,7 +44,7 @@ use crate::{Text, ValueType};
 /// assert_eq!(e.code(), Code::MISMATCH);
 ///
 /// select.reset()?;
-/// assert_eq!(select.iter::<Null>().collect::<Vec<_>>(), [Ok(Null)]);
+/// assert_eq!(select.iter::<Null>().collect::<Result<Vec<_>, _>>()?, [Null]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 #[derive(Clone, PartialEq)]

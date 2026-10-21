@@ -37,7 +37,7 @@ use crate::{
 /// "#)?;
 ///
 /// let mut select = c.prepare("SELECT value FROM test")?;
-/// assert_eq!(select.iter::<Null>().collect::<Vec<_>>(), [Ok(Null)]);
+/// assert_eq!(select.iter::<Null>().collect::<Result<Vec<_>, _>>()?, [Null]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -214,7 +214,7 @@ impl State {
 /// insert_stmt.execute(42)?;
 ///
 /// query.bind(())?;
-/// assert_eq!(query.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(query.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 pub struct Statement {

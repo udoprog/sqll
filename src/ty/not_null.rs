@@ -80,9 +80,9 @@ mod sealed {
 /// "#)?;
 ///
 /// let mut select = c.prepare("SELECT value FROM nulls")?;
-/// assert_eq!(select.next::<MyType>(), Ok(Some(MyType(None))));
-/// assert_eq!(select.next::<MyType>(), Ok(Some(MyType(Some(42)))));
-/// assert_eq!(select.next::<MyType>(), Ok(None));
+/// assert_eq!(select.next::<MyType>()?, Some(MyType(None)));
+/// assert_eq!(select.next::<MyType>()?, Some(MyType(Some(42))));
+/// assert_eq!(select.next::<MyType>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///

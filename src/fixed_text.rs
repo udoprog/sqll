@@ -85,8 +85,8 @@ impl<const N: usize> FixedText<N> {
     /// let mut stmt = c.prepare("SELECT name FROM users")?;
     ///
     /// assert_eq! {
-    ///     stmt.iter::<FixedText<6>>().collect::<Vec<_>>(),
-    ///     [Ok(FixedText::<6>::try_from("Alice")?), Ok(FixedText::<6>::try_from("Bob")?)]
+    ///     stmt.iter::<FixedText<6>>().collect::<Result<Vec<_>, _>>()?,
+    ///     [FixedText::<6>::try_from("Alice")?, FixedText::<6>::try_from("Bob")?]
     /// };
     /// # Ok::<_, Box<dyn core::error::Error>>(())
     /// ```

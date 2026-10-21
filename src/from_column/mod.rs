@@ -70,7 +70,7 @@ use crate::{Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Statem
 ///
 /// A conversion that can fail returns [`Error::mismatch`] with a message, or
 /// [`Error::conversion`] to keep the error that caused it as the source. Both
-/// use [`Code::MISMATCH`].
+/// use [`Code::MISMATCH`](crate::Code::MISMATCH).
 ///
 /// ```
 /// use std::net::Ipv4Addr;
@@ -216,7 +216,7 @@ where
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 /// stmt.bind("Alice")?;
 ///
-/// assert_eq!(stmt.iter::<Null>().collect::<Vec<_>>(), [Ok(Null)]);
+/// assert_eq!(stmt.iter::<Null>().collect::<Result<Vec<_>, _>>()?, [Null]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl FromColumn<'_> for Null {
@@ -246,8 +246,8 @@ impl FromColumn<'_> for Null {
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(None::<Value<'_>>)?;
 ///
-/// assert_eq!(stmt.next::<Value<'_>>(), Ok(Some(Value::text("Alice"))));
-/// assert_eq!(stmt.next::<Value<'_>>(), Ok(None));
+/// assert_eq!(stmt.next::<Value<'_>>()?, Some(Value::text("Alice")));
+/// assert_eq!(stmt.next::<Value<'_>>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<'stmt> FromColumn<'stmt> for Value<'stmt> {
@@ -403,8 +403,8 @@ impl FromColumn<'_> for f32 {
 /// "#)?;
 ///
 /// let mut stmt = c.prepare("SELECT value FROM booleans")?;
-/// let values = stmt.iter::<bool>().collect::<Vec<_>>();
-/// assert_eq!(values, vec![Ok(true), Ok(false)]);
+/// let values = stmt.iter::<bool>().collect::<Result<Vec<_>, _>>()?;
+/// assert_eq!(values, [true, false]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -871,7 +871,7 @@ impl<const N: usize> FromColumn<'_> for [u8; N] {
 /// [`FromColumn`] implementation for [`FixedBlob`] which reads at most `N`
 /// bytes.
 ///
-/// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
+/// If the column contains more than `N` bytes, a [`Code::MISMATCH`](crate::Code::MISMATCH) error is
 /// returned.
 ///
 /// # Examples
@@ -916,7 +916,7 @@ impl<const N: usize> FromColumn<'_> for FixedBlob<N> {
 /// [`FromColumn`] implementation for [`FixedBlob`] which reads at most `N`
 /// bytes.
 ///
-/// If the column contains more than `N` bytes, a [`Code::MISMATCH`] error is
+/// If the column contains more than `N` bytes, a [`Code::MISMATCH`](crate::Code::MISMATCH) error is
 /// returned.
 ///
 /// # Examples

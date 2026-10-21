@@ -86,7 +86,7 @@ where
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, Null)?;
-/// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::from("Alice"))]);
+/// assert_eq!(stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?, [String::from("Alice")]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for Null {
@@ -120,7 +120,7 @@ impl BindValue for Null {
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 ///
 /// stmt.bind(Null)?;
-/// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::from("Alice"))]);
+/// assert_eq!(stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?, [String::from("Alice")]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bind for Null {
@@ -151,8 +151,8 @@ impl Bind for Null {
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, None::<Value<'_>>)?;
-/// assert_eq!(stmt.next::<Value<'_>>(), Ok(Some(Value::text("Alice"))));
-/// assert_eq!(stmt.next::<Value<'_>>(), Ok(None));
+/// assert_eq!(stmt.next::<Value<'_>>()?, Some(Value::text("Alice")));
+/// assert_eq!(stmt.next::<Value<'_>>()?, None);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for Value<'_> {
@@ -184,8 +184,8 @@ impl BindValue for Value<'_> {
 ///
 /// let mut stmt = c.prepare("SELECT name FROM users WHERE age IS ?")?;
 /// stmt.bind(None::<Value<'_>>)?;
-/// assert_eq!(stmt.next::<Value<'_>>(), Ok(Some(Value::text("Alice"))));
-/// assert_eq!(stmt.next::<Value<'_>>(), Ok(None));
+/// assert_eq!(stmt.next::<Value<'_>>()?, Some(Value::text("Alice")));
+/// assert_eq!(stmt.next::<Value<'_>>()?, None);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -218,11 +218,11 @@ impl Bind for Value<'_> {
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
 /// stmt.bind_value(Index::BIND, &b"Hello"[..])?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// stmt.reset()?;
 ///
 /// stmt.bind_value(Index::BIND, &b""[..])?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -268,11 +268,11 @@ impl BindValue for [u8] {
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
 /// stmt.bind(&b"Hello"[..])?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// stmt.reset()?;
 ///
 /// stmt.bind(&b""[..])?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -305,11 +305,11 @@ impl Bind for [u8] {
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
 /// stmt.bind_value(Index::BIND, FixedBlob::from(b"Hello"))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// stmt.reset()?;
 ///
 /// stmt.bind_value(Index::BIND, FixedBlob::from(b""))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -340,11 +340,11 @@ impl<const N: usize> BindValue for FixedBlob<N> {
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
 /// stmt.bind(FixedBlob::from(b"Hello"))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// stmt.reset()?;
 ///
 /// stmt.bind(FixedBlob::from(b""))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -377,11 +377,11 @@ impl<const N: usize> Bind for FixedBlob<N> {
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
 /// stmt.bind_value(Index::BIND, b"Hello")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// stmt.reset()?;
 ///
 /// stmt.bind_value(Index::BIND, b"")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -412,11 +412,11 @@ impl<const N: usize> BindValue for [u8; N] {
 /// let mut stmt = c.prepare("SELECT id FROM files WHERE data = ?")?;
 ///
 /// stmt.bind(b"Hello")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// stmt.reset()?;
 ///
 /// stmt.bind(b"")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -454,7 +454,7 @@ impl<const N: usize> Bind for [u8; N] {
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, 2.0f64)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for f64 {
@@ -499,7 +499,7 @@ impl BindValue for f64 {
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
 ///
 /// stmt.bind(2.0f64)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bind for f64 {
@@ -533,7 +533,7 @@ impl Bind for f64 {
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, 2.0f32)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for f32 {
@@ -575,7 +575,7 @@ impl BindValue for f32 {
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
 ///
 /// stmt.bind(2.0f32)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(2)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bind for f32 {
@@ -612,7 +612,7 @@ impl Bind for f32 {
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, 2i64)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for i64 {
@@ -657,7 +657,7 @@ impl BindValue for i64 {
 /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
 ///
 /// stmt.bind(2i64)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl Bind for i64 {
@@ -694,11 +694,11 @@ impl Bind for i64 {
 /// let mut stmt = c.prepare("SELECT value FROM booleans WHERE value != ?")?;
 ///
 /// stmt.bind_value(Index::BIND, true)?;
-/// assert_eq!(stmt.iter::<bool>().collect::<Vec<_>>(), [Ok(false), Ok(false)]);
+/// assert_eq!(stmt.iter::<bool>().collect::<Result<Vec<_>, _>>()?, [false, false]);
 /// stmt.reset()?;
 ///
 /// stmt.bind_value(Index::BIND, false)?;
-/// assert_eq!(stmt.iter::<bool>().collect::<Vec<_>>(), [Ok(true)]);
+/// assert_eq!(stmt.iter::<bool>().collect::<Result<Vec<_>, _>>()?, [true]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -734,11 +734,11 @@ impl BindValue for bool {
 /// let mut stmt = c.prepare("SELECT value FROM booleans WHERE value != ?")?;
 ///
 /// stmt.bind(true)?;
-/// assert_eq!(stmt.iter::<bool>().collect::<Vec<_>>(), [Ok(false), Ok(false)]);
+/// assert_eq!(stmt.iter::<bool>().collect::<Result<Vec<_>, _>>()?, [false, false]);
 /// stmt.reset()?;
 ///
 /// stmt.bind(false)?;
-/// assert_eq!(stmt.iter::<bool>().collect::<Vec<_>>(), [Ok(true)]);
+/// assert_eq!(stmt.iter::<bool>().collect::<Result<Vec<_>, _>>()?, [true]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -771,7 +771,7 @@ macro_rules! lossless {
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
         ///
         #[doc = concat!("stmt.bind(2", stringify!($ty), ")?;")]
-        /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+        /// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
         /// stmt.reset()?;
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -836,7 +836,7 @@ macro_rules! lossy {
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
         ///
         #[doc = concat!("stmt.bind_value(Index::BIND, 2", stringify!($ty), ")?;")]
-        /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+        /// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
         /// # Ok::<_, sqll::Error>(())
         /// ```
         impl BindValue for $ty {
@@ -892,7 +892,7 @@ macro_rules! lossy {
         /// let mut stmt = c.prepare("SELECT COUNT(*) FROM measurements WHERE value > ?")?;
         ///
         #[doc = concat!("stmt.bind(2", stringify!($ty), ")?;")]
-        /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(1)]);
+        /// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
         /// stmt.reset()?;
         /// # Ok::<_, sqll::Error>(())
         /// ```
@@ -946,11 +946,11 @@ cfg_select! {
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, "Alice")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 ///
 /// stmt.reset()?;
 /// stmt.bind_value(Index::BIND, "")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(25)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [25]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 ///
@@ -970,7 +970,7 @@ cfg_select! {
 /// stmt.execute((String::new(),))?;
 ///
 /// let mut stmt = c.prepare("SELECT string FROM strings")?;
-/// assert_eq!(stmt.iter::<String>().collect::<Vec<_>>(), [Ok(String::new())]);
+/// assert_eq!(stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?, [String::new()]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl BindValue for str {
@@ -998,11 +998,11 @@ impl BindValue for str {
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 ///
 /// stmt.bind("Alice")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// stmt.reset()?;
 ///
 /// stmt.bind("")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(25)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [25]);
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -1033,15 +1033,15 @@ impl Bind for str {
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 ///
 /// stmt.bind_value(Index::BIND, Text::new(b"Alice"))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// stmt.reset()?;
 ///
 /// stmt.bind_value(Index::BIND, Text::new(b""))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(25)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [25]);
 /// stmt.reset()?;
 ///
 /// stmt.bind_value(Index::BIND, b"")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), []);
+/// assert!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?.is_empty());
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -1085,15 +1085,15 @@ impl BindValue for Text {
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 ///
 /// stmt.bind(Text::new(b"Alice"))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// stmt.reset()?;
 ///
 /// stmt.bind(Text::new(b""))?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(25)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [25]);
 /// stmt.reset()?;
 ///
 /// stmt.bind(b"")?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), []);
+/// assert!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?.is_empty());
 /// stmt.reset()?;
 /// # Ok::<_, sqll::Error>(())
 /// ```
@@ -1124,7 +1124,7 @@ impl Bind for Text {
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 ///
 /// stmt.bind_value(Index::BIND, FixedText::<5>::try_from("Alice")?)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// # Ok::<_, Box<dyn std::error::Error>>(())
 /// ```
 impl<const N: usize> BindValue for FixedText<N> {
@@ -1152,7 +1152,7 @@ impl<const N: usize> BindValue for FixedText<N> {
 /// let mut stmt = c.prepare("SELECT age FROM users WHERE name = ?")?;
 ///
 /// stmt.bind(FixedText::<5>::try_from("Alice")?)?;
-/// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+/// assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
 /// # Ok::<_, Box<dyn std::error::Error>>(())
 /// ```
 impl<const N: usize> Bind for FixedText<N> {
@@ -1226,7 +1226,7 @@ impl<const N: usize> Bind for FixedText<N> {
 /// stmt.reset()?;
 ///
 /// let mut it = c.prepare("SELECT name, age FROM users")?.into_iter::<(String, Option<i64>)>();
-/// assert_eq!(it.collect::<Vec<_>>(), [Ok((String::from("Alice"), None)), Ok((String::from("Bob"), Some(30)))]);
+/// assert_eq!(it.collect::<Result<Vec<_>, _>>()?, [(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<T> BindValue for Option<T>
@@ -1286,7 +1286,7 @@ where
 /// stmt.execute(("Bob", Some(30i64)))?;
 ///
 /// let mut it = c.prepare("SELECT name, age FROM users")?.into_iter::<(String, Option<i64>)>();
-/// assert_eq!(it.collect::<Vec<_>>(), [Ok((String::from("Alice"), None)), Ok((String::from("Bob"), Some(30)))]);
+/// assert_eq!(it.collect::<Result<Vec<_>, _>>()?, [(String::from("Alice"), None), (String::from("Bob"), Some(30))]);
 /// # Ok::<_, sqll::Error>(())
 /// ```
 impl<T> Bind for Option<T>

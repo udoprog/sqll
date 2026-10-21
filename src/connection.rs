@@ -620,7 +620,7 @@ impl Connection {
     /// insert.execute(42)?;
     ///
     /// query.bind(())?;
-    /// assert_eq!(query.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+    /// assert_eq!(query.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
     /// query.reset()?;
     /// # Ok::<_, sqll::Error>(())
     /// ```
@@ -690,7 +690,7 @@ impl Connection {
     /// assert!(insert.step()?.is_done());
     ///
     /// query_stmt.bind(())?;
-    /// assert_eq!(query_stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+    /// assert_eq!(query_stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     pub fn prepare_with<S>(&self, stmt: S) -> PrepareWith<'_, S>
@@ -1511,7 +1511,7 @@ where
     ///     .build()?;
     ///
     /// stmt.bind(())?;
-    /// assert_eq!(stmt.iter::<i64>().collect::<Vec<_>>(), []);
+    /// assert!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?.is_empty());
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
@@ -1550,7 +1550,7 @@ where
     /// assert!(insert.step()?.is_done());
     ///
     /// query_stmt.bind(())?;
-    /// assert_eq!(query_stmt.iter::<i64>().collect::<Vec<_>>(), [Ok(42)]);
+    /// assert_eq!(query_stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [42]);
     /// # Ok::<_, sqll::Error>(())
     /// ```
     #[inline]
