@@ -348,6 +348,8 @@ mod fixed_text;
 mod from_column;
 mod from_unsized_column;
 mod index;
+#[cfg(feature = "alloc")]
+mod migrations;
 mod open_options;
 #[cfg(feature = "alloc")]
 mod owned;
@@ -402,6 +404,10 @@ pub use self::from_column::FromColumn;
 pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
 pub use self::index::Index;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[doc(inline)]
+pub use self::migrations::Migrations;
 #[doc(inline)]
 pub use self::open_options::{JournalMode, OpenOptions, Synchronous};
 #[doc(inline)]
