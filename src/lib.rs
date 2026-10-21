@@ -370,7 +370,7 @@ pub use self::from_unsized_column::FromUnsizedColumn;
 #[doc(inline)]
 pub use self::index::Index;
 #[doc(inline)]
-pub use self::open_options::OpenOptions;
+pub use self::open_options::{JournalMode, OpenOptions, Synchronous};
 #[doc(inline)]
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, cfg(feature = "alloc"))]
