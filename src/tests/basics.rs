@@ -175,6 +175,52 @@ fn statement_limit_binding() -> Result<()> {
     Ok(())
 }
 
+/// Dropping a connection before a statement that has to re-prepare.
+///
+/// SQLite re-prepares a statement whose plan depends on a bound value, such as
+/// a bare `LIMIT ?` or `LIKE ?`. If the connection had been closed (left as a
+/// zombie until its statements are finalized), re-preparing failed with
+/// `SQLITE_MISUSE`. Statements now keep their connection open.
+#[test]
+fn dropped_connection_statement_reprepares() -> Result<()> {
+    fn collect<T>(stmt: &mut crate::Statement, value: T) -> Result<Vec<String>>
+    where
+        T: crate::Bind,
+    {
+        stmt.reset()?;
+        stmt.bind(value)?;
+        let mut out = Vec::new();
+
+        while let Some(name) = stmt.next::<String>()? {
+            out.push(name);
+        }
+
+        Ok(out)
+    }
+
+    let c = Connection::open_in_memory()?;
+
+    c.execute(
+        "CREATE TABLE people (name TEXT NOT NULL);
+         CREATE INDEX people_name ON people (name);
+         INSERT INTO people VALUES ('alice'), ('alex'), ('bob'), ('carol');",
+    )?;
+
+    let mut limit = c.prepare("SELECT name FROM people ORDER BY name LIMIT ?")?;
+    let mut like = c.prepare("SELECT name FROM people WHERE name LIKE ? ORDER BY name")?;
+    drop(c);
+
+    assert_eq!(collect(&mut limit, 2i64)?, ["alex", "alice"]);
+    assert_eq!(collect(&mut limit, 3i64)?, ["alex", "alice", "bob"]);
+    assert_eq!(collect(&mut like, "al%")?, ["alex", "alice"]);
+    assert_eq!(collect(&mut like, "c%")?, ["carol"]);
+
+    // The last statement to go closes the connection.
+    drop(limit);
+    assert_eq!(collect(&mut like, "b%")?, ["bob"]);
+    Ok(())
+}
+
 #[test]
 fn test_dropped_connection() -> Result<()> {
     let mut c = Connection::open_in_memory()?;

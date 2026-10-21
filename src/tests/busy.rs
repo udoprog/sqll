@@ -103,3 +103,29 @@ fn connection_busy_handler_drops_closure() -> Result<()> {
     assert_eq!(Arc::strong_count(&first), 1);
     Ok(())
 }
+
+/// A busy handler closure stays alive while statements keep the connection
+/// open, and is freed once the last of them is dropped.
+#[test]
+fn connection_busy_handler_outlives_connection() -> Result<()> {
+    use alloc::sync::Arc;
+
+    let token = Arc::new(());
+
+    let mut c = Connection::open_in_memory()?;
+
+    let captured = token.clone();
+    c.busy_handler(move |_| {
+        let _ = &captured;
+        false
+    })?;
+
+    let mut stmt = c.prepare("SELECT 1")?;
+    drop(c);
+    assert_eq!(Arc::strong_count(&token), 2);
+
+    assert_eq!(stmt.next::<i64>()?, Some(1));
+    drop(stmt);
+    assert_eq!(Arc::strong_count(&token), 1);
+    Ok(())
+}

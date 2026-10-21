@@ -1,3 +1,5 @@
+#[cfg(feature = "alloc")]
+use core::cell::UnsafeCell;
 use core::ffi::CStr;
 #[cfg(feature = "alloc")]
 use core::ffi::c_void;
@@ -12,6 +14,9 @@ use core::slice;
 
 #[cfg(feature = "std")]
 use std::path::Path;
+
+#[cfg(feature = "alloc")]
+use alloc::sync::Arc;
 
 #[cfg(feature = "alloc")]
 use crate::OwnedBytes;
@@ -97,10 +102,102 @@ impl BitOr for Prepare {
 /// # Ok::<_, sqll::Error>(())
 /// ```
 pub struct Connection {
+    /// A copy of `handle.raw`, valid for as long as `handle` is alive.
     raw: NonNull<ffi::sqlite3>,
-    #[cfg(feature = "alloc")]
-    busy_callback: Option<Owned>,
+    /// The owner of the underlying `sqlite3` handle. With the `alloc` feature
+    /// this is shared with every [`Statement`] prepared from this connection.
+    /// Without it, this is only held to close the handle when dropped.
+    #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
+    handle: HandleRef,
     is_thread_safe: bool,
+}
+
+/// How a [`Connection`] and its statements hold on to a [`Handle`].
+///
+/// With `alloc` it is reference-counted, so the handle is closed once the last
+/// of the connection and its statements is dropped. Without `alloc` only the
+/// connection owns it, and statements must be dropped before it (or SQLite
+/// keeps the connection around as a zombie, see [`Handle`]).
+#[cfg(feature = "alloc")]
+pub(crate) type HandleRef = Arc<Handle>;
+#[cfg(not(feature = "alloc"))]
+pub(crate) type HandleRef = Handle;
+
+/// The owner of a `sqlite3` connection handle, which closes it when dropped.
+///
+/// # Drop order
+///
+/// With the `alloc` feature, the [`Connection`] and every [`Statement`]
+/// prepared from it each hold an `Arc<Handle>`. A statement finalizes its
+/// `sqlite3_stmt` in `Drop::drop`, and only then releases its `Arc`, since
+/// fields are dropped after `Drop::drop` has run. So when the last `Arc` is
+/// released, which is what drops the `Handle`, every statement on the
+/// connection has already been finalized, and `sqlite3_close_v2` closes the
+/// connection for real instead of leaving a zombie behind. Before this, a
+/// connection dropped ahead of its statements became a zombie, and any
+/// statement that had to re-prepare against it (a bare `LIMIT ?` or `LIKE ?`
+/// whose plan depends on the bound value) failed with `SQLITE_MISUSE`.
+///
+/// The busy handler closure installed by [`Connection::busy_handler`] lives
+/// here too, and is freed after `sqlite3_close_v2` returns (again because
+/// fields drop after `Drop::drop`). Since the connection is truly closed at
+/// that point, SQLite can no longer call it.
+///
+/// Without `alloc`, statements do not hold the handle and the connection is
+/// its only owner. Dropping the connection before its statements then leaves a
+/// zombie as described above; `sqlite3_close_v2` (rather than
+/// `sqlite3_close`) keeps that from being undefined behaviour, and there is no
+/// busy handler closure to free since it needs `alloc`.
+///
+/// # Thread safety
+///
+/// `Handle` is neither `Send` nor `Sync` by itself, so `Arc<Handle>` is not
+/// either. The types holding it opt in by hand: [`Connection`] under the
+/// `threadsafe` feature, and [`SendConnection`] and [`SendStatement`] through
+/// their unsafe constructors, which already require the caller to uphold the
+/// connection's threading mode (serialized, or no concurrent use under
+/// `no_mutex_unchecked`, dropping included). Sharing the handle adds nothing
+/// those contracts don't cover:
+///
+/// * Releasing an `Arc` that is not the last one only decrements an atomic
+///   counter. It touches neither the `sqlite3` handle nor `busy_callback`, so
+///   it can happen on any thread, concurrently with anything.
+/// * Releasing the last `Arc` runs `sqlite3_close_v2` and frees the busy
+///   handler closure. `Arc`'s drop synchronizes (release/acquire) with every
+///   earlier release, so every `sqlite3_finalize` and other use of the handle
+///   by the other owners happens-before the close, and no owner is left that
+///   could use it concurrently. Closing on whichever thread that is is fine in
+///   every threading mode, since nothing else is using the connection. The
+///   closure is `Send` (required by [`Connection::busy_handler`]), so freeing
+///   it on another thread is sound.
+/// * `busy_callback` is only accessed through `&mut Connection` and by `Drop`.
+///   A `Connection` is not `Clone`, so there is exactly one per `Handle`, and
+///   `&mut Connection` is exclusive access to the field. Statements never touch
+///   it, and `Drop` runs once the connection is gone.
+///
+/// [`SendStatement`]: crate::SendStatement
+pub(crate) struct Handle {
+    raw: NonNull<ffi::sqlite3>,
+    /// The Rust closure backing a busy handler installed through
+    /// [`Connection::busy_handler`]. Only accessed through `&mut Connection`
+    /// and in `Drop`, see the thread safety section above.
+    #[cfg(feature = "alloc")]
+    busy_callback: UnsafeCell<Option<Owned>>,
+}
+
+impl Drop for Handle {
+    #[inline]
+    fn drop(&mut self) {
+        // SAFETY: We own the handle, and with `alloc` this is the last
+        // reference to it, so every statement prepared on it has been
+        // finalized and nothing else can be using it (see the type's docs).
+        // Without `alloc` outstanding statements keep the connection alive as
+        // a zombie, since this is `close_v2`.
+        let code = unsafe { ffi::sqlite3_close_v2(self.raw.as_ptr()) };
+        debug_assert_eq!(code, ffi::SQLITE_OK);
+        // `busy_callback` is dropped after this, once SQLite can no longer
+        // call it.
+    }
 }
 
 /// Connection is `Send` when the `threadsafe` feature is enabled.
@@ -119,12 +216,52 @@ unsafe impl Send for Connection {}
 impl Connection {
     /// Construct a connection from a raw pointer.
     #[inline]
+    ///
+    /// Takes ownership of `raw`, which is closed once the connection and every
+    /// statement prepared from it have been dropped.
     pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3>, is_thread_safe: bool) -> Self {
+        let handle = Handle {
+            raw,
+            #[cfg(feature = "alloc")]
+            busy_callback: UnsafeCell::new(None),
+        };
+
         Self {
             raw,
             #[cfg(feature = "alloc")]
-            busy_callback: None,
+            handle: Arc::new(handle),
+            #[cfg(not(feature = "alloc"))]
+            handle,
             is_thread_safe,
+        }
+    }
+
+    /// Whether the connection was opened in a mode which allows it to be used
+    /// from multiple threads.
+    #[inline]
+    pub(crate) fn is_thread_safe(&self) -> bool {
+        self.is_thread_safe
+    }
+
+    /// A new reference to the connection handle, for a statement prepared on
+    /// it to keep it alive.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub(crate) fn handle(&self) -> HandleRef {
+        self.handle.clone()
+    }
+
+    /// Store the closure backing the current busy handler, dropping the
+    /// previous one.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn set_busy_callback(&mut self, callback: Option<Owned>) {
+        // SAFETY: `busy_callback` is only accessed here and when the handle is
+        // dropped. There is one `Connection` per handle and we hold `&mut` to
+        // it, so this is the only access. Statements sharing the handle never
+        // touch the field.
+        unsafe {
+            *self.handle.busy_callback.get() = callback;
         }
     }
 
@@ -475,7 +612,7 @@ impl Connection {
                 // If statement is null then it's simply empty, so we can safely
                 // skip it, otherwise iterate over all rows.
                 if let Some(raw) = NonNull::new(raw.assume_init()) {
-                    let mut statement = Statement::from_raw(raw, self.is_thread_safe);
+                    let mut statement = Statement::from_raw(raw, self);
                     while statement.step()?.is_row() {}
                     statement.reset()?;
                 }
@@ -732,7 +869,7 @@ impl Connection {
 
             // Construct the statement first so that it is finalized if we
             // return early below.
-            let statement = Statement::from_raw(raw, self.is_thread_safe);
+            let statement = Statement::from_raw(raw, self);
 
             let rest = rest.assume_init();
             let o = rest.offset_from_unsigned(ptr);
@@ -1101,7 +1238,7 @@ impl Connection {
 
             // NB: Old callback will be dropped and freed when we set the new
             // one here.
-            self.busy_callback = Some(callback);
+            self.set_busy_callback(Some(callback));
             sqlite3_try!(self, result);
         }
 
@@ -1139,9 +1276,7 @@ impl Connection {
         }
 
         #[cfg(feature = "alloc")]
-        {
-            self.busy_callback = None;
-        }
+        self.set_busy_callback(None);
 
         Ok(())
     }
@@ -1174,9 +1309,7 @@ impl Connection {
         // NB: The built-in handler replaced any previously installed callback,
         // so it is no longer referenced by sqlite and can be freed.
         #[cfg(feature = "alloc")]
-        {
-            self.busy_callback = None;
-        }
+        self.set_busy_callback(None);
 
         Ok(())
     }
@@ -1415,30 +1548,6 @@ impl fmt::Debug for Connection {
         f.debug_struct("Connection")
             .field("is_thread_safe", &self.is_thread_safe)
             .finish_non_exhaustive()
-    }
-}
-
-impl Drop for Connection {
-    #[inline]
-    #[allow(unused_must_use)]
-    fn drop(&mut self) {
-        // A busy handler backed by a Rust closure must be cleared since the
-        // callback state is freed below while sqlite might keep the database
-        // alive as a zombie until all prepared statements are finalized.
-        //
-        // Built-in handlers such as the one installed by `busy_timeout` hold no
-        // Rust state, so they are left in place for any outstanding statements
-        // to keep using.
-        #[cfg(feature = "alloc")]
-        if self.busy_callback.is_some() {
-            self.clear_busy_handler();
-        }
-
-        // Will close the connection unconditionally. The database will stay
-        // alive until all associated prepared statements have been closed since
-        // we're using v2.
-        let code = unsafe { ffi::sqlite3_close_v2(self.raw.as_ptr()) };
-        debug_assert_eq!(code, ffi::SQLITE_OK);
     }
 }
 

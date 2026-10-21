@@ -4,12 +4,14 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut, Range};
 use core::ptr::NonNull;
 
+#[cfg(feature = "alloc")]
+use crate::connection::HandleRef;
 use crate::ffi;
 use crate::ty::Type;
 use crate::utils::{c_to_error_text, c_to_text};
 use crate::{
-    Bind, BindValue, Code, Column, Error, FromColumn, FromUnsizedColumn, Index, NotThreadSafe,
-    Result, Row, Text, ValueType,
+    Bind, BindValue, Code, Column, Connection, Error, FromColumn, FromUnsizedColumn, Index,
+    NotThreadSafe, Result, Row, Text, ValueType,
 };
 
 /// A marker type representing NULL.
@@ -219,6 +221,17 @@ impl State {
 /// ```
 pub struct Statement {
     raw: NonNull<ffi::sqlite3_stmt>,
+    /// Keeps the connection the statement was prepared on open for as long as
+    /// the statement lives, so that it can always re-prepare.
+    ///
+    /// SAFETY: This must be released only after `raw` has been finalized,
+    /// which holds since fields are dropped after `Drop::drop`. If it is the
+    /// last reference, releasing it closes the connection, and SQLite only
+    /// closes a connection outright (instead of keeping a zombie) once all of
+    /// its statements are finalized. See `Handle` for the full drop order and
+    /// thread safety argument.
+    #[cfg(feature = "alloc")]
+    _handle: HandleRef,
     is_thread_safe: bool,
 }
 
@@ -232,12 +245,18 @@ impl fmt::Debug for Statement {
 }
 
 impl Statement {
-    /// Construct a statement from a raw pointer.
+    /// Construct a statement from a raw pointer prepared on `connection`.
+    ///
+    /// With the `alloc` feature the statement holds a reference to the
+    /// connection handle, which keeps the connection open until the statement
+    /// is dropped, even if `connection` is dropped first.
     #[inline]
-    pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3_stmt>, is_thread_safe: bool) -> Statement {
+    pub(crate) fn from_raw(raw: NonNull<ffi::sqlite3_stmt>, connection: &Connection) -> Statement {
         Statement {
             raw,
-            is_thread_safe,
+            #[cfg(feature = "alloc")]
+            _handle: connection.handle(),
+            is_thread_safe: connection.is_thread_safe(),
         }
     }
 
@@ -672,7 +691,9 @@ impl Statement {
         self.bind(bind)?;
 
         // SAFETY: We own the raw handle to this statement, and the connection
-        // it belongs to outlives it.
+        // it belongs to stays allocated until the statement is finalized: with
+        // `alloc` the statement holds it open, and without it `close_v2` keeps
+        // it as a zombie.
         let db = unsafe { ffi::sqlite3_db_handle(self.as_ptr()) };
         let before = unsafe { ffi::sqlite3_total_changes(db) };
 
@@ -1727,6 +1748,9 @@ impl Statement {
 impl Drop for Statement {
     #[inline]
     fn drop(&mut self) {
+        // SAFETY: We own the statement. With `alloc`, `_handle` keeps the
+        // connection open until after this, since fields drop after
+        // `Drop::drop`.
         unsafe { ffi::sqlite3_finalize(self.raw.as_ptr()) };
     }
 }
