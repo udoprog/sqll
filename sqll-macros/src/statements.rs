@@ -115,14 +115,9 @@ fn inner(cx: &Ctxt, input: TokenStream) -> Result<TokenStream, ()> {
             None => Member::from(index),
         };
 
-        match f.ident {
-            Some(ref name) => {
-                variables.push(Ident::new(&format!("__sqll_{name}"), span));
-            }
-            None => {
-                variables.push(Ident::new(&format!("_{index}"), span));
-            }
-        }
+        // Named by index, since a field name like `_marker` would make a
+        // local that is not snake case.
+        variables.push(Ident::new(&format!("__sqll_{index}"), span));
 
         let mut query = QueryString::default();
         let mut statements = false;
