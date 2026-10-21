@@ -1,5 +1,8 @@
 #![allow(unused)]
 
+use core::error::Error as _;
+use core::fmt;
+
 use anyhow::Result;
 use sqll::{OpenOptions, PoolBuilder, PoolError, SendStatement, Statements};
 
@@ -131,10 +134,7 @@ fn test_setup_creates_schema() -> Result<()> {
     // also guards against the read/write setup being applied to the wrong
     // connection.
     let _pool = PoolBuilder::new(options, 2)
-        .with_write_setup(|c| {
-            c.execute("CREATE TABLE items (id INTEGER)")?;
-            Ok(())
-        })
+        .with_write_setup(|c| c.execute("CREATE TABLE items (id INTEGER)"))
         .open::<ReadItems, WriteItems>(temp.path().join("created.db"))?;
     Ok(())
 }
@@ -146,14 +146,88 @@ fn test_setup_error_surfaces() -> Result<()> {
 
     let temp = tempfile::TempDir::new()?;
 
-    // An error returned from the setup closure aborts pool construction.
+    // An error returned from the setup closure aborts pool construction. A
+    // closure ending in `Ok(())` names its error type, since the setup accepts
+    // any error.
     let result = PoolBuilder::new(options, 1)
         .with_write_setup(|c| {
             c.execute("THIS IS NOT VALID SQL")?;
-            Ok(())
+            Ok::<_, sqll::Error>(())
         })
         .open::<Read, Write>(temp.path().join("test.db"));
 
-    assert!(result.is_err());
+    let Err(error) = result else {
+        panic!("expected an error");
+    };
+
+    assert_eq!(error.to_string(), "setting up write connection");
+    let source = error.source().expect("setup error is the source");
+    assert!(source.downcast_ref::<sqll::Error>().is_some());
+    Ok(())
+}
+
+#[derive(Debug)]
+struct MigrationError(u32);
+
+impl fmt::Display for MigrationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "migration #{} failed", self.0)
+    }
+}
+
+impl core::error::Error for MigrationError {}
+
+#[test]
+fn test_setup_custom_error() -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.no_mutex().create();
+
+    let temp = tempfile::TempDir::new()?;
+    let path = temp.path().join("test.db");
+
+    // The write setup can fail with the application's own error type, which
+    // comes back as the source of the pool error.
+    let result = PoolBuilder::new(options, 1)
+        .with_write_setup(|_| Err(MigrationError(3)))
+        .open::<Read, Write>(&path);
+
+    let Err(error) = result else {
+        panic!("expected an error");
+    };
+
+    let source = error.source().expect("setup error is the source");
+    assert_eq!(source.to_string(), "migration #3 failed");
+    assert!(matches!(
+        source.downcast_ref::<MigrationError>(),
+        Some(MigrationError(3))
+    ));
+
+    // The same for the read setup, which runs on every read connection.
+    let result = PoolBuilder::new(options, 2)
+        .with_read_setup(|_| Err(MigrationError(4)))
+        .open::<Read, Write>(&path);
+
+    let Err(error) = result else {
+        panic!("expected an error");
+    };
+
+    assert_eq!(error.to_string(), "setting up read connection #0");
+    let source = error.source().expect("setup error is the source");
+    assert!(matches!(
+        source.downcast_ref::<MigrationError>(),
+        Some(MigrationError(4))
+    ));
+
+    // And with anyhow, whose error converts into the boxed source.
+    let result = PoolBuilder::new(options, 1)
+        .with_write_setup(|_| Err(anyhow::anyhow!("schema is from the future")))
+        .open::<Read, Write>(&path);
+
+    let Err(error) = result else {
+        panic!("expected an error");
+    };
+
+    let source = error.source().expect("setup error is the source");
+    assert_eq!(source.to_string(), "schema is from the future");
     Ok(())
 }

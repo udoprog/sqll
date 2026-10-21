@@ -19,31 +19,55 @@ use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore};
 
 use crate::{Connection, Error as SqllError, NotThreadSafe, OpenOptions};
 
-mod sealed_connection_setup {
-    use crate::{Connection, Error};
+/// The error a [`ConnectionSetup`] hook fails with, boxed so that the hook can
+/// return any error type, such as the application's own error or
+/// [`anyhow::Error`].
+///
+/// [`anyhow::Error`]: https://docs.rs/anyhow/latest/anyhow/struct.Error.html
+type SetupError = Box<dyn Error + Send + Sync + 'static>;
 
-    use super::EmptySetup;
+mod sealed_connection_setup {
+    use crate::Connection;
+
+    use super::{EmptySetup, SetupError};
 
     pub trait Sealed {}
 
     impl Sealed for EmptySetup {}
-    impl<F> Sealed for F where F: Fn(&mut Connection) -> Result<(), Error> {}
+    impl<F, E> Sealed for F
+    where
+        F: Fn(&mut Connection) -> Result<(), E>,
+        E: Into<SetupError>,
+    {
+    }
 }
 
 /// The trait governing how a [`Connection`] is set up before its statements are
 /// prepared.
 ///
 /// This is used by [`PoolBuilder::with_write_setup`] and
-/// [`PoolBuilder::with_read_setup`] to run setup logic (such as `PRAGMA`s or
-/// creating tables) on a connection before the corresponding [`Statements`] are
-/// prepared on it. It is implemented for any `Fn(&mut Connection) -> Result<(),
-/// Error>`, and the trait is sealed so it cannot be implemented for other types.
+/// [`PoolBuilder::with_read_setup`] to run setup logic (such as `PRAGMA`s,
+/// creating tables or running migrations) on a connection before the
+/// corresponding [`Statements`] are prepared on it.
+///
+/// It is implemented for any `Fn(&mut Connection) -> Result<(), E>` where `E`
+/// converts into `Box<dyn Error + Send + Sync>`. That covers every error type
+/// implementing [`core::error::Error`] + `Send` + `Sync` + `'static`, such as
+/// [`sqll::Error`], as well as [`anyhow::Error`]. If the hook fails, the
+/// returned error is the [`source`] of the [`PoolError`] that opening the pool
+/// fails with.
+///
+/// The trait is sealed so it cannot be implemented for other types.
+///
+/// [`sqll::Error`]: crate::Error
+/// [`anyhow::Error`]: https://docs.rs/anyhow/latest/anyhow/struct.Error.html
+/// [`source`]: core::error::Error::source
 pub trait ConnectionSetup
 where
     Self: self::sealed_connection_setup::Sealed,
 {
     /// Run the setup against the given connection.
-    fn setup(&self, c: &mut Connection) -> Result<(), SqllError>;
+    fn setup(&self, c: &mut Connection) -> Result<(), Box<dyn Error + Send + Sync + 'static>>;
 }
 
 /// An empty connection setup that does nothing.
@@ -51,18 +75,20 @@ where
 pub struct EmptySetup;
 
 impl ConnectionSetup for EmptySetup {
-    fn setup(&self, _c: &mut Connection) -> Result<(), SqllError> {
+    #[inline]
+    fn setup(&self, _c: &mut Connection) -> Result<(), SetupError> {
         Ok(())
     }
 }
 
-impl<F> ConnectionSetup for F
+impl<F, E> ConnectionSetup for F
 where
-    F: Fn(&mut Connection) -> Result<(), SqllError>,
+    F: Fn(&mut Connection) -> Result<(), E>,
+    E: Into<SetupError>,
 {
     #[inline]
-    fn setup(&self, c: &mut Connection) -> Result<(), SqllError> {
-        self(c)
+    fn setup(&self, c: &mut Connection) -> Result<(), SetupError> {
+        self(c).map_err(Into::into)
     }
 }
 
@@ -102,15 +128,110 @@ where
     /// This is called exactly once on the single `read_write` connection,
     /// before its statements are prepared and before any of the read
     /// connections are opened. It is the right place to create or migrate the
-    /// schema that the read and write statements depend on.
+    /// schema that the read and write statements depend on, so there is no
+    /// need to open a separate connection to migrate the database before
+    /// building the pool.
     ///
-    /// If the closure returns an error, [`open`] fails with a [`PoolError`]
-    /// whose source is the returned error.
+    /// The closure may fail with any error that converts into `Box<dyn Error +
+    /// Send + Sync>`, such as [`sqll::Error`], the application's own error type
+    /// or [`anyhow::Error`]. If it does, [`open`] fails with a [`PoolError`]
+    /// whose [`source`] is the returned error.
+    ///
+    /// Since the error type is generic, a closure that uses `?` and ends in
+    /// `Ok(())` has to name it, as in `Ok::<_, sqll::Error>(())`. A closure
+    /// that ends in a call returning a [`Result`], or a function with a
+    /// declared return type as below, needs no annotation.
     ///
     /// [`open`]: PoolBuilder::open
-    pub fn with_write_setup<T>(self, write_builder: T) -> PoolBuilder<RB, T>
+    /// [`sqll::Error`]: crate::Error
+    /// [`anyhow::Error`]: https://docs.rs/anyhow/latest/anyhow/struct.Error.html
+    /// [`source`]: core::error::Error::source
+    ///
+    /// # Examples
+    ///
+    /// Migrating the schema with the application's own error handling before
+    /// the statements, which depend on the migrated schema, are prepared:
+    ///
+    /// ```
+    /// use anyhow::Context;
+    /// use sqll::{Connection, OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT name, email FROM users ORDER BY name"]
+    ///     users: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, email) VALUES (?, ?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// const MIGRATIONS: &[&str] = &[
+    ///     "CREATE TABLE users (name TEXT)",
+    ///     "ALTER TABLE users ADD COLUMN email TEXT",
+    /// ];
+    ///
+    /// fn migrate(c: &mut Connection) -> anyhow::Result<()> {
+    ///     let mut stmt = c.prepare("PRAGMA user_version")?;
+    ///     let version = stmt.next::<i64>()?.context("missing user_version")?;
+    ///     drop(stmt);
+    ///
+    ///     for (n, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+    ///         c.execute(sql).with_context(|| format!("running migration #{n}"))?;
+    ///         c.execute(format!("PRAGMA user_version = {}", n + 1))?;
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(migrate)
+    ///     .open::<Read, Write>(&path)?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    ///
+    /// A failing setup is the source of the error opening the pool:
+    ///
+    /// ```
+    /// use core::error::Error as _;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {}
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {}
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let Err(error) = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|_| Err(anyhow::anyhow!("schema is from the future")))
+    ///     .open::<Read, Write>(&path)
+    /// else {
+    ///     panic!("expected an error");
+    /// };
+    ///
+    /// assert_eq!(error.to_string(), "setting up write connection");
+    /// assert_eq!(error.source().unwrap().to_string(), "schema is from the future");
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    pub fn with_write_setup<T, E>(self, write_builder: T) -> PoolBuilder<RB, T>
     where
-        T: Fn(&mut Connection) -> Result<(), SqllError>,
+        T: Fn(&mut Connection) -> Result<(), E>,
+        E: Into<Box<dyn Error + Send + Sync + 'static>>,
     {
         PoolBuilder {
             open_options: self.open_options,
@@ -127,13 +248,44 @@ where
     /// read statements are prepared on that connection. Since read connections
     /// are opened `read_only`, this should not attempt to modify the database.
     ///
-    /// If the closure returns an error, [`open`] fails with a [`PoolError`]
-    /// whose source is the returned error.
+    /// The closure may fail with any error that converts into `Box<dyn Error +
+    /// Send + Sync>`, as with [`with_write_setup`]. If it does, [`open`] fails
+    /// with a [`PoolError`] whose [`source`] is the returned error.
     ///
     /// [`open`]: PoolBuilder::open
-    pub fn with_read_setup<T>(self, read_builder: T) -> PoolBuilder<T, WB>
+    /// [`with_write_setup`]: PoolBuilder::with_write_setup
+    /// [`source`]: core::error::Error::source
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT name FROM users"]
+    ///     users: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {}
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT)"))
+    ///     .with_read_setup(|c| c.execute("PRAGMA cache_size = -16000"))
+    ///     .open::<Read, Write>(&path)?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    pub fn with_read_setup<T, E>(self, read_builder: T) -> PoolBuilder<T, WB>
     where
-        T: Fn(&mut Connection) -> Result<(), SqllError>,
+        T: Fn(&mut Connection) -> Result<(), E>,
+        E: Into<Box<dyn Error + Send + Sync + 'static>>,
     {
         PoolBuilder {
             open_options: self.open_options,
@@ -317,8 +469,8 @@ impl Error for PoolError {
         match self.kind {
             ErrorKind::BuildWriteConnection(ref source) => Some(source),
             ErrorKind::BuildReadConnection(_, ref source) => Some(source),
-            ErrorKind::SetupWriteConnection(ref source) => Some(source),
-            ErrorKind::SetupReadConnection(_, ref source) => Some(source),
+            ErrorKind::SetupWriteConnection(ref source) => Some(&**source),
+            ErrorKind::SetupReadConnection(_, ref source) => Some(&**source),
             ErrorKind::IndexPrepareFailed(_, ref source) => Some(source),
             ErrorKind::FieldPrepareFailed(_, ref source) => Some(source),
             ErrorKind::IndexNotThreadSafe(_, ref source) => Some(source),
@@ -336,8 +488,8 @@ enum ErrorKind {
     NulByteInPath,
     BuildWriteConnection(SqllError),
     BuildReadConnection(usize, SqllError),
-    SetupWriteConnection(SqllError),
-    SetupReadConnection(usize, SqllError),
+    SetupWriteConnection(SetupError),
+    SetupReadConnection(usize, SetupError),
     NoConnections,
     ZeroConcurrency,
     TooManyConnections(usize),
@@ -527,8 +679,8 @@ where
     /// will result in every instance having their own private database.
     ///
     /// Note that the statements of `R` and `W` are prepared eagerly here, so any
-    /// table they reference must already exist in the database by the time the
-    /// pool is constructed.
+    /// table they reference must exist by the time they are prepared. The
+    /// `write_builder` runs first, so it can create or migrate the schema.
     ///
     /// The `write_builder` and `read_builder` are [`ConnectionSetup`] hooks run
     /// before the statements are prepared on the write and read connections

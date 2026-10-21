@@ -85,10 +85,7 @@ fn test_pool_busy_timeout() -> Result<()> {
     options.no_mutex();
 
     let mut pool = PoolBuilder::new(options, 1)
-        .with_write_setup(|c| {
-            c.busy_timeout(5000)?;
-            Ok(())
-        })
+        .with_write_setup(|c| c.busy_timeout(5000))
         .open::<Read, Write>(&path)?;
 
     let holder = hold_write_lock(&path)?;
