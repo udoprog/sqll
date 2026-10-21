@@ -13,9 +13,9 @@
 //! [`sqll` crate]: https://docs.rs/sqll
 
 mod implement;
-mod value;
 #[cfg(feature = "statements")]
 mod statements;
+mod value;
 
 #[proc_macro_derive(Row, attributes(sql))]
 pub fn row(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

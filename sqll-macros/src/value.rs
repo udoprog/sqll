@@ -619,7 +619,10 @@ fn expand_enum(
         if let Some(existing) = seen.insert(key.clone(), span) {
             let mut err = Error::new(
                 span,
-                format_args!("variant `{}` has the same value {key} as another variant", variant.ident),
+                format_args!(
+                    "variant `{}` has the same value {key} as another variant",
+                    variant.ident
+                ),
             );
             err.combine(Error::new(existing, "first used here"));
             errors.push(err);
@@ -646,9 +649,9 @@ fn expand_enum(
                 Mode::Text => (tokens.path(&["ty", "Text"]), quote!(&#lt str)),
             };
 
-            let arms = variants.iter().map(|(variant, value)| {
-                quote!(#value => #result::Ok(Self::#variant),)
-            });
+            let arms = variants
+                .iter()
+                .map(|(variant, value)| quote!(#value => #result::Ok(Self::#variant),));
 
             let fallback = match &other {
                 Some((variant, _)) => quote!(_ => #result::Ok(Self::#variant),),
