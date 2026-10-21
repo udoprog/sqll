@@ -1131,7 +1131,10 @@ pub use sqll_macros::BindValue;
 /// [`Connection`], which makes it suitable for use with the high-level
 /// [`Pool`].
 ///
-/// Both named structs and tuple structs are supported.
+/// Both named structs and tuple structs are supported, and so are generic
+/// structs, including ones with defaulted type parameters. Their generics and
+/// where-clauses are carried onto the generated implementations, see
+/// [below](#generic-queries).
 ///
 /// # Attributes
 ///
@@ -1139,6 +1142,15 @@ pub use sqll_macros::BindValue;
 ///   field. The attribute may be repeated on a single field, in which case the
 ///   fragments are trimmed and joined with a single space. This is convenient
 ///   for splitting a long query over multiple lines.
+/// * `#[sql(query = ..)]` (field) - the SQL of the statement as a constant
+///   expression of type `&'static str`, such as a `const` item or an
+///   associated constant like `Q::USER_BY_EMAIL`. Rust only accepts literals in
+///   `#[sql = ..]`, which is why an expression goes here. An expression cannot
+///   be combined with other queries on the same field. Like any other query,
+///   it is prepared, and checked by `read_only`, when the collection is built.
+/// * `#[sql(skip)]` (field) - the field is not a statement and is initialized
+///   with [`Default::default`]. This is what a [`PhantomData`] marker for a
+///   type parameter that is only used in queries needs.
 /// * `#[sql(read_only)]` (container) - assert that every statement in the
 ///   collection is read-only. Building the collection fails with a
 ///   [`PoolError`] if any statement turns out to mutate the database, and
@@ -1242,6 +1254,60 @@ pub use sqll_macros::BindValue;
 /// }
 /// ```
 ///
+/// ## Generic queries
+///
+/// A library can let its users customise its SQL by taking it from a trait of
+/// associated constants with defaults, and making its collections generic over
+/// that trait. Users override what they need, and nest the collections into
+/// their own like any other:
+///
+/// ```
+/// use core::marker::PhantomData;
+///
+/// use sqll::{OpenOptions, Prepared, SendStatement, Statements};
+///
+/// pub trait Queries: 'static {
+///     const USER_BY_NAME: &'static str = "SELECT age FROM users WHERE name = ?";
+/// }
+///
+/// pub struct Defaults;
+///
+/// impl Queries for Defaults {}
+///
+/// #[derive(Statements)]
+/// #[sql(read_only)]
+/// pub struct Read<Q: Queries = Defaults> {
+///     #[sql(query = Q::USER_BY_NAME)]
+///     user_by_name: SendStatement,
+///     #[sql(skip)]
+///     _queries: PhantomData<Q>,
+/// }
+///
+/// // An application overriding the query, and embedding the collection.
+/// struct MyQueries;
+///
+/// impl Queries for MyQueries {
+///     const USER_BY_NAME: &'static str = "SELECT age FROM people WHERE name = ?";
+/// }
+///
+/// #[derive(Statements)]
+/// #[sql(read_only)]
+/// struct AppRead {
+///     #[sql(statements)]
+///     users: Read<MyQueries>,
+/// }
+///
+/// let c = OpenOptions::new().create().read_write().open_in_memory()?;
+/// c.execute("CREATE TABLE people (name TEXT, age INTEGER)")?;
+/// c.execute("INSERT INTO people VALUES ('Alice', 42)")?;
+///
+/// let mut read = Prepared::<AppRead>::new(c)?;
+/// read.users.user_by_name.bind("Alice")?;
+/// let ages = read.users.user_by_name.iter::<i64>().collect::<Result<Vec<_>, _>>()?;
+/// assert_eq!(ages, [42]);
+/// # Ok::<_, Box<dyn std::error::Error>>(())
+/// ```
+///
 /// ## Renamed crate
 ///
 /// When `sqll` is depended on under another name, for instance to support
@@ -1271,6 +1337,7 @@ pub use sqll_macros::BindValue;
 ///
 /// [persistent]: crate::PrepareWith::persistent
 /// [`Connection`]: crate::Connection
+/// [`PhantomData`]: core::marker::PhantomData
 /// [`PoolError`]: crate::PoolError
 /// [`IsReadOnly`]: crate::IsReadOnly
 /// [`Pool`]: crate::Pool
