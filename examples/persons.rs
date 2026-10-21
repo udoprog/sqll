@@ -10,11 +10,7 @@ struct Person<'stmt> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let c = OpenOptions::new()
-        .create()
-        .read_write()
-        .no_mutex()
-        .open_in_memory()?;
+    let c = OpenOptions::new().create().read_write().open_in_memory()?;
 
     c.execute(
         r#"

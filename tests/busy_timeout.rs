@@ -81,8 +81,7 @@ fn test_pool_busy_timeout() -> Result<()> {
     let path = temp.path().join("test.db");
     drop(setup(&path)?);
 
-    let mut options = OpenOptions::new();
-    options.no_mutex();
+    let options = OpenOptions::new();
 
     let mut pool = PoolBuilder::new(options, 1)
         .with_write_setup(|c| c.busy_timeout(5000))

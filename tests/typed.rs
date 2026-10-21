@@ -24,11 +24,7 @@ struct Write {
 }
 
 fn setup() -> Result<sqll::Connection> {
-    let c = OpenOptions::new()
-        .no_mutex()
-        .read_write()
-        .create()
-        .open_in_memory()?;
+    let c = OpenOptions::new().read_write().create().open_in_memory()?;
 
     c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
     Ok(c)
@@ -60,7 +56,7 @@ fn end_to_end_execute_and_query() -> Result<()> {
 /// thread-safe [`sqll::SendStatement`] for the `TryFrom` conversion tests.
 fn select_one_send(c: &sqll::Connection) -> Result<sqll::SendStatement> {
     let s = c.prepare("SELECT 1")?;
-    // Safe: the connection was opened with `no_mutex`.
+    // Safe: the connection was opened serialized.
     Ok(unsafe { s.into_send()? })
 }
 

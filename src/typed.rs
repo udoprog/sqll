@@ -88,7 +88,6 @@ where
     /// }
     ///
     /// let mut c = OpenOptions::new()
-    ///     .no_mutex()
     ///     .read_write()
     ///     .create()
     ///     .open_in_memory()?;
@@ -147,7 +146,6 @@ where
     /// }
     ///
     /// let mut c = OpenOptions::new()
-    ///     .no_mutex()
     ///     .read_write()
     ///     .create()
     ///     .open_in_memory()?;
@@ -298,7 +296,6 @@ where
 /// }
 ///
 /// let mut c = OpenOptions::new()
-///     .no_mutex()
 ///     .read_write()
 ///     .create()
 ///     .open_in_memory()?;
@@ -348,7 +345,7 @@ impl<I, O> BoundStatement<'_, I, O> {
     ///     older_than: TypedStatement<(i32,), (String, i32)>,
     /// }
     ///
-    /// let mut c = OpenOptions::new().no_mutex().read_write().create().open_in_memory()?;
+    /// let mut c = OpenOptions::new().read_write().create().open_in_memory()?;
     ///
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
     /// c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 35)")?;
@@ -404,7 +401,7 @@ impl<I, O> BoundStatement<'_, I, O> {
     ///     all: TypedStatement<(), (String, i32)>,
     /// }
     ///
-    /// let mut c = OpenOptions::new().no_mutex().read_write().create().open_in_memory()?;
+    /// let mut c = OpenOptions::new().read_write().create().open_in_memory()?;
     ///
     /// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
     /// c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 35)")?;
@@ -446,7 +443,7 @@ impl<I, O> BoundStatement<'_, I, O> {
 ///     all: TypedStatement<(), (String, i32)>,
 /// }
 ///
-/// let mut c = OpenOptions::new().no_mutex().read_write().create().open_in_memory()?;
+/// let mut c = OpenOptions::new().read_write().create().open_in_memory()?;
 ///
 /// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
 /// c.execute("INSERT INTO users (name, age) VALUES ('Alice', 25), ('Bob', 35)")?;

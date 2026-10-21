@@ -42,7 +42,7 @@ struct Tuple(#[sql = "SELECT 1"] SendStatement);
 #[test]
 fn test_renamed_crate() -> Result<()> {
     let mut c = OpenOptions::new();
-    c.no_mutex().create();
+    c.create();
 
     let temp = tempfile::TempDir::new()?;
 

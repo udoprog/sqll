@@ -52,7 +52,7 @@ struct ReadWithRead {
 #[test]
 fn test_pool() -> Result<()> {
     let mut c = OpenOptions::new();
-    c.no_mutex().create();
+    c.create();
 
     let temp = tempfile::TempDir::new()?;
 
@@ -63,7 +63,7 @@ fn test_pool() -> Result<()> {
 #[test]
 fn test_nested_statements() -> Result<()> {
     let mut c = OpenOptions::new();
-    c.no_mutex().create();
+    c.create();
 
     let temp = tempfile::TempDir::new()?;
 
@@ -86,7 +86,7 @@ struct NotReadOnly {
 #[test]
 fn test_not_read_only() -> Result<()> {
     let mut c = OpenOptions::new();
-    c.no_mutex().create();
+    c.create();
 
     let temp = tempfile::TempDir::new()?;
 
@@ -116,7 +116,7 @@ struct WriteItems {
 #[test]
 fn test_setup_creates_schema() -> Result<()> {
     let mut options = OpenOptions::new();
-    options.no_mutex().create();
+    options.create();
 
     let temp = tempfile::TempDir::new()?;
 
@@ -142,7 +142,7 @@ fn test_setup_creates_schema() -> Result<()> {
 #[test]
 fn test_setup_error_surfaces() -> Result<()> {
     let mut options = OpenOptions::new();
-    options.no_mutex().create();
+    options.create();
 
     let temp = tempfile::TempDir::new()?;
 
@@ -180,7 +180,7 @@ impl core::error::Error for MigrationError {}
 #[test]
 fn test_setup_custom_error() -> Result<()> {
     let mut options = OpenOptions::new();
-    options.no_mutex().create();
+    options.create();
 
     let temp = tempfile::TempDir::new()?;
     let path = temp.path().join("test.db");

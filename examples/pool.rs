@@ -44,18 +44,14 @@ async fn main() -> Result<()> {
     // prepares every statement up front, so the schema has to exist before the
     // pool is constructed.
     {
-        let c = OpenOptions::new()
-            .create()
-            .read_write()
-            .no_mutex()
-            .open(&path)?;
+        let c = OpenOptions::new().create().read_write().open(&path)?;
 
         c.execute("CREATE TABLE users (name TEXT PRIMARY KEY NOT NULL, age INTEGER)")?;
     }
 
     let mut options = OpenOptions::new();
     // WAL lets readers proceed while the write connection is in use.
-    options.no_mutex().create().journal_mode(JournalMode::Wal);
+    options.create().journal_mode(JournalMode::Wal);
 
     let pool = Arc::new(PoolBuilder::new(options, 4).open::<Read, Write>(&path)?);
 

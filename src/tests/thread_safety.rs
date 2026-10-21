@@ -33,11 +33,9 @@ fn safe_open_is_serialized() -> Result<()> {
     assert!(is_serialized(
         &OpenOptions::empty().read_write().open_in_memory()?
     )?);
-    assert!(is_serialized(&rw().no_mutex().open_in_memory()?)?);
+    assert!(is_serialized(&rw().open_in_memory()?)?);
     assert!(is_serialized(&rw().full_mutex().open_in_memory()?)?);
-    assert!(is_serialized(
-        &rw().no_mutex().full_mutex().open_in_memory()?
-    )?);
+    assert!(is_serialized(&rw().full_mutex().open_in_memory()?)?);
     assert!(is_serialized(&Connection::open_in_memory()?)?);
     Ok(())
 }
@@ -52,7 +50,7 @@ fn no_mutex_unchecked_is_not_serialized() -> Result<()> {
 
 #[test]
 fn into_send_accepts_every_safe_open() -> Result<()> {
-    for options in [rw(), *rw().no_mutex(), *rw().full_mutex()] {
+    for options in [rw(), *rw().full_mutex()] {
         let c = options.open_in_memory()?;
         let stmt = c.prepare("SELECT 1")?;
 
@@ -72,7 +70,7 @@ fn into_send_accepts_every_safe_open() -> Result<()> {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn connection_and_statement_on_different_threads() -> Result<()> {
-    let c = rw().no_mutex().open_in_memory()?;
+    let c = rw().open_in_memory()?;
 
     c.execute(
         "

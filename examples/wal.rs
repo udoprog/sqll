@@ -6,7 +6,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let c = OpenOptions::new()
         .create()
         .read_write()
-        .no_mutex()
         .open("wal-people.db")?;
 
     c.execute(

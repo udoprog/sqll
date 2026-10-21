@@ -250,7 +250,7 @@ See the [`tokio_async` example] for a complete example.
   opening a connection fails if they do not. If this is disabled the
   `bundled` feature has to be enabled. With this feature `Connection`
   implements `Send`, and every connection is opened in the "serialized"
-  threading mode, so [`OpenOptions::no_mutex`] has no effect and the unsafe
+  threading mode, so `OpenOptions::no_mutex` is not available and the unsafe
   [`OpenOptions::no_mutex_unchecked`] is needed to avoid the per-connection
   mutex. If `threadsafe` is disabled, `Connection` does not implement
   `Send`. But it is also important to understand that if this option is not
@@ -294,7 +294,6 @@ have been copied under the MIT license.
 [`execute`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.execute
 [`FromColumn` derive]: https://docs.rs/sqll/latest/sqll/derive.FromColumn.html
 [`next`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.next
-[`OpenOptions::no_mutex`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex
 [`OpenOptions::no_mutex_unchecked`]: https://docs.rs/sqll/latest/sqll/struct.OpenOptions.html#method.no_mutex_unchecked
 [`OwnedBytes`]: https://docs.rs/sqll/latest/sqll/struct.OwnedBytes.html
 [`Pool`]: https://docs.rs/sqll/latest/sqll/struct.Pool.html

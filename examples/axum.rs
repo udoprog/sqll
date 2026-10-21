@@ -24,11 +24,7 @@ struct Database {
 }
 
 fn setup_database() -> Result<Database> {
-    let c = OpenOptions::new()
-        .create()
-        .read_write()
-        .no_mutex()
-        .open_in_memory()?;
+    let c = OpenOptions::new().create().read_write().open_in_memory()?;
 
     c.execute(
         r#"

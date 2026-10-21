@@ -133,7 +133,7 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// This return an error if neither [`full_mutex`] or [`no_mutex`] are in
+    /// This return an error if neither [`full_mutex`] or `no_mutex` are in
     /// effect, or if the sqlite library is not configured to be thread safe.
     ///
     /// When the `threadsafe` feature is enabled every connection is opened with
@@ -159,7 +159,6 @@ impl Connection {
     /// [thread safety]: crate::OpenOptions#thread-safety
     ///
     /// [`full_mutex`]: crate::OpenOptions::full_mutex
-    /// [`no_mutex`]: crate::OpenOptions::no_mutex
     ///
     /// # Safety
     ///
@@ -170,14 +169,13 @@ impl Connection {
     ///   necessary, but calls to the statement might block if it's busy. This
     ///   is the case if [`full_mutex`] is in effect, which it always is with
     ///   the `threadsafe` feature unless [`no_mutex_unchecked`] was used.
-    /// * If [`no_mutex`] is in effect (without the `threadsafe` feature) or
+    /// * If `no_mutex` is in effect (without the `threadsafe` feature) or
     ///   [`no_mutex_unchecked`] was used, the caller must ensure that the
     ///   [`Statement`] is fully synchronized with respect to the connection
     ///   that constructed it. One way to achieve this is to wrap all the
     ///   statements behind a single mutex.
     ///
     /// [`full_mutex`]: crate::OpenOptions::full_mutex
-    /// [`no_mutex`]: crate::OpenOptions::no_mutex
     ///
     /// # Examples
     ///
@@ -204,7 +202,6 @@ impl Connection {
     ///     let c = OpenOptions::new()
     ///         .create()
     ///         .read_write()
-    ///         .no_mutex()
     ///         .open_in_memory()?;
     ///
     ///     c.execute(
