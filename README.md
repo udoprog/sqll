@@ -189,6 +189,34 @@ assert_eq!(rows, expected);
 
 <br>
 
+#### Transactions
+
+[`Connection::transaction`] runs a closure inside of a transaction, committing
+it if the closure returns `Ok` and rolling it back if it returns `Err` or
+panics. It uses `BEGIN IMMEDIATE`, which takes the write lock up front where
+the busy timeout applies, see [`TransactionBehavior`] for why that is the right
+default for writers. [`ExclusiveGuard::transaction`] does the same for the write
+side of a [`Pool`].
+
+```rust
+use sqll::{Connection, Error};
+
+let c = Connection::open_in_memory()?;
+c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
+
+let result = c.transaction(|c| {
+    c.execute("INSERT INTO users VALUES ('Alice', 42)")?;
+    Err::<(), _>(Error::custom("changed my mind"))
+});
+
+assert!(result.is_err());
+
+let mut stmt = c.prepare("SELECT COUNT(*) FROM users")?;
+assert_eq!(stmt.first::<i64>(())?, Some(0));
+```
+
+<br>
+
 #### Use in asynchronous contexts
 
 In order for sqlite to be used in asynchronous contexts, the [`Statement`]
@@ -254,8 +282,10 @@ have been copied under the MIT license.
 [`Bind`]: https://docs.rs/sqll/latest/sqll/trait.Bind.html
 [`Connection`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#thread-safety
 [`Connection::busy_handler`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.busy_handler
+[`Connection::transaction`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.transaction
 [`Connection::deserialize`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.deserialize
 [`Connection::serialize`]: https://docs.rs/sqll/latest/sqll/struct.Connection.html#method.serialize
+[`ExclusiveGuard::transaction`]: https://docs.rs/sqll/latest/sqll/struct.ExclusiveGuard.html#method.transaction
 [`examples/axum.rs`]: https://github.com/udoprog/sqll/blob/main/examples/axum.rs
 [`examples/persons.rs`]: https://github.com/udoprog/sqll/blob/main/examples/persons.rs
 [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
@@ -277,6 +307,7 @@ have been copied under the MIT license.
 [`sqll-sys`]: https://crates.io/crates/sqll-sys
 [`Statement::into_send`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html#method.into_send
 [`Statement`]: https://docs.rs/sqll/latest/sqll/struct.Statement.html
+[`TransactionBehavior`]: https://docs.rs/sqll/latest/sqll/enum.TransactionBehavior.html
 [`tokio_async` example]: https://github.com/udoprog/sqll/blob/main/examples/tokio_async.rs
 [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
 [`TypedStatement`]: https://docs.rs/sqll/latest/sqll/struct.TypedStatement.html

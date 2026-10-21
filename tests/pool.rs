@@ -253,3 +253,40 @@ async fn guards_expose_their_connection() -> Result<()> {
     assert_eq!(read.get.query()?.first()?, Some(2));
     Ok(())
 }
+
+/// A write-side transaction commits on `Ok` and rolls back on `Err` and on
+/// panic, leaving the guard's connection usable.
+#[tokio::test]
+async fn exclusive_transaction() -> Result<()> {
+    let (_dir, pool) = setup(1)?;
+
+    let mut guard = pool.clone().exclusive().await?;
+
+    guard.transaction(|write, _| {
+        write.increment.execute(())?;
+        Ok::<_, anyhow::Error>(())
+    })?;
+
+    let result = guard.transaction(|write, c| {
+        write.increment.execute(())?;
+        c.execute("INSERT INTO missing VALUES (1)")
+    });
+    assert!(result.is_err());
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        guard.transaction(|write, _| -> Result<()> {
+            write.increment.execute(())?;
+            panic!("boom");
+        })
+    }));
+    assert!(result.is_err());
+
+    guard.transaction_with(sqll::TransactionBehavior::Deferred, |write, _| {
+        write.increment.execute(())
+    })?;
+    drop(guard);
+
+    let mut guard = pool.shared().await?;
+    assert_eq!(read(&mut guard)?, 2);
+    Ok(())
+}

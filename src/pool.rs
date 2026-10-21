@@ -1258,6 +1258,155 @@ impl<R, W> ExclusiveGuard<R, W> {
         let pooled = unsafe { self.write.as_mut() };
         (&mut pooled.statements, &pooled.connection)
     }
+
+    /// Run `f` with the write statements and their connection inside of an
+    /// [`Immediate`] transaction.
+    ///
+    /// This behaves like [`Connection::transaction`]: the transaction is
+    /// committed if `f` returns `Ok`, and rolled back if it returns `Err` or
+    /// panics. If the commit fails, it is rolled back and the commit error is
+    /// returned. Use [`transaction_with`] to pick another
+    /// [`TransactionBehavior`].
+    ///
+    /// [`Immediate`]: TransactionBehavior::Immediate
+    /// [`transaction_with`]: Self::transaction_with
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{Error, OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT, age INTEGER)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut guard = pool.clone().exclusive().await?;
+    ///
+    /// guard.transaction(|write, _| {
+    ///     write.insert.execute(("Alice", 42))?;
+    ///     write.insert.execute(("Bob", 72))?;
+    ///     Ok::<_, Error>(())
+    /// })?;
+    ///
+    /// let result = guard.transaction(|write, c| {
+    ///     write.insert.execute(("Charlie", 15))?;
+    ///     c.execute("INSERT INTO missing VALUES (1)")
+    /// });
+    ///
+    /// assert!(result.is_err());
+    /// drop(guard);
+    ///
+    /// let mut guard = pool.shared().await?;
+    /// guard.count.bind(())?;
+    /// assert_eq!(guard.count.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [2]);
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    #[inline]
+    #[cfg(feature = "threadsafe")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "threadsafe")))]
+    pub fn transaction<T, E>(
+        &mut self,
+        f: impl FnOnce(&mut W, &Connection) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<SqllError>,
+    {
+        self.transaction_with(crate::TransactionBehavior::Immediate, f)
+    }
+
+    /// Run `f` with the write statements and their connection inside of a
+    /// transaction with the given [`TransactionBehavior`].
+    ///
+    /// This is the same as [`transaction`] apart from the behavior.
+    ///
+    /// [`transaction`]: Self::transaction
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{Error, OpenOptions, PoolBuilder, SendStatement, Statements, TransactionBehavior};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name) VALUES (?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut guard = pool.clone().exclusive().await?;
+    ///
+    /// guard.transaction_with(TransactionBehavior::Exclusive, |write, _| {
+    ///     write.insert.execute("Alice")?;
+    ///     Ok::<_, Error>(())
+    /// })?;
+    ///
+    /// drop(guard);
+    ///
+    /// let mut guard = pool.shared().await?;
+    /// guard.count.bind(())?;
+    /// assert_eq!(guard.count.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [1]);
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    #[cfg(feature = "threadsafe")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "threadsafe")))]
+    pub fn transaction_with<T, E>(
+        &mut self,
+        behavior: crate::TransactionBehavior,
+        f: impl FnOnce(&mut W, &Connection) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<SqllError>,
+    {
+        let (write, c) = self.split();
+        c.transaction_with(behavior, |c| f(write, c))
+    }
 }
 
 impl<R, W> Deref for ExclusiveGuard<R, W> {

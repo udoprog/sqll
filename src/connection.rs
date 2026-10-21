@@ -19,7 +19,10 @@ use crate::ffi;
 #[cfg(feature = "alloc")]
 use crate::owned::Owned;
 use crate::utils::{c_to_error_text, sqlite3_try};
-use crate::{Code, DatabaseNotFound, Error, NotThreadSafe, OpenOptions, Result, Statement, Text};
+use crate::{
+    Code, DatabaseNotFound, Error, NotThreadSafe, OpenOptions, Result, Statement, Text,
+    Transaction, TransactionBehavior,
+};
 
 /// A collection of flags use to prepare a statement.
 pub struct Prepare(c_uint);
@@ -927,6 +930,122 @@ impl Connection {
     #[inline]
     pub fn last_insert_rowid(&self) -> i64 {
         unsafe { ffi::sqlite3_last_insert_rowid(self.raw.as_ptr()) }
+    }
+
+    /// Run `f` inside of an [`Immediate`] transaction.
+    ///
+    /// The transaction is committed if `f` returns `Ok`, and rolled back if it
+    /// returns `Err` or panics. If the commit itself fails, the transaction is
+    /// rolled back and the commit error is returned.
+    ///
+    /// [`Immediate`] is the right behavior for a transaction that writes, see
+    /// [`TransactionBehavior`] for why. Use [`transaction_with`] to pick
+    /// another one, or [`begin`] for a guard instead of a closure.
+    ///
+    /// Transactions do not nest. Starting one while another is open on the
+    /// same connection fails.
+    ///
+    /// [`Immediate`]: TransactionBehavior::Immediate
+    /// [`transaction_with`]: Self::transaction_with
+    /// [`begin`]: Self::begin
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, Error};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT, age INTEGER)")?;
+    ///
+    /// let rowid = c.transaction(|c| {
+    ///     let mut insert = c.prepare("INSERT INTO users VALUES (?, ?)")?;
+    ///     insert.execute(("Alice", 42))?;
+    ///     insert.execute(("Bob", 72))?;
+    ///     Ok::<_, Error>(c.last_insert_rowid())
+    /// })?;
+    ///
+    /// assert_eq!(rowid, 2);
+    ///
+    /// // An error rolls back everything the closure did.
+    /// let result = c.transaction(|c| {
+    ///     c.execute("INSERT INTO users VALUES ('Charlie', 15)")?;
+    ///     c.execute("INSERT INTO missing VALUES (1)")
+    /// });
+    ///
+    /// assert!(result.is_err());
+    ///
+    /// let mut count = c.prepare("SELECT COUNT(*) FROM users")?;
+    /// assert_eq!(count.iter::<i64>().collect::<sqll::Result<Vec<_>>>()?, [2]);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn transaction<T, E>(&self, f: impl FnOnce(&Connection) -> Result<T, E>) -> Result<T, E>
+    where
+        E: From<Error>,
+    {
+        self.transaction_with(TransactionBehavior::Immediate, f)
+    }
+
+    /// Run `f` inside of a transaction with the given [`TransactionBehavior`].
+    ///
+    /// This is the same as [`transaction`] apart from the behavior.
+    ///
+    /// [`transaction`]: Self::transaction
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, TransactionBehavior};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT)")?;
+    ///
+    /// c.transaction_with(TransactionBehavior::Exclusive, |c| {
+    ///     c.execute("INSERT INTO users VALUES ('Alice')")
+    /// })?;
+    ///
+    /// let mut count = c.prepare("SELECT COUNT(*) FROM users")?;
+    /// assert_eq!(count.iter::<i64>().collect::<sqll::Result<Vec<_>>>()?, [1]);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    pub fn transaction_with<T, E>(
+        &self,
+        behavior: TransactionBehavior,
+        f: impl FnOnce(&Connection) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<Error>,
+    {
+        crate::transaction::run(self, behavior, || f(self))
+    }
+
+    /// Begin a transaction with the given [`TransactionBehavior`], returning a
+    /// guard which rolls it back unless [`Transaction::commit`] is called.
+    ///
+    /// Prefer [`transaction`] where a closure fits, since it cannot forget to
+    /// commit.
+    ///
+    /// [`transaction`]: Self::transaction
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Connection, TransactionBehavior};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    /// c.execute("CREATE TABLE users (name TEXT)")?;
+    ///
+    /// let tx = c.begin(TransactionBehavior::Immediate)?;
+    /// tx.execute("INSERT INTO users VALUES ('Alice')")?;
+    /// tx.commit()?;
+    ///
+    /// let mut count = c.prepare("SELECT COUNT(*) FROM users")?;
+    /// assert_eq!(count.iter::<i64>().collect::<sqll::Result<Vec<_>>>()?, [1]);
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn begin(&self, behavior: TransactionBehavior) -> Result<Transaction<'_>> {
+        Transaction::begin(self, behavior)
     }
 
     /// Set a callback for handling busy events.
