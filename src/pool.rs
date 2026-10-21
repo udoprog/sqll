@@ -550,15 +550,32 @@ impl fmt::Display for ErrorKind {
 /// Connections are represented by the custom types `R` and `W`, where `R` is a
 /// read-only connection and `W` is a write connection.
 ///
-/// The pool allows for asynchronously locking either a [`shared`] or an
-/// [`exclusive`] lock on the underlying database.
+/// The pool hands out two kinds of guards, each through its own lane:
 ///
-/// Note that the pool is fair, so if there are multiple tasks waiting for a
-/// lock, they will be granted in the order they were requested meaning a call
-/// to [`exclusive`] will complete in the order it was called.
+/// * [`shared`] lends out one of the `read_concurrency` read-only connections.
+///   Up to `read_concurrency` shared guards can be held at once.
+/// * [`exclusive`] lends out the single write connection. Only one exclusive
+///   guard can be held at a time, but it does not wait for or block shared
+///   guards: a writer runs alongside the readers.
+///
+/// Readers proceeding during a write is what SQLite's [WAL] journal mode is
+/// for, and it is the mode a pool should be used with (see
+/// [`OpenOptions::journal_mode`]). Each reader then sees the database as of
+/// the start of its read transaction until the writer commits. Under a rollback
+/// journal, SQLite instead makes a writer that commits while readers hold
+/// their locks (or readers that start while the writer commits) fail with
+/// `SQLITE_BUSY`, or wait if a [`busy_timeout`] is set. Use [`exclusive_all`]
+/// to keep every reader out for the duration of a write instead.
+///
+/// Note that each lane is fair, so if there are multiple tasks waiting for a
+/// guard, they will be granted in the order they were requested meaning calls
+/// to [`exclusive`] will complete in the order they were made.
 ///
 /// [`shared`]: Self::shared
 /// [`exclusive`]: Self::exclusive
+/// [`exclusive_all`]: Self::exclusive_all
+/// [WAL]: https://sqlite.org/wal.html
+/// [`busy_timeout`]: OpenOptions::busy_timeout
 ///
 /// # Examples
 ///
@@ -603,17 +620,73 @@ impl fmt::Display for ErrorKind {
 /// [`Arc`]: alloc::sync::Arc
 /// [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
 /// [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
+//
+// # Safety
+//
+// The pool hands out `NonNull` pointers into `read_pool` and `write` through
+// its guards, and turns them into `&mut` references in `Deref(Mut)`. That is
+// sound as long as no two live guards ever point to the same slot. The two
+// lanes guarantee this independently of each other:
+//
+// * Read slots. `read_semaphore` has `concurrency` permits, one per slot in
+//   `read_pool`, and a `SharedGuard` holds exactly one. So at most
+//   `concurrency` shared guards are live at once, and when one is acquiring its
+//   slot at most `concurrency - 1` bits of `used_read` are set: there is always
+//   a clear bit below `concurrency`. The guard claims it with a compare-exchange
+//   (so two guards can never claim the same bit), and clears it in `Drop`
+//   before its permit is released (fields drop after `Drop::drop`), so the bit
+//   is free again by the time anyone else can obtain the permit to claim it.
+//   Bit `i` set means slot `i` is owned by exactly one guard.
+// * The write slot. `write_semaphore` has a single permit, and an
+//   `ExclusiveGuard` holds it for as long as it lives, so at most one
+//   exclusive guard, and therefore one pointer to `write`, is live at a time.
+//
+// The lanes never touch each other's slots: `read_pool` and `write` are
+// disjoint allocations, a shared guard only ever points into `read_pool` and
+// an exclusive guard only ever points to `write`. So a writer holding the write
+// slot while readers hold read slots creates no aliasing, and the read lane's
+// argument above makes no assumption about the write lane (or vice versa).
+// `exclusive_all` additionally takes every read permit, but that is only a
+// behavioural opt-in; it is not needed for soundness.
+//
+// This is also why `Pool: Sync` only needs `R: Send` and `W: Send`: through a
+// `&Pool`, each `R` and the `W` is only ever reached by the one guard owning
+// it, which may move it between threads but never shares it, while the readers
+// and the writer running in parallel share nothing but the atomics and
+// semaphores.
+//
+// On the SQLite side each slot owns its own `Connection` handle. A handle is
+// only ever used by the one guard that owns its slot, so it is never used from
+// two threads at once (which also keeps `no_mutex_unchecked` sound, as its docs
+// require; the guards' `connection` docs cover a statement a caller prepares
+// on it and keeps past the guard). Different handles used from different threads at the same time
+// is what SQLite's multi-thread and serialized modes allow, and coordinating
+// several connections to the same database file is SQLite's own job, through
+// its file locks (or the WAL index). The worst a concurrent reader and writer
+// can observe is `SQLITE_BUSY` under a rollback journal, an ordinary error. The
+// read connections are opened read-only, and `R: IsReadOnly` promises their
+// statements do not write, so the writer is the only connection that modifies
+// the database.
+//
+// `as_read_mut` and `as_write_mut` bypass the lanes, which is fine since they
+// take `&mut self`: no guard can be live, since each guard holds an `Arc` of
+// the pool, and `Arc` only hands out `&Pool`.
 pub struct Pool<R, W> {
     /// The pool of read connections of size `concurrency`.
     read_pool: Box<[UnsafeCell<Pooled<R>>]>,
-    /// Bit set of which inner connections are in use.
+    /// Bit set of which read connections are in use.
     used_read: AtomicU64,
     /// The single write connection.
     write: UnsafeCell<Pooled<W>>,
-    /// The maximum number of concurrent connections to the database.
+    /// The number of read connections, which is also the number of permits in
+    /// `read_semaphore`.
     concurrency: usize,
-    /// Semaphore to limit the number of concurrent connections to the database.
-    semaphore: Arc<Semaphore>,
+    /// One permit per read connection, held by each [`SharedGuard`].
+    read_semaphore: Arc<Semaphore>,
+    /// A single permit for the write connection, held by each
+    /// [`ExclusiveGuard`]. Independent of `read_semaphore`, so that a writer
+    /// does not exclude readers.
+    write_semaphore: Arc<Semaphore>,
 }
 
 /// A collection of statements together with the connection they were prepared
@@ -808,7 +881,8 @@ where
             used_read: AtomicU64::new(0),
             write: UnsafeCell::new(write),
             concurrency,
-            semaphore: Arc::new(Semaphore::new(concurrency)),
+            read_semaphore: Arc::new(Semaphore::new(concurrency)),
+            write_semaphore: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -835,8 +909,14 @@ where
     /// pool. The number of concurrent shared locks is limited by the
     /// `read_concurrency` the pool was constructed with, and if all connections
     /// are in use, this method will wait until one is available.
+    ///
+    /// Shared guards are independent of [`exclusive`] guards, so this does not
+    /// wait for a writer, unless one was taken with [`exclusive_all`].
+    ///
+    /// [`exclusive`]: Self::exclusive
+    /// [`exclusive_all`]: Self::exclusive_all
     pub async fn shared(self: Arc<Self>) -> Result<SharedGuard<R, W>, PoolError> {
-        let result = self.semaphore.clone().acquire_owned().await;
+        let result = self.read_semaphore.clone().acquire_owned().await;
 
         let permit = match result {
             Ok(permit) => permit,
@@ -845,7 +925,10 @@ where
 
         // Find the first unused connection in the used set, mark it as used,
         // and return it. We can do this without locking because each permit
-        // corresponds to one bit in the used set.
+        // corresponds to one bit in the used set: holding a permit means fewer
+        // than `concurrency` bits are set, so `trailing_ones` is always the
+        // index of a clear bit within `read_pool`. See the safety comment on
+        // `Pool`.
         let index = loop {
             let value = self.used_read.load(Ordering::Acquire);
             let index = value.trailing_ones();
@@ -865,9 +948,10 @@ where
         };
 
         // SAFETY: We have exclusive access to the read connection at `index`
-        // because we have acquired a permit from the semaphore, so no other
-        // thread can have access to it. We are also keeping the pool alive by
-        // storing it in the guard.
+        // because we set its bit in `used_read` while holding a read permit, so
+        // no other guard can claim it until our `Drop` clears the bit. No
+        // exclusive guard ever touches `read_pool`. We are also keeping the
+        // pool alive by storing it in the guard.
         let read = unsafe { NonNull::new_unchecked(self.read_pool[index].get()) };
 
         Ok(SharedGuard {
@@ -878,32 +962,186 @@ where
         })
     }
 
-    /// Acquire an exclusive lock on the pool.
+    /// Acquire the write connection of the pool.
     ///
-    /// This provides access to the write side `W` of the connection and for the
-    /// lifetime of [`ExclusiveGuard`] no other locks can be acquired.
+    /// This provides access to the write side `W` of the pool. For the lifetime
+    /// of the [`ExclusiveGuard`] no other exclusive guard can be acquired, so
+    /// writes are serialized, but [`shared`] guards can still be acquired and
+    /// used alongside it. The write connection is the only one which can modify
+    /// the database.
+    ///
+    /// This relies on the database being in [WAL] mode for readers to proceed
+    /// during a write. See the [type-level documentation][Pool] for what
+    /// happens otherwise, and use [`exclusive_all`] to also keep every reader
+    /// out.
+    ///
+    /// [`shared`]: Self::shared
+    /// [`exclusive_all`]: Self::exclusive_all
+    /// [WAL]: https://sqlite.org/wal.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{JournalMode, OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name) VALUES (?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create().journal_mode(JournalMode::Wal);
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut write = pool.clone().exclusive().await?;
+    /// let (w, c) = write.split();
+    /// c.execute("BEGIN")?;
+    /// w.insert.execute("Alice")?;
+    ///
+    /// // A reader is not held up by the writer, and does not see its
+    /// // uncommitted changes.
+    /// let mut read = pool.clone().shared().await?;
+    /// read.count.reset()?;
+    /// assert_eq!(read.count.next::<i64>()?, Some(0));
+    /// read.count.reset()?;
+    ///
+    /// c.execute("COMMIT")?;
+    /// assert_eq!(read.count.next::<i64>()?, Some(1));
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
     pub async fn exclusive(self: Arc<Self>) -> Result<ExclusiveGuard<R, W>, PoolError> {
-        let result = self
-            .semaphore
-            .clone()
-            .acquire_many_owned(self.concurrency as u32)
-            .await;
-
-        let permit = match result {
+        let write_permit = match self.write_semaphore.clone().acquire_owned().await {
             Ok(permit) => permit,
             Err(AcquireError { .. }) => return Err(PoolError::from(ErrorKind::NoConnections)),
         };
 
         // SAFETY: We have exclusive access to the write connection because we
-        // have acquired all permits in the semaphore, so no other thread can
-        // have access to it. We are also keeping the pool alive by storing it
-        // in the guard.
+        // hold the single permit of `write_semaphore`, so no other exclusive
+        // guard can be live. No shared guard ever touches `write`. We are also
+        // keeping the pool alive by storing it in the guard.
         let write = unsafe { NonNull::new_unchecked(self.write.get()) };
 
         Ok(ExclusiveGuard {
             write,
             _pool: self,
-            _permit: permit,
+            _read_permits: None,
+            _write_permit: write_permit,
+        })
+    }
+
+    /// Acquire the write connection of the pool while keeping every reader
+    /// out.
+    ///
+    /// This is like [`exclusive`], but also waits for every [`shared`] guard to
+    /// be dropped, and blocks new ones until the returned guard is dropped.
+    /// It is for databases not in [WAL] mode, where a write conflicts with
+    /// concurrent readers, or for anything else that needs the database to
+    /// itself, such as `VACUUM`.
+    ///
+    /// Holding a [`SharedGuard`] of the same pool while waiting for this
+    /// deadlocks, since it waits for that guard to be dropped.
+    ///
+    /// [`exclusive`]: Self::exclusive
+    /// [`shared`]: Self::shared
+    /// [WAL]: https://sqlite.org/wal.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name) VALUES (?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut write = pool.clone().exclusive_all().await?;
+    /// write.insert.execute("Alice")?;
+    ///
+    /// // No reader can get in while the guard is held.
+    /// let wait = Duration::from_millis(50);
+    /// assert!(tokio::time::timeout(wait, pool.clone().shared()).await.is_err());
+    /// drop(write);
+    ///
+    /// let mut read = pool.clone().shared().await?;
+    /// assert_eq!(read.count.next::<i64>()?, Some(1));
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    pub async fn exclusive_all(self: Arc<Self>) -> Result<ExclusiveGuard<R, W>, PoolError> {
+        // The write permit is taken first, so that waiting for the readers to
+        // drain does not hold up readers on behalf of a writer that is itself
+        // still queued behind another writer. Taking the two in a fixed order
+        // also means two `exclusive_all` calls cannot each hold half of what
+        // the other needs.
+        let write_permit = match self.write_semaphore.clone().acquire_owned().await {
+            Ok(permit) => permit,
+            Err(AcquireError { .. }) => return Err(PoolError::from(ErrorKind::NoConnections)),
+        };
+
+        let read_permits = match self
+            .read_semaphore
+            .clone()
+            .acquire_many_owned(self.concurrency as u32)
+            .await
+        {
+            Ok(permit) => permit,
+            Err(AcquireError { .. }) => return Err(PoolError::from(ErrorKind::NoConnections)),
+        };
+
+        // SAFETY: As in `exclusive`, we hold the single write permit. Holding
+        // every read permit as well is not needed for this access.
+        let write = unsafe { NonNull::new_unchecked(self.write.get()) };
+
+        Ok(ExclusiveGuard {
+            write,
+            _pool: self,
+            _read_permits: Some(read_permits),
+            _write_permit: write_permit,
         })
     }
 }
@@ -1103,13 +1341,16 @@ impl<R, W> Drop for SharedGuard<R, W> {
     }
 }
 
-/// An exclusive guard to the pool.
+/// An exclusive guard to the write connection of the pool.
 ///
-/// See [`Pool::exclusive`] for more details.
+/// See [`Pool::exclusive`] and [`Pool::exclusive_all`] for more details.
 pub struct ExclusiveGuard<R, W> {
     write: NonNull<Pooled<W>>,
     _pool: Arc<Pool<R, W>>,
-    _permit: OwnedSemaphorePermit,
+    /// Every read permit, when taken with [`Pool::exclusive_all`].
+    _read_permits: Option<OwnedSemaphorePermit>,
+    /// The single write permit, which is what makes access to `write` sound.
+    _write_permit: OwnedSemaphorePermit,
 }
 
 impl<R, W> ExclusiveGuard<R, W> {

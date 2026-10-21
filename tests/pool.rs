@@ -1,12 +1,16 @@
-//! Concurrent use of [`Pool::shared`] and [`Pool::exclusive`] from many tasks.
+//! Concurrent use of [`Pool::shared`], [`Pool::exclusive`] and
+//! [`Pool::exclusive_all`] from many tasks.
 
 #![cfg(feature = "pool")]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier as SyncBarrier};
+use std::time::Duration;
 
 use anyhow::Result;
-use sqll::{OpenOptions, Pool, PoolBuilder, SendStatement, Statements, TypedStatement};
+use sqll::{
+    JournalMode, OpenOptions, Pool, PoolBuilder, SendStatement, Statements, TypedStatement,
+};
 use tempfile::TempDir;
 use tokio::sync::Barrier;
 use tokio::task;
@@ -25,6 +29,22 @@ struct Write {
 }
 
 fn setup(concurrency: usize) -> Result<(TempDir, Arc<Pool<Read, Write>>)> {
+    setup_with(concurrency, OpenOptions::new())
+}
+
+/// A pool in WAL mode, where readers can proceed during a write.
+fn setup_wal(concurrency: usize) -> Result<(TempDir, Arc<Pool<Read, Write>>)> {
+    let mut options = OpenOptions::new();
+    options
+        .journal_mode(JournalMode::Wal)
+        .busy_timeout(Duration::from_secs(10));
+    setup_with(concurrency, options)
+}
+
+fn setup_with(
+    concurrency: usize,
+    mut options: OpenOptions,
+) -> Result<(TempDir, Arc<Pool<Read, Write>>)> {
     let dir = TempDir::new()?;
     let path = dir.path().join("pool.db");
 
@@ -33,11 +53,18 @@ fn setup(concurrency: usize) -> Result<(TempDir, Arc<Pool<Read, Write>>)> {
         c.execute("CREATE TABLE counter (n INTEGER NOT NULL); INSERT INTO counter VALUES (0);")?;
     }
 
-    let mut options = OpenOptions::new();
     options.create();
 
     let pool = PoolBuilder::new(options, concurrency).open::<Read, Write>(&path)?;
     Ok((dir, Arc::new(pool)))
+}
+
+/// Fail rather than hang if acquiring a guard waits for one that is held.
+async fn within<F>(f: F) -> Result<F::Output>
+where
+    F: Future,
+{
+    Ok(tokio::time::timeout(Duration::from_secs(10), f).await?)
 }
 
 fn read(guard: &mut Read) -> Result<i64> {
@@ -76,16 +103,178 @@ async fn shared_guards_are_concurrent() -> Result<()> {
     Ok(())
 }
 
-/// Shared and exclusive guards taken from many tasks never overlap, and every
-/// read connection is reused correctly once its guard is dropped.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn shared_and_exclusive_guards() -> Result<()> {
-    const TASKS: usize = 16;
-    const ROUNDS: usize = 25;
+/// A writer and every reader hold their guards, and use them, at the same
+/// time: the exclusive guard neither waits for the shared guards nor blocks
+/// them. In WAL mode the readers see the database as it was before the
+/// writer's open transaction until it commits.
+#[test]
+fn writer_and_readers_hold_guards_at_once() -> Result<()> {
+    const CONCURRENCY: usize = 4;
 
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+
+    let (_dir, pool) = setup_wal(CONCURRENCY)?;
+
+    // Take the exclusive guard and then every shared guard, so that they are
+    // all held at once. Each acquisition would wait forever if it had to wait
+    // for another guard to be dropped, so bound it.
+    let (mut write, reads) = rt.block_on(async {
+        let write = within(pool.clone().exclusive()).await??;
+        let mut reads = Vec::new();
+
+        for _ in 0..CONCURRENCY {
+            reads.push(within(pool.clone().shared()).await??);
+        }
+
+        Ok::<_, anyhow::Error>((write, reads))
+    })?;
+
+    // Then use them from one thread each, in lockstep. The barrier counts the
+    // writer and every reader, so each step only completes once all of them
+    // reach it with their guard still held.
+    let barrier = Arc::new(SyncBarrier::new(CONCURRENCY + 1));
+
+    let writer = {
+        let barrier = barrier.clone();
+
+        std::thread::spawn(move || -> Result<()> {
+            let (statements, c) = write.split();
+            barrier.wait(); // 1: all guards are held.
+
+            c.execute("BEGIN")?;
+            statements.increment.execute(())?;
+            barrier.wait(); // 2: the write is in flight.
+            barrier.wait(); // 3: readers have read during the write.
+
+            c.execute("COMMIT")?;
+            barrier.wait(); // 4: the write is committed.
+            barrier.wait(); // 5: readers have read after the write.
+            drop(write);
+            Ok(())
+        })
+    };
+
+    let mut readers = Vec::new();
+
+    for mut guard in reads {
+        let barrier = barrier.clone();
+
+        readers.push(std::thread::spawn(move || -> Result<()> {
+            barrier.wait(); // 1
+            barrier.wait(); // 2
+            assert_eq!(read(&mut guard)?, 0);
+            barrier.wait(); // 3
+            barrier.wait(); // 4
+            assert_eq!(read(&mut guard)?, 1);
+            barrier.wait(); // 5
+            Ok(())
+        }));
+    }
+
+    writer.join().expect("writer panicked")?;
+
+    for t in readers {
+        t.join().expect("reader panicked")?;
+    }
+
+    Ok(())
+}
+
+/// A task holding a shared guard can take the exclusive guard, and a task
+/// holding the exclusive guard can take a shared guard, without waiting for
+/// itself.
+#[tokio::test]
+async fn guards_nest_in_either_order() -> Result<()> {
+    let (_dir, pool) = setup_wal(1)?;
+
+    let mut r = pool.clone().shared().await?;
+    let mut w = within(pool.clone().exclusive()).await??;
+    w.increment.execute(())?;
+    assert_eq!(read(&mut r)?, 1);
+    drop(r);
+
+    let mut r = within(pool.clone().shared()).await??;
+    w.increment.execute(())?;
+    assert_eq!(read(&mut r)?, 2);
+    Ok(())
+}
+
+/// Exclusive guards exclude each other, and `exclusive_all` also excludes
+/// shared guards and waits for those already held.
+#[tokio::test]
+async fn exclusive_guards_exclude() -> Result<()> {
+    let (_dir, pool) = setup_wal(2)?;
+    let wait = Duration::from_millis(50);
+
+    let write = pool.clone().exclusive().await?;
+    assert!(
+        tokio::time::timeout(wait, pool.clone().exclusive())
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(wait, pool.clone().exclusive_all())
+            .await
+            .is_err()
+    );
+    drop(write);
+
+    let read = pool.clone().shared().await?;
+    // Waits for `read` to be dropped.
+    assert!(
+        tokio::time::timeout(wait, pool.clone().exclusive_all())
+            .await
+            .is_err()
+    );
+    drop(read);
+
+    let all = pool.clone().exclusive_all().await?;
+    assert!(
+        tokio::time::timeout(wait, pool.clone().shared())
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(wait, pool.clone().exclusive())
+            .await
+            .is_err()
+    );
+    drop(all);
+
+    // Cancelled acquisitions above released whatever permits they had taken.
+    let _read = within(pool.clone().shared()).await??;
+    let _read = within(pool.clone().shared()).await??;
+    let _write = within(pool.clone().exclusive()).await??;
+    Ok(())
+}
+
+/// Shared guards and `exclusive_all` guards taken from many tasks never
+/// overlap, and every read connection is reused correctly once its guard is
+/// dropped. This holds without WAL, since no reader runs during a write.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_and_exclusive_all_guards() -> Result<()> {
     // Fewer read connections than tasks so guards contend and slots are
     // reused.
     let (_dir, pool) = setup(2)?;
+    contend(pool, true).await
+}
+
+/// Exclusive guards taken from many tasks never overlap each other, while
+/// shared guards run alongside them, and every write lands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_and_exclusive_guards() -> Result<()> {
+    let (_dir, pool) = setup_wal(2)?;
+    contend(pool, false).await
+}
+
+/// Take shared and exclusive guards from many tasks at once. With `all`,
+/// writers use `exclusive_all` and no reader may overlap a writer.
+async fn contend(pool: Arc<Pool<Read, Write>>, all: bool) -> Result<()> {
+    const TASKS: usize = 16;
+    const ROUNDS: usize = 25;
 
     let readers = Arc::new(AtomicUsize::new(0));
     let writer = Arc::new(AtomicBool::new(false));
@@ -101,9 +290,17 @@ async fn shared_and_exclusive_guards() -> Result<()> {
 
             for round in 0..ROUNDS {
                 if (index + round) % 4 == 0 {
-                    let mut guard = pool.clone().exclusive().await?;
+                    let mut guard = if all {
+                        pool.clone().exclusive_all().await?
+                    } else {
+                        pool.clone().exclusive().await?
+                    };
+
                     assert!(!writer.swap(true, Ordering::SeqCst));
-                    assert_eq!(readers.load(Ordering::SeqCst), 0);
+
+                    if all {
+                        assert_eq!(readers.load(Ordering::SeqCst), 0);
+                    }
 
                     guard = task::spawn_blocking(move || -> Result<_> {
                         guard.increment.execute(())?;
@@ -117,7 +314,7 @@ async fn shared_and_exclusive_guards() -> Result<()> {
                 } else {
                     let mut guard = pool.clone().shared().await?;
                     readers.fetch_add(1, Ordering::SeqCst);
-                    assert!(!writer.load(Ordering::SeqCst));
+                    assert!(!all || !writer.load(Ordering::SeqCst));
 
                     guard = task::spawn_blocking(move || -> Result<_> {
                         read(&mut guard)?;
@@ -125,7 +322,7 @@ async fn shared_and_exclusive_guards() -> Result<()> {
                     })
                     .await??;
 
-                    assert!(!writer.load(Ordering::SeqCst));
+                    assert!(!all || !writer.load(Ordering::SeqCst));
                     readers.fetch_sub(1, Ordering::SeqCst);
                     drop(guard);
                 }

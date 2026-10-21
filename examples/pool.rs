@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use sqll::{OpenOptions, PoolBuilder, Statements, TypedStatement};
+use sqll::{JournalMode, OpenOptions, PoolBuilder, Statements, TypedStatement};
 use tokio::task;
 
 /// Statements used for read-only access.
@@ -54,13 +54,15 @@ async fn main() -> Result<()> {
     }
 
     let mut options = OpenOptions::new();
-    options.no_mutex().create();
+    // WAL lets readers proceed while the write connection is in use.
+    options.no_mutex().create().journal_mode(JournalMode::Wal);
 
     let pool = Arc::new(PoolBuilder::new(options, 4).open::<Read, Write>(&path)?);
 
-    // Insert a few rows under an exclusive lock. While this guard is held no
-    // other task can acquire a shared or exclusive lock. The actual statement
-    // calls are performed on a blocking thread, since SQLite is blocking.
+    // Insert a few rows through the write connection. While this guard is held
+    // no other task can acquire an exclusive guard, but shared guards can still
+    // be used to read. The actual statement calls are performed on a blocking
+    // thread, since SQLite is blocking.
     {
         let guard = pool.clone().exclusive().await?;
 
