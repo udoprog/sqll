@@ -219,3 +219,37 @@ async fn pooled_statements_rebind_limit_and_like() -> Result<()> {
     assert_eq!(collect(&mut write.like, "b%")?, ["bob"]);
     Ok(())
 }
+
+/// Guards lend out the connection their statements were prepared on: the read
+/// side is read-only, and the write side reports changes from its statements.
+#[tokio::test]
+async fn guards_expose_their_connection() -> Result<()> {
+    let (_dir, pool) = setup(2)?;
+
+    {
+        let mut guard = pool.clone().exclusive().await?;
+        guard.increment.execute(())?;
+        assert_eq!(guard.connection().changes(), 1);
+
+        let (write, c) = guard.split();
+        c.execute("INSERT INTO counter VALUES (10)")?;
+        assert_eq!(c.last_insert_rowid(), 2);
+        write.increment.execute(())?;
+        assert_eq!(c.changes(), 2);
+    }
+
+    let mut guard = pool.clone().shared().await?;
+    assert!(guard.connection().execute("DELETE FROM counter").is_err());
+
+    let mut stmt = guard
+        .connection()
+        .prepare(format!("SELECT n FROM counter ORDER BY n {}", "DESC"))?;
+    stmt.bind(())?;
+    assert_eq!(stmt.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [11, 2]);
+    drop(stmt);
+
+    let (read, c) = guard.split();
+    assert!(c.database_read_only(c"main")?);
+    assert_eq!(read.get.query()?.next()?, Some(2));
+    Ok(())
+}

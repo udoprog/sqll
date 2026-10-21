@@ -442,6 +442,12 @@ impl fmt::Display for ErrorKind {
 /// [`tokio::task::spawn_blocking`]). See [`examples/pool.rs`] for a complete
 /// asynchronous example.
 ///
+/// SQL which cannot be declared up front, such as a query composed at runtime,
+/// can be prepared on the connection a guard lends out through
+/// [`SharedGuard::connection`] or [`ExclusiveGuard::connection`]. These also
+/// give access to [`Connection::changes`] and [`Connection::last_insert_rowid`]
+/// after a write.
+///
 /// [`Arc`]: alloc::sync::Arc
 /// [`examples/pool.rs`]: https://github.com/udoprog/sqll/blob/main/examples/pool.rs
 /// [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
@@ -470,9 +476,11 @@ struct Pooled<T> {
     /// The prepared statements. Declared before `connection` so that they are
     /// dropped (finalized) first.
     statements: T,
-    /// The connection the statements were prepared on. Never used directly
-    /// after construction, only kept alive for the statements.
-    _connection: Connection,
+    /// The connection the statements were prepared on. Kept alive for the
+    /// statements, and lent out by [`SharedGuard::connection`] and
+    /// [`ExclusiveGuard::connection`].
+    #[cfg_attr(not(feature = "threadsafe"), allow(dead_code))]
+    connection: Connection,
 }
 
 unsafe impl<R, W> Send for Pool<R, W>
@@ -618,7 +626,7 @@ where
 
         let write = Pooled {
             statements: W::build(&mut write)?,
-            _connection: write,
+            connection: write,
         };
 
         let mut read_pool = Vec::with_capacity(concurrency);
@@ -637,7 +645,7 @@ where
 
             let read = Pooled {
                 statements: R::build(&mut read)?,
-                _connection: read,
+                connection: read,
             };
 
             read_pool.push(UnsafeCell::new(read));
@@ -708,10 +716,7 @@ where
         // because we have acquired a permit from the semaphore, so no other
         // thread can have access to it. We are also keeping the pool alive by
         // storing it in the guard.
-        let read = unsafe {
-            let slot = self.read_pool[index].get();
-            NonNull::new_unchecked(&mut (*slot).statements)
-        };
+        let read = unsafe { NonNull::new_unchecked(self.read_pool[index].get()) };
 
         Ok(SharedGuard {
             read,
@@ -741,7 +746,7 @@ where
         // have acquired all permits in the semaphore, so no other thread can
         // have access to it. We are also keeping the pool alive by storing it
         // in the guard.
-        let write = unsafe { NonNull::new_unchecked(&mut (*self.write.get()).statements) };
+        let write = unsafe { NonNull::new_unchecked(self.write.get()) };
 
         Ok(ExclusiveGuard {
             write,
@@ -755,10 +760,162 @@ where
 ///
 /// See [`Pool::shared`] for more details.
 pub struct SharedGuard<R, W> {
-    read: NonNull<R>,
+    read: NonNull<Pooled<R>>,
     pool: Arc<Pool<R, W>>,
     index: usize,
     _permit: OwnedSemaphorePermit,
+}
+
+impl<R, W> SharedGuard<R, W> {
+    /// Access the read-only connection that this guard's statements were
+    /// prepared on.
+    ///
+    /// This is useful for SQL which cannot be declared up front as part of the
+    /// `R` statement collection, such as a query whose filter or ordering is
+    /// composed at runtime. The connection was opened read-only, so statements
+    /// which attempt to modify the database fail.
+    ///
+    /// A [`Statement`] prepared on this connection should not outlive the
+    /// guard. Once the guard is dropped the connection is handed to the next
+    /// guard, which may run on another thread. Under the `threadsafe` feature
+    /// this is still sound since the connection is serialized by SQLite, unless
+    /// it was opened with [`no_mutex_unchecked`] whose safety requirements
+    /// forbid it. It also holds the connection open after the pool is dropped.
+    ///
+    /// [`Statement`]: crate::Statement
+    /// [`no_mutex_unchecked`]: OpenOptions::no_mutex_unchecked
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| {
+    ///         c.execute(r#"
+    ///             CREATE TABLE users (name TEXT, age INTEGER);
+    ///             INSERT INTO users VALUES ('Alice', 42), ('Bob', 72), ('Carol', 21);
+    ///         "#)
+    ///     })
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let guard = pool.shared().await?;
+    ///
+    /// // An ordering only known at runtime.
+    /// let order = "age DESC";
+    ///
+    /// let mut stmt = guard
+    ///     .connection()
+    ///     .prepare(format!("SELECT name FROM users ORDER BY {order}"))?;
+    ///
+    /// stmt.bind(())?;
+    /// let names = stmt.iter::<String>().collect::<Result<Vec<_>, _>>()?;
+    /// assert_eq!(names, ["Bob", "Alice", "Carol"]);
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    #[inline]
+    #[cfg(feature = "threadsafe")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "threadsafe")))]
+    pub fn connection(&self) -> &Connection {
+        // SAFETY: The guard has exclusive access to this read slot.
+        unsafe { &self.read.as_ref().connection }
+    }
+
+    /// Access both the statements and the connection they were prepared on at
+    /// the same time.
+    ///
+    /// This is the same as [`connection`] combined with the mutable access the
+    /// guard otherwise gives to its statements through `DerefMut`, for when both
+    /// need to be borrowed at once.
+    ///
+    /// [`connection`]: Self::connection
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT name FROM users WHERE age > ? ORDER BY name"]
+    ///     older_than: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| {
+    ///         c.execute(r#"
+    ///             CREATE TABLE users (name TEXT, age INTEGER);
+    ///             INSERT INTO users VALUES ('Alice', 42), ('Bob', 72), ('Carol', 21);
+    ///         "#)
+    ///     })
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut guard = pool.shared().await?;
+    /// let (read, c) = guard.split();
+    ///
+    /// // A statement prepared at runtime next to one prepared up front.
+    /// let mut total = c.prepare("SELECT COUNT(*) FROM users")?;
+    /// total.bind(())?;
+    /// assert_eq!(total.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [3]);
+    ///
+    /// read.older_than.bind(30)?;
+    /// let names = read.older_than.iter::<String>().collect::<Result<Vec<_>, _>>()?;
+    /// assert_eq!(names, ["Alice", "Bob"]);
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    #[inline]
+    #[cfg(feature = "threadsafe")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "threadsafe")))]
+    pub fn split(&mut self) -> (&mut R, &Connection) {
+        // SAFETY: The guard has exclusive access to this read slot, and the
+        // statements and the connection are disjoint fields.
+        let pooled = unsafe { self.read.as_mut() };
+        (&mut pooled.statements, &pooled.connection)
+    }
 }
 
 impl<R, W> Deref for SharedGuard<R, W> {
@@ -766,14 +923,14 @@ impl<R, W> Deref for SharedGuard<R, W> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        unsafe { self.read.as_ref() }
+        unsafe { &self.read.as_ref().statements }
     }
 }
 
 impl<R, W> DerefMut for SharedGuard<R, W> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.read.as_mut() }
+        unsafe { &mut self.read.as_mut().statements }
     }
 }
 
@@ -798,9 +955,157 @@ impl<R, W> Drop for SharedGuard<R, W> {
 ///
 /// See [`Pool::exclusive`] for more details.
 pub struct ExclusiveGuard<R, W> {
-    write: NonNull<W>,
+    write: NonNull<Pooled<W>>,
     _pool: Arc<Pool<R, W>>,
     _permit: OwnedSemaphorePermit,
+}
+
+impl<R, W> ExclusiveGuard<R, W> {
+    /// Access the write connection that this guard's statements were prepared
+    /// on.
+    ///
+    /// This is useful for SQL which cannot be declared up front as part of the
+    /// `W` statement collection, and for [`Connection::changes`] and
+    /// [`Connection::last_insert_rowid`] after running one of the write
+    /// statements.
+    ///
+    /// A [`Statement`] prepared on this connection should not outlive the
+    /// guard. Once the guard is dropped the connection is handed to the next
+    /// guard, which may run on another thread. Under the `threadsafe` feature
+    /// this is still sound since the connection is serialized by SQLite, unless
+    /// it was opened with [`no_mutex_unchecked`] whose safety requirements
+    /// forbid it. It also holds the connection open after the pool is dropped.
+    ///
+    /// [`Statement`]: crate::Statement
+    /// [`no_mutex_unchecked`]: OpenOptions::no_mutex_unchecked
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT name, age FROM users"]
+    ///     all: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+    ///     insert: SendStatement,
+    ///     #[sql = "UPDATE users SET age = age + 1 WHERE name = ?"]
+    ///     birthday: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT, age INTEGER)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut guard = pool.exclusive().await?;
+    ///
+    /// guard.insert.execute(("Alice", 42))?;
+    /// assert_eq!(guard.connection().last_insert_rowid(), 1);
+    ///
+    /// guard.birthday.execute("Bob")?;
+    /// guard.birthday.reset()?;
+    /// assert_eq!(guard.connection().changes(), 0);
+    ///
+    /// guard.birthday.execute("Alice")?;
+    /// guard.birthday.reset()?;
+    /// assert_eq!(guard.connection().changes(), 1);
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    #[inline]
+    #[cfg(feature = "threadsafe")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "threadsafe")))]
+    pub fn connection(&self) -> &Connection {
+        // SAFETY: The guard has exclusive access to the write slot.
+        unsafe { &self.write.as_ref().connection }
+    }
+
+    /// Access both the statements and the connection they were prepared on at
+    /// the same time.
+    ///
+    /// This is the same as [`connection`] combined with the mutable access the
+    /// guard otherwise gives to its statements through `DerefMut`, for when both
+    /// need to be borrowed at once, such as when running the write statements
+    /// inside of a transaction.
+    ///
+    /// [`connection`]: Self::connection
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use sqll::{OpenOptions, PoolBuilder, SendStatement, Statements};
+    ///
+    /// #[derive(Statements)]
+    /// #[sql(read_only)]
+    /// struct Read {
+    ///     #[sql = "SELECT COUNT(*) FROM users"]
+    ///     count: SendStatement,
+    /// }
+    ///
+    /// #[derive(Statements)]
+    /// struct Write {
+    ///     #[sql = "INSERT INTO users (name, age) VALUES (?, ?)"]
+    ///     insert: SendStatement,
+    /// }
+    ///
+    /// # let dir = tempfile::tempdir()?;
+    /// # let path = dir.path().join("example.db");
+    /// let mut options = OpenOptions::new();
+    /// options.create();
+    ///
+    /// let pool = PoolBuilder::new(options, 4)
+    ///     .with_write_setup(|c| c.execute("CREATE TABLE users (name TEXT, age INTEGER)"))
+    ///     .open::<Read, Write>(&path)?;
+    ///
+    /// let pool = Arc::new(pool);
+    ///
+    /// # tokio::runtime::Runtime::new()?.block_on(async move {
+    /// let mut guard = pool.clone().exclusive().await?;
+    /// let (write, c) = guard.split();
+    ///
+    /// c.execute("BEGIN")?;
+    /// write.insert.execute(("Alice", 42))?;
+    /// write.insert.reset()?;
+    /// write.insert.execute(("Bob", 72))?;
+    /// write.insert.reset()?;
+    /// c.execute("ROLLBACK")?;
+    /// drop(guard);
+    ///
+    /// let mut guard = pool.shared().await?;
+    /// guard.count.bind(())?;
+    /// assert_eq!(guard.count.iter::<i64>().collect::<Result<Vec<_>, _>>()?, [0]);
+    /// # Ok::<_, anyhow::Error>(())
+    /// # })?;
+    /// # Ok::<_, anyhow::Error>(())
+    /// ```
+    #[inline]
+    #[cfg(feature = "threadsafe")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "threadsafe")))]
+    pub fn split(&mut self) -> (&mut W, &Connection) {
+        // SAFETY: The guard has exclusive access to the write slot, and the
+        // statements and the connection are disjoint fields.
+        let pooled = unsafe { self.write.as_mut() };
+        (&mut pooled.statements, &pooled.connection)
+    }
 }
 
 impl<R, W> Deref for ExclusiveGuard<R, W> {
@@ -808,14 +1113,14 @@ impl<R, W> Deref for ExclusiveGuard<R, W> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        unsafe { self.write.as_ref() }
+        unsafe { &self.write.as_ref().statements }
     }
 }
 
 impl<R, W> DerefMut for ExclusiveGuard<R, W> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.write.as_mut() }
+        unsafe { &mut self.write.as_mut().statements }
     }
 }
 
