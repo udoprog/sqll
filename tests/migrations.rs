@@ -1,7 +1,10 @@
 use sqll::{Code, Connection, Migrations, Result};
 
 const MIGRATIONS: &[(&str, &str)] = &[
-    ("0001_users", "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"),
+    (
+        "0001_users",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+    ),
     (
         "0002_posts",
         "CREATE TABLE posts (user_id INTEGER REFERENCES users (id), body TEXT)",
@@ -82,12 +85,18 @@ fn failing_migration_is_rolled_back() -> Result<()> {
 
     let broken = [
         MIGRATIONS[0],
-        ("0002_broken", "CREATE TABLE t (a); INSERT INTO missing VALUES (1)"),
+        (
+            "0002_broken",
+            "CREATE TABLE t (a); INSERT INTO missing VALUES (1)",
+        ),
     ];
 
     let error = m.run(&c, broken).unwrap_err();
     assert_eq!(error.code(), Code::ERROR);
-    assert!(error.to_string().starts_with("migration 0002_broken: "), "{error}");
+    assert!(
+        error.to_string().starts_with("migration 0002_broken: "),
+        "{error}"
+    );
 
     assert_eq!(applied(&c, "migrations")?, ["0001_users"]);
     // The part of the migration that ran was rolled back.
@@ -175,7 +184,10 @@ fn fresh_schema_skipped_on_existing_database() -> Result<()> {
     let m = Migrations::new().fresh_schema("CREATE TABLE should_not_exist (a)");
 
     let error = m.run(&c, MIGRATIONS.iter().copied()).unwrap_err();
-    assert!(error.to_string().starts_with("migration 0001_users: "), "{error}");
+    assert!(
+        error.to_string().starts_with("migration 0001_users: "),
+        "{error}"
+    );
     assert!(c.prepare("SELECT * FROM should_not_exist").is_err());
     Ok(())
 }
@@ -205,7 +217,10 @@ fn foreign_keys_off_restores_on_error() -> Result<()> {
     assert_eq!(foreign_keys(&c)?, 1);
 
     let error = m
-        .run(&c, [("0004_orphan", "INSERT INTO posts VALUES (2, 'Orphan')")])
+        .run(
+            &c,
+            [("0004_orphan", "INSERT INTO posts VALUES (2, 'Orphan')")],
+        )
         .unwrap_err();
 
     assert_eq!(error.code(), Code::CONSTRAINT_FOREIGNKEY);
