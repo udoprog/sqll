@@ -7,6 +7,7 @@ use std::ffi::CString;
 
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
+use syn::ext::IdentExt;
 use syn::punctuated::Punctuated;
 use syn::{
     Data, DataStruct, DeriveInput, Error, Ident, Index, Lifetime, LifetimeParam, LitCStr, LitInt,
@@ -291,23 +292,30 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
             let mut setup = Vec::new();
             let mut checked = Vec::new();
 
-            for (i, (b, ty)) in bindings.iter().zip(types).enumerate() {
+            for (i, ((b, ty), m)) in bindings.iter().zip(types).zip(fields.iter()).enumerate() {
                 let Binding::Index(index) = b else {
                     continue;
                 };
 
                 let c = quote::format_ident!("v{i}");
 
+                let name = match m {
+                    Member::Named(ident) => ident.unraw().to_string(),
+                    Member::Unnamed(index) => index.index.to_string(),
+                };
+
                 setup.push(quote! {
-                    let #c = <<#ty as #from_column_t::<#lt>>::Type as #column_type_t>::check(stmt, #column::from_raw(#index))?;
+                    let #c = <<#ty as #from_column_t::<#lt>>::Type as #column_type_t>::check(stmt, #column::from_raw(#index))
+                        .map_err(|e: #error| e.with_field(#name))?;
                 });
 
-                checked.push(c);
+                checked.push((m, c, name, *index));
             }
 
-            let fields = fields.iter().zip(checked.iter()).map(|(m, c)| {
+            let fields = checked.iter().map(|(m, c, name, index)| {
                 quote! {
-                    #m: #from_column_t::<#lt>::from_column(stmt, #c)?
+                    #m: #from_column_t::<#lt>::from_column(stmt, #c)
+                        .map_err(|e: #error| e.with_field(#name).with_column(stmt, #column::from_raw(#index)))?
                 }
             });
 
@@ -324,6 +332,7 @@ fn inner(cx: &Ctxt, input: TokenStream, what: What) -> Result<TokenStream, ()> {
                     #[inline]
                     fn from_row(stmt: &#lt mut #statement) -> #result<Self, #error> {
                         #(#setup)*
+                        let stmt: &#lt #statement = stmt;
                         #result::Ok(Self { #(#fields),* })
                     }
                 }

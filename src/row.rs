@@ -136,8 +136,7 @@ where
 
     #[inline]
     fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error> {
-        let prepare = T::Type::check(stmt, Column::FIRST)?;
-        T::from_column(stmt, prepare)
+        crate::ty::read_column(stmt, Column::FIRST)
     }
 }
 
@@ -215,8 +214,11 @@ macro_rules! implement_tuple {
             fn from_row(stmt: &'stmt mut Statement) -> Result<Self, Error> {
                 let $var0 = <$ty0>::Type::check(stmt, $crate::Column::from($value0))?;
                 $(let $var = <$ty>::Type::check(stmt, $crate::Column::from($value0n))?;)*
-                let $var0 = <$ty0>::from_column(stmt, $var0)?;
-                $(let $var = <$ty>::from_column(stmt, $var)?;)*
+                let stmt: &'stmt Statement = stmt;
+                let $var0 = <$ty0>::from_column(stmt, $var0)
+                    .map_err(|e| e.with_column(stmt, $crate::Column::from($value0)))?;
+                $(let $var = <$ty>::from_column(stmt, $var)
+                    .map_err(|e| e.with_column(stmt, $crate::Column::from($value0n)))?;)*
                 Ok(($var0, $($var,)*))
             }
         }

@@ -1,4 +1,6 @@
 use core::error;
+#[cfg(feature = "alloc")]
+use core::ffi::c_int;
 use core::fmt;
 
 #[cfg(feature = "alloc")]
@@ -8,7 +10,7 @@ use alloc::format;
 #[cfg(feature = "alloc")]
 use alloc::string::String;
 
-use crate::Code;
+use crate::{Code, Column, Statement};
 
 /// A result type alias.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
@@ -25,7 +27,10 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// connection has [extended result codes] enabled.
 ///
 /// A failed conversion in a [`FromColumn`] implementation is reported with
-/// [`Error::mismatch`] or [`Error::conversion`].
+/// [`Error::mismatch`] or [`Error::conversion`]. Errors raised while reading a
+/// column name it, by index and by name when SQLite knows the name, and the
+/// [`Row`] derive adds the field. Use [`Error::with_column`] and
+/// [`Error::with_field`] to do the same in hand-written code.
 ///
 /// `Error` does not implement `PartialEq`, since it can hold an arbitrary
 /// source error. Compare [`Error::code`] instead.
@@ -33,6 +38,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 /// [base]: Code::base
 /// [extended result codes]: crate::OpenOptions::extended_result_codes
 /// [`FromColumn`]: crate::FromColumn
+/// [`Row`]: crate::Row
 ///
 /// # Examples
 ///
@@ -54,6 +60,46 @@ pub struct Error {
     code: Code,
     #[cfg(feature = "alloc")]
     repr: Repr,
+    /// The column and field the error was raised for, if known.
+    #[cfg(feature = "alloc")]
+    context: Option<Box<Context>>,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug, Default)]
+struct Context {
+    column: Option<ColumnContext>,
+    field: Option<&'static str>,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+struct ColumnContext {
+    index: c_int,
+    name: Option<String>,
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for Context {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(field) = self.field {
+            write!(f, "field `{field}`")?;
+
+            if self.column.is_some() {
+                write!(f, " from ")?;
+            }
+        }
+
+        if let Some(column) = &self.column {
+            write!(f, "column {}", column.index)?;
+
+            if let Some(name) = &column.name {
+                write!(f, " (`{name}`)")?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "alloc")]
@@ -83,6 +129,8 @@ impl Error {
             code,
             #[cfg(feature = "alloc")]
             repr: Repr::Message(format!("{_message}")),
+            #[cfg(feature = "alloc")]
+            context: None,
         }
     }
 
@@ -164,6 +212,7 @@ impl Error {
             Self {
                 code: Code::MISMATCH,
                 repr: Repr::Source(Box::new(source)),
+                context: None,
             }
         }
 
@@ -195,6 +244,101 @@ impl Error {
     #[inline]
     pub fn code(&self) -> Code {
         self.code
+    }
+
+    /// Attach the column the error was raised for.
+    ///
+    /// The error then displays the column index and, when SQLite knows it,
+    /// the column name from [`Statement::column_name`] before its message.
+    /// The code, source and [`Error::get_ref`] stay those of the original
+    /// error. If the error already names a column, it is kept, since the
+    /// innermost column is the one that failed.
+    ///
+    /// Type checks and the [`Row`] implementations sqll provides already do
+    /// this, so it is only needed in hand-written code that reads columns.
+    /// Without the `alloc` feature the column is discarded.
+    ///
+    /// [`Row`]: crate::Row
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::{Code, Connection, Error};
+    ///
+    /// let c = Connection::open_in_memory()?;
+    /// let mut stmt = c.prepare("SELECT 'red' AS color")?;
+    /// assert!(stmt.step()?.is_row());
+    ///
+    /// let e = Error::mismatch("unknown color").with_column(&stmt, 0);
+    /// assert_eq!(e.code(), Code::MISMATCH);
+    /// assert_eq!(e.to_string(), "column 0 (`color`): unknown color");
+    /// # Ok::<_, sqll::Error>(())
+    /// ```
+    #[inline]
+    pub fn with_column(self, stmt: &Statement, column: impl Into<Column>) -> Self {
+        #[cfg(feature = "alloc")]
+        {
+            let mut this = self;
+            let context = this.context.get_or_insert_with(Box::default);
+
+            if context.column.is_none() {
+                let index = column.into().raw();
+                let name = stmt.column_name(Column::from_raw(index));
+
+                context.column = Some(ColumnContext {
+                    index,
+                    name: name.map(|name| format!("{name}")),
+                });
+            }
+
+            this
+        }
+
+        #[cfg(not(feature = "alloc"))]
+        {
+            _ = (stmt, column);
+            self
+        }
+    }
+
+    /// Attach the name of the field the error was raised for.
+    ///
+    /// The [`Row`] derive does this for each field, so an error from a field's
+    /// [`FromColumn`] implementation names both the field and the column it
+    /// was read from. The code, source and [`Error::get_ref`] stay those of
+    /// the original error, and a field name already attached is kept. Without
+    /// the `alloc` feature the field name is discarded.
+    ///
+    /// [`Row`]: crate::Row
+    /// [`FromColumn`]: crate::FromColumn
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqll::Error;
+    ///
+    /// let e = Error::mismatch("unknown color").with_field("color");
+    /// assert_eq!(e.to_string(), "field `color`: unknown color");
+    /// ```
+    #[inline]
+    pub fn with_field(self, field: &'static str) -> Self {
+        #[cfg(feature = "alloc")]
+        {
+            let mut this = self;
+            let context = this.context.get_or_insert_with(Box::default);
+
+            if context.field.is_none() {
+                context.field = Some(field);
+            }
+
+            this
+        }
+
+        #[cfg(not(feature = "alloc"))]
+        {
+            _ = field;
+            self
+        }
     }
 
     /// Get the source error this error was constructed with through
@@ -292,6 +436,11 @@ impl fmt::Debug for Error {
             }
         }
 
+        #[cfg(feature = "alloc")]
+        if let Some(context) = &self.context {
+            st.field("context", context);
+        }
+
         #[cfg(not(feature = "alloc"))]
         st.field("message", &self.code.message());
         st.finish()
@@ -302,6 +451,10 @@ impl fmt::Debug for Error {
 impl fmt::Display for Error {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(context) = &self.context {
+            write!(f, "{context}: ")?;
+        }
+
         match &self.repr {
             Repr::Message(message) => message.fmt(f),
             Repr::Source(source) => source.fmt(f),

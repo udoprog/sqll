@@ -171,7 +171,8 @@ unsafe impl Type for Any {
             ty => {
                 return Err(Error::mismatch(format_args!(
                     "dynamic value has unsupported column type {ty}"
-                )));
+                ))
+                .with_column(stmt, column));
             }
         };
 
@@ -514,7 +515,8 @@ unsafe impl Type for Text {
                 return Err(Error::new(
                     Code::ERROR,
                     format_args!("column size {len} exceeds addressable memory"),
-                ));
+                )
+                .with_column(stmt, column));
             };
 
             Ok(Self { column, len })
@@ -639,7 +641,8 @@ unsafe impl Type for Blob {
                 return Err(Error::new(
                     Code::ERROR,
                     format_args!("column size {len} exceeds addressable memory"),
-                ));
+                )
+                .with_column(stmt, column));
             };
 
             Ok(Self { column, len })
@@ -769,12 +772,36 @@ where
 // See: https://sqlite.org/c3ref/column_blob.html
 #[inline(always)]
 fn type_check(stmt: &Statement, column: Column, expected: ValueType) -> Result<()> {
-    if stmt.column_type(column) != expected {
-        return Err(Error::mismatch(format_args!(
-            "expected column type {expected} but found {}",
-            stmt.column_type(column)
-        )));
+    let actual = stmt.column_type(column);
+
+    if actual != expected {
+        return Err(type_mismatch(stmt, column, expected, actual));
     }
 
     Ok(())
+}
+
+#[cold]
+fn type_mismatch(
+    stmt: &Statement,
+    column: Column,
+    expected: ValueType,
+    actual: ValueType,
+) -> Error {
+    Error::mismatch(format_args!("expected {expected} but found {actual}"))
+        .with_column(stmt, column)
+}
+
+/// Check and read a single column, attaching the column to any error raised by
+/// the [`FromColumn`] implementation.
+///
+/// [`FromColumn`]: crate::FromColumn
+#[inline]
+pub(crate) fn read_column<'stmt, T>(stmt: &'stmt mut Statement, column: Column) -> Result<T>
+where
+    T: crate::FromColumn<'stmt>,
+{
+    let index = T::Type::check(stmt, column)?;
+    let stmt: &'stmt Statement = stmt;
+    T::from_column(stmt, index).map_err(|e| e.with_column(stmt, column))
 }

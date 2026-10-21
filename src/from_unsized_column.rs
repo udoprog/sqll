@@ -299,9 +299,10 @@ unsafe fn column_bytes(stmt: &Statement, column: Column, expected: ValueType) ->
     let actual = stmt.column_type(column);
 
     if actual != expected {
-        return Err(Error::mismatch(format_args!(
-            "expected column type {expected} but found {actual}"
-        )));
+        return Err(
+            Error::mismatch(format_args!("expected {expected} but found {actual}"))
+                .with_column(stmt, column),
+        );
     }
 
     unsafe {
@@ -320,7 +321,8 @@ unsafe fn column_bytes(stmt: &Statement, column: Column, expected: ValueType) ->
             return Err(Error::new(
                 Code::ERROR,
                 format_args!("column size {len} exceeds addressable memory"),
-            ));
+            )
+            .with_column(stmt, column));
         };
 
         if ptr.is_null() {

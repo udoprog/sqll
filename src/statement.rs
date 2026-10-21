@@ -1677,9 +1677,7 @@ impl Statement {
     where
         T: FromColumn<'stmt>,
     {
-        let column = column.into();
-        let prepare = T::Type::check(self, column)?;
-        T::from_column(self, prepare)
+        crate::ty::read_column(self, column.into())
     }
 
     /// Borrow a value from a column using the [`FromUnsizedColumn`] trait.
