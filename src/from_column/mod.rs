@@ -125,7 +125,7 @@ use crate::{Error, FixedBlob, FixedText, FromUnsizedColumn, Null, Result, Statem
 /// assert!(stmt.step()?.is_row());
 /// let e = stmt.column::<Port>(0).unwrap_err();
 /// assert_eq!(e.code(), Code::MISMATCH);
-/// assert_eq!(e.to_string(), "0 is not a port");
+/// assert_eq!(e.to_string(), "column 0 (`port`): 0 is not a port");
 ///
 /// let Err(e) = stmt.column::<Address>(1) else { panic!() };
 /// assert_eq!(e.code(), Code::MISMATCH);
@@ -847,7 +847,7 @@ impl<'stmt> FromColumn<'stmt> for &'stmt [u8] {
 /// while stmt.step()?.is_row() {
 ///     let e = stmt.column::<[u8; 8]>(0).unwrap_err();
 ///     assert_eq!(e.code(), Code::MISMATCH);
-///     assert_eq!(e.to_string(), "blob size must be exactly 8 bytes, but was 2");
+///     assert_eq!(e.to_string(), "column 0 (`blob`): blob size must be exactly 8 bytes, but was 2");
 /// }
 /// # Ok::<_, sqll::Error>(())
 /// ```

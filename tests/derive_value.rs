@@ -113,7 +113,7 @@ fn integer_enum() -> Result<()> {
     let mut stmt = c.prepare("SELECT 2")?;
     let err = stmt.next::<Implicit>().unwrap_err();
     assert_eq!(err.code(), Code::MISMATCH);
-    assert_eq!(err.to_string(), "unknown Implicit value 2");
+    assert_eq!(err.to_string(), "column 0 (`2`): unknown Implicit value 2");
 
     let mut stmt = c.prepare("SELECT 'text'")?;
     assert_eq!(stmt.next::<Implicit>().unwrap_err().code(), Code::MISMATCH);
@@ -149,7 +149,10 @@ fn text_enum() -> Result<()> {
     let mut stmt = c.prepare("SELECT 'maybe'")?;
     let err = stmt.next::<Strict>().unwrap_err();
     assert_eq!(err.code(), Code::MISMATCH);
-    assert_eq!(err.to_string(), "unknown Strict value \"maybe\"");
+    assert_eq!(
+        err.to_string(),
+        "column 0 (`'maybe'`): unknown Strict value \"maybe\""
+    );
     Ok(())
 }
 
