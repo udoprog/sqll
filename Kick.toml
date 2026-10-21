@@ -1,0 +1,3 @@
+# sqll and sqll-sys are always released together, with the same version.
+[[version_group]]
+crates = ["sqll", "sqll-sys"]
